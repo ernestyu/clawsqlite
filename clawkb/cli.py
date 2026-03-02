@@ -552,24 +552,32 @@ def cmd_maintenance(args) -> int:
     articles_dir = paths["articles_dir"]
     db_path = paths["db"]
     dry = bool(args.dry_run)
-    days = int(args.days or 7)
+    # Respect explicit 0; argparse already provides default when missing.
+    days = int(args.days)
 
     now = _dt.datetime.utcnow()
     cutoff = now - _dt.timedelta(days=days)
 
-    # 1) Load DB ids
+    # 1) Load DB ids and canonical paths
     conn = None
     db_ids = set()
+    id_to_path: Dict[int, str] = {}
     try:
         if os.path.exists(db_path):
             conn = _open_for_command(db_path, need_fts=False, need_vec=False, args=args)
-            for row in conn.execute("SELECT id FROM articles"):
-                db_ids.add(int(row["id"]))
+            for row in conn.execute("SELECT id, local_file_path FROM articles"):
+                aid = int(row["id"])
+                db_ids.add(aid)
+                p = (row["local_file_path"] or "").strip()
+                if p:
+                    id_to_path[aid] = os.path.abspath(p)
     except Exception as e:
         sys.stderr.write(f"WARNING: maintenance: failed to read db ids: {e}\n")
     finally:
         if conn is not None:
             conn.close()
+
+    canonical_paths = set(id_to_path.values())
 
     orphan_files = []
     bak_files = []
@@ -595,11 +603,11 @@ def cmd_maintenance(args) -> int:
                         orphan_files.append(path)
                     continue
 
-                # Normal markdown files: expect leading 6-digit id
-                m_id = re.match(r"^(\d{6})__.*\.md$", name)
+                # Normal markdown files: expect leading numeric id
+                m_id = re.match(r"^(\d{1,})__.*\.md$", name)
                 if m_id:
                     fid = int(m_id.group(1))
-                    if fid not in db_ids:
+                    if fid not in db_ids or os.path.abspath(path) not in canonical_paths:
                         orphan_files.append(path)
                 # else: ignore other files
 
