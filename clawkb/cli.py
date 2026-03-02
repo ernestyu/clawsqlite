@@ -187,9 +187,13 @@ def cmd_ingest(args) -> int:
 
 def cmd_show(args) -> int:
     paths = _resolve_paths(args)
+    db_path = paths["db"]
+    if not os.path.exists(db_path):
+        sys.stderr.write(f"ERROR: db not found at {db_path}. Check --root/--db or .env configuration.\n")
+        return 2
     conn = None
     try:
-        conn = _open_for_command(paths["db"], need_fts=False, need_vec=False, args=args)
+        conn = _open_for_command(db_path, need_fts=False, need_vec=False, args=args)
         row = dbmod.get_article(conn, int(args.id))
         if not row:
             sys.stderr.write("ERROR: id not found\n")
@@ -234,7 +238,11 @@ def cmd_export(args) -> int:
     paths = _resolve_paths(args)
     conn = None
     try:
-        conn = _open_for_command(paths["db"], need_fts=False, need_vec=False, args=args)
+        db_path = paths["db"]
+        if not os.path.exists(db_path):
+            sys.stderr.write(f"ERROR: db not found at {db_path}. Check --root/--db or .env configuration.\n")
+            return 2
+        conn = _open_for_command(db_path, need_fts=False, need_vec=False, args=args)
         row = dbmod.get_article(conn, int(args.id))
         if not row:
             sys.stderr.write("ERROR: id not found\n")
@@ -350,7 +358,11 @@ def cmd_update(args) -> int:
     aid = int(args.id)
     conn = None
     try:
-        conn = _open_for_command(paths["db"], need_fts=True, need_vec=True, args=args)
+        db_path = paths["db"]
+        if not os.path.exists(db_path):
+            sys.stderr.write(f"ERROR: db not found at {db_path}. Check --root/--db or .env configuration.\n")
+            return 2
+        conn = _open_for_command(db_path, need_fts=True, need_vec=True, args=args)
         row = dbmod.get_article(conn, aid)
         if not row:
             sys.stderr.write("ERROR: id not found\n")
