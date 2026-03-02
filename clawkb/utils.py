@@ -139,10 +139,10 @@ def slugify(title: str, max_len: int = 60) -> str:
 
     Rules:
     - Normalize to NFKC
-    - Whitespace → single '-'
+    - Preserve spaces (whitespace -> single space)
     - Letters (L*) and numbers (N*) are kept as-is
-    - Any other character becomes '-'
-    - Collapse multiple '-' and strip leading/trailing '-'
+    - Any other non-space character becomes '-'
+    - Collapse multiple '-' and trim leading/trailing '-'
     """
 
     s = (title or "").strip()
@@ -154,8 +154,11 @@ def slugify(title: str, max_len: int = 60) -> str:
 
     out_chars: List[str] = []
     for ch in s:
-        # Drop whitespace entirely (no extra '-')
+        # Normalize any whitespace to a single space so English titles
+        # remain readable ("Deep Learning 101"), while Chinese titles are
+        # unaffected.
         if ch.isspace():
+            out_chars.append(" ")
             continue
         cat = _ud.category(ch)
         if cat[0] in ("L", "N"):
@@ -168,7 +171,8 @@ def slugify(title: str, max_len: int = 60) -> str:
             out_chars.append("-")
 
     slug = "".join(out_chars)
-    # Collapse multiple '-' and trim
+    # Collapse multiple spaces and multiple '-' and trim
+    slug = re.sub(r"\s{2,}", " ", slug)
     slug = re.sub(r"-{2,}", "-", slug).strip("-")
     if not slug:
         slug = "untitled"
