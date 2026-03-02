@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 import json
+import unicodedata as _ud
 import datetime as _dt
 from dataclasses import dataclass
 from pathlib import Path
@@ -133,17 +134,45 @@ def has_cjk(text: str, threshold: int = 2) -> bool:
         return False
     return len(_CJK_RE.findall(text)) >= threshold
 
-_SLUG_KEEP_RE = re.compile(r"[^a-z0-9\-]+")
-
 def slugify(title: str, max_len: int = 60) -> str:
-    """Generate a filesystem-safe slug."""
-    s = (title or "").strip().lower()
-    s = re.sub(r"\s+", "-", s)
-    s = _SLUG_KEEP_RE.sub("", s)
-    s = re.sub(r"-{2,}", "-", s).strip("-")
+    """Generate a filesystem-safe slug (Unicode-friendly).
+
+    Rules:
+    - Normalize to NFKC
+    - Whitespace → single '-'
+    - Letters (L*) and numbers (N*) are kept as-is
+    - Any other character becomes '-'
+    - Collapse multiple '-' and strip leading/trailing '-'
+    """
+
+    s = (title or "").strip()
     if not s:
-        s = "untitled"
-    return s[:max_len]
+        return "untitled"
+
+    # Normalize full-width / compatibility forms
+    s = _ud.normalize("NFKC", s)
+
+    # Replace whitespace runs with single '-'
+    s = re.sub(r"\s+", "-", s)
+
+    out_chars: List[str] = []
+    for ch in s:
+        cat = _ud.category(ch)
+        if cat[0] in ("L", "N"):
+            # Letter or Number (keep Unicode, including CJK)
+            out_chars.append(ch)
+        elif ch == "-":
+            out_chars.append("-")
+        else:
+            # Replace other characters with '-'
+            out_chars.append("-")
+
+    slug = "".join(out_chars)
+    # Collapse multiple '-' and trim
+    slug = re.sub(r"-{2,}", "-", slug).strip("-")
+    if not slug:
+        slug = "untitled"
+    return slug[:max_len]
 
 def truncate_text(s: str, max_chars: int = 1200) -> str:
     """Hard truncate text with a soft boundary preference."""
