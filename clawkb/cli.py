@@ -513,9 +513,17 @@ def cmd_delete(args) -> int:
             except Exception:
                 pass
             dbmod.delete_article_row(conn, aid)
-            if args.remove_file:
-                p = (row["local_file_path"] or "").strip()
-                if p and os.path.exists(p):
+            p = (row["local_file_path"] or "").strip()
+            if p and os.path.exists(p):
+                if args.backup_file and not args.remove_file:
+                    # Rename to .bak_deleted_<timestamp>, to be cleaned by maintenance later.
+                    ts_suffix = now_iso_z().replace(":", "").replace("-", "").replace("T", "").replace("Z", "")
+                    bak_path = f"{p}.bak_deleted_{ts_suffix}"
+                    try:
+                        os.rename(p, bak_path)
+                    except Exception as e:
+                        sys.stderr.write(f"WARNING: backup rename failed: {e}\n")
+                elif args.remove_file:
                     try:
                         os.remove(p)
                     except Exception as e:
@@ -792,6 +800,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--id", required=True, help="Article id")
     sp.add_argument("--hard", action="store_true", help="Hard delete (remove db row)")
     sp.add_argument("--remove-file", action="store_true", help="When hard delete, also remove markdown file")
+    sp.add_argument("--backup-file", action="store_true", help="When hard delete, rename markdown to .bak_deleted_<timestamp> instead of removing")
     sp.set_defaults(func=cmd_delete)
 
     # reindex
