@@ -629,6 +629,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--gen-provider", default="openclaw", choices=["openclaw", "llm", "off"], help="Field generator provider")
     sp.add_argument("--max-summary-chars", default=1200, type=int, help="Hard limit for summary length (chars)")
     sp.add_argument("--scrape-cmd", default=None, help="Scraper command for URL ingest. Or env CLAWKB_SCRAPE_CMD")
+    sp.add_argument("--update-existing", action="store_true", help="If URL exists, refresh that record instead of inserting a new one")
     sp.set_defaults(func=cmd_ingest)
 
     # search
