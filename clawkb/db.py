@@ -256,8 +256,15 @@ def delete_article_row(conn: sqlite3.Connection, article_id: int) -> None:
 
 
 def get_article_by_source(conn: sqlite3.Connection, source_url: str):
+    """Return the first article row for a given source_url.
+
+    We intentionally DO NOT filter deleted_at here so that callers like
+    ingest --update-existing and delete --hard can still operate on
+    soft-deleted rows (ghost records) and either refresh or hard-delete
+    them. Search/normal flows control visibility via higher-level flags.
+    """
     return conn.execute(
-        "SELECT * FROM articles WHERE source_url=? AND deleted_at IS NULL ORDER BY id ASC LIMIT 1",
+        "SELECT * FROM articles WHERE source_url=? ORDER BY id ASC LIMIT 1",
         (source_url,),
     ).fetchone()
 
