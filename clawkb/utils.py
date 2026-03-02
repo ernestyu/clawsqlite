@@ -49,6 +49,9 @@ def load_project_env(path: Optional[Path] = None) -> None:
         value = value.strip()
         if not key:
             continue
+        # Strip optional surrounding single/double quotes: VAR="value" or VAR='value'
+        if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
+            value = value[1:-1]
         os.environ.setdefault(key, value)
 
 
