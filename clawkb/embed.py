@@ -80,7 +80,29 @@ def get_embedding(text: str, *, timeout: int = 60) -> List[float]:
     except Exception as e:
         raise RuntimeError(f"Embedding response parse failed: {e}; body={body[:300]}")
 
-def floats_to_f32_blob(vec: List[float], *, dim: int = 1536) -> bytes:
+def _resolve_vec_dim() -> int:
+    """Resolve vector dimension from env/project config.
+
+    Priority:
+    1. CLAWKB_VEC_DIM env (e.g. from project .env)
+    2. Fallback to 1536 to preserve legacy behavior when no config is set.
+
+    Note: dimension must be consistent with the articles_vec schema.
+    """
+
+    dim_env = os.environ.get("CLAWKB_VEC_DIM")
+    if dim_env:
+        try:
+            return int(dim_env)
+        except Exception:
+            pass
+    # Legacy default
+    return 1536
+
+
+def floats_to_f32_blob(vec: List[float], *, dim: int | None = None) -> bytes:
+    if dim is None:
+        dim = _resolve_vec_dim()
     if len(vec) != dim:
         raise ValueError(f"Embedding dim mismatch: got {len(vec)}, expected {dim}")
     # pack as little-endian float32

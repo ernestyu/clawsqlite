@@ -21,6 +21,37 @@ def now_iso_z() -> str:
     return _dt.datetime.utcnow().replace(tzinfo=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def load_project_env(path: Optional[Path] = None) -> None:
+    """Load project-level .env file into os.environ (if it exists).
+
+    This is a lightweight replacement for python-dotenv, kept intentionally
+    simple: KEY=VALUE per line, '#' starts a comment, blank lines ignored.
+    We only set variables that are not already present in os.environ.
+    """
+
+    if path is None:
+        path = Path.cwd() / ".env"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return
+    except Exception:
+        return
+
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            continue
+        os.environ.setdefault(key, value)
+
+
 def resolve_root_paths(
     cli_root: Optional[str] = None,
     cli_db: Optional[str] = None,

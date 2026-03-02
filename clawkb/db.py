@@ -73,10 +73,16 @@ CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
 );
 """
 
-VEC_SCHEMA = """
+def _vec_schema() -> str:
+    dim_env = os.environ.get("CLAWKB_VEC_DIM")
+    try:
+        dim = int(dim_env) if dim_env else 1536
+    except Exception:
+        dim = 1536
+    return f"""
 CREATE VIRTUAL TABLE IF NOT EXISTS articles_vec USING vec0(
   id INTEGER PRIMARY KEY,
-  embedding float[1536]
+  embedding float[{dim}]
 );
 """
 
@@ -153,7 +159,7 @@ def open_db(
         if ext and ext.lower() != "none":
             _try_load_ext(conn, ext)
         try:
-            conn.executescript(VEC_SCHEMA)
+            conn.executescript(_vec_schema())
         except Exception:
             pass
 
