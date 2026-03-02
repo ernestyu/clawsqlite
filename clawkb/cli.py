@@ -589,8 +589,8 @@ def cmd_maintenance(args) -> int:
             for name in files:
                 path = os.path.join(root, name)
                 rel = os.path.relpath(path, articles_dir)
-                # Detect .bak files
-                m_bak = re.search(r"\.bak_(\d{8,})$", name)
+                # Detect .bak files; capture leading YYYYMMDD date only
+                m_bak = re.search(r"\.bak_(\d{8})", name)
                 if m_bak:
                     # Parse timestamp roughly as YYYYMMDD...; we only care about date
                     ts = m_bak.group(1)
