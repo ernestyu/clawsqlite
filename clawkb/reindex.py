@@ -8,7 +8,7 @@ import os
 from typing import Any, Dict, List, Optional
 
 from . import db as dbmod
-from .embed import embedding_enabled, get_embedding, floats_to_f32_blob
+from .embed import embedding_enabled, get_embedding, floats_to_f32_blob, _embedding_missing_keys
 from .generator import generate_fields
 from .utils import truncate_text, comma_join_tags
 

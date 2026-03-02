@@ -26,7 +26,7 @@ from .storage import (
     write_markdown,
 )
 from .generator import generate_fields
-from .embed import embedding_enabled, get_embedding, floats_to_f32_blob
+from .embed import embedding_enabled, get_embedding, floats_to_f32_blob, _embedding_missing_keys
 from .scraper import scrape_url
 from .search import hybrid_search
 from . import reindex as reindex_mod

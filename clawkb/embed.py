@@ -18,8 +18,23 @@ from typing import List
 
 import httpx
 
+def _embedding_missing_keys() -> list[str]:
+    missing: list[str] = []
+    for key in ("EMBEDDING_MODEL", "EMBEDDING_BASE_URL", "EMBEDDING_API_KEY", "CLAWKB_VEC_DIM"):
+        if not os.environ.get(key):
+            missing.append(key)
+    return missing
+
+
 def embedding_enabled() -> bool:
-    return bool(os.environ.get("EMBEDDING_MODEL") and os.environ.get("EMBEDDING_BASE_URL") and os.environ.get("EMBEDDING_API_KEY"))
+    """Return True if vector embedding is fully configured.
+
+    We require both the embedding API triple and CLAWKB_VEC_DIM to be set.
+    If any of these are missing, vector features are treated as disabled
+    (FTS still works normally).
+    """
+
+    return not _embedding_missing_keys()
 
 def _embeddings_url(base_url: str) -> str:
     base = base_url.rstrip("/")
