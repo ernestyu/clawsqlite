@@ -152,11 +152,11 @@ def slugify(title: str, max_len: int = 60) -> str:
     # Normalize full-width / compatibility forms
     s = _ud.normalize("NFKC", s)
 
-    # Replace whitespace runs with single '-'
-    s = re.sub(r"\s+", "-", s)
-
     out_chars: List[str] = []
     for ch in s:
+        # Drop whitespace entirely (no extra '-')
+        if ch.isspace():
+            continue
         cat = _ud.category(ch)
         if cat[0] in ("L", "N"):
             # Letter or Number (keep Unicode, including CJK)
@@ -164,7 +164,7 @@ def slugify(title: str, max_len: int = 60) -> str:
         elif ch == "-":
             out_chars.append("-")
         else:
-            # Replace other characters with '-'
+            # Replace other non-alnum characters with '-'
             out_chars.append("-")
 
     slug = "".join(out_chars)
