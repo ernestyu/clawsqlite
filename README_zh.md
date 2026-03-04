@@ -1,8 +1,13 @@
 # Clawkb
 
-一个为 [OpenClaw](https://github.com/openclaw/openclaw) 设计的本地知识库命令行工具。
+一个为 [OpenClaw](https://github.com/openclaw/openclaw) 设计的 **本地 Markdown + SQLite 知识库工具**，人和 Agent 都可以用。
 
-Clawkb 使用 **SQLite + FTS5 + sqlite-vec** 存储你的笔记和抓取的文章，通过一组简单的 CLI 子命令提供：
+Clawkb 主要帮你解决两件事：
+
+- 把网页和零散笔记统一存成 Markdown 文件 + SQLite 记录，放在一个可控的根目录里；
+- 提供快速的全文检索和可选的向量检索，让你和 Agent 都能稳定地查到这些内容。
+
+核心能力包括：
 
 - 将 URL 或原始文本入库为 Markdown 文件 + 数据库记录
 - 基于 FTS5 的全文检索

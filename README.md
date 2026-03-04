@@ -2,17 +2,17 @@
 
 **Languages:** English | [中文说明](README_zh.md)
 
-A local knowledge-base CLI for [OpenClaw](https://github.com/openclaw/openclaw).
+A local Markdown + SQLite knowledge base for [OpenClaw](https://github.com/openclaw/openclaw), designed for both humans and agents.
 
-Clawkb stores your notes and scraped articles in **SQLite + FTS5 + sqlite-vec** and exposes a small CLI for:
+Clawkb helps you:
 
-- Ingesting URLs or raw text as markdown files + DB rows
-- Full‑text search (FTS) with simple keyword expansion
-- Optional vector search (via embeddings)
-- Regenerating titles/summaries/tags via heuristics or a small LLM
-- Maintenance (reindex, check, fix, rebuild)
+- Ingest URLs or raw text as Markdown files + SQLite records
+- Run fast full‑text search over your notes and scraped articles
+- Optionally enable vector search via an external embedding service
+- Regenerate titles/summaries/tags via heuristics or a small LLM
+- Keep the KB healthy with explicit maintenance commands (reindex, check, fix, prune)
 
-> **Status**: early but already used in real OpenClaw setups. The schema and CLI are intentionally simple.
+> **Status**: already used in real OpenClaw setups. The schema and CLI are kept small and stable on purpose.
 
 ---
 
