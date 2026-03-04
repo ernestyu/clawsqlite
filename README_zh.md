@@ -105,15 +105,24 @@ cd Clawkb
 /home/node/.openclaw/workspace/Clawkb
 ```
 
-有两种方式运行 Clawkb：
+推荐使用仓库自带的入口脚本运行 Clawkb：
 
 ```bash
-python -m clawkb --help
-# 或者
+# 在仓库根目录
 ./bin/clawkb --help
+
+# 或者显式指定 Python（例如虚拟环境）
+CLAWKB_PYTHON=/opt/venv/bin/python ./bin/clawkb --help
 ```
 
-`bin/clawkb` 是一个简单包装脚本，方便从仓库根目录执行 `python -m clawkb`。
+`bin/clawkb` 会在调用 Python 之前自动完成几件事：
+
+- 自动加载项目根目录的 `.env`（不会覆盖已有的环境变量），
+  方便集中配置 Embedding / vec 插件 / 抓取命令等；
+- 如果 `CLAWKB_VEC_EXT` 以 `.so` 结尾，会自动去掉后缀，避免
+  `vec0.so.so` 之类的 load_extension 报错；
+- 自动设置 `PYTHONPATH` 和合理的 `CLAWKB_ROOT_DEFAULT`，默认把数据放在
+  `<repo>/clawkb_data` 目录下。
 
 ---
 

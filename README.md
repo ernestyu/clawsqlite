@@ -86,15 +86,24 @@ cd Clawkb
 (Inside OpenClaw’s workspace this repo may already be present at
 `/home/node/.openclaw/workspace/Clawkb`.)
 
-You can run Clawkb via:
+You can run Clawkb via the main shell entrypoint:
 
 ```bash
-python -m clawkb --help
-# or
+# From the repo root
 ./bin/clawkb --help
+
+# Or explicitly choose a Python binary (e.g. your venv)
+CLAWKB_PYTHON=/opt/venv/bin/python ./bin/clawkb --help
 ```
 
-`bin/clawkb` is a small wrapper that runs `python -m clawkb` from the repo root.
+`bin/clawkb` will:
+
+- Auto‑load a project `.env` from the repo root (without overriding existing
+  OS env vars), so you can configure embedding / vec / scraper once.
+- Auto‑fix `CLAWKB_VEC_EXT` when it mistakenly includes a `.so` suffix (to avoid
+  `vec0.so.so` issues with SQLite load_extension).
+- Ensure `PYTHONPATH` and a sensible `CLAWKB_ROOT_DEFAULT` are set so that
+  `clawkb` can be imported and data defaults to `<repo>/clawkb_data`.
 
 ---
 
