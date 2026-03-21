@@ -583,6 +583,11 @@ def cmd_delete(args) -> int:
 
 
 def cmd_maintenance(args) -> int:
+    """KB maintenance wrapper.
+
+    现阶段仍然保留原有的扫描/删除语义，但在非 dry-run 模式下，
+    会在最后追加一次 `clawsqlite db vacuum`，使用 plumbing 层做 DB 紧缩。
+    """
     paths = _resolve_paths(args)
     articles_dir = paths["articles_dir"]
     db_path = paths["db"]
@@ -705,6 +710,10 @@ def cmd_reindex(args) -> int:
             return 0
 
         if args.rebuild:
+            # For now we keep calling the legacy reindex logic, but this
+            # is the hook where we can gradually migrate to
+            # clawsqlite_plumbing.index primitives via
+            # clawsqlite_knowledge.reindex_wrappers.
             out = reindex_mod.rebuild(conn, rebuild_fts=bool(args.fts), rebuild_vec=bool(args.vec), embed_on=embed_on)
             _print(out, bool(args.json))
             return 0 if not out.get("errors") else 4
