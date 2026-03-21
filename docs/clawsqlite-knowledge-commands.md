@@ -11,6 +11,19 @@ them as:
 
 ## 1. Command inventory
 
+> NOTE: This section describes the **current** CLI surface as implemented
+> in `clawkb/cli.py`. In the refactor, these commands will be exposed to
+> users/skills under the clearer namespace:
+>
+> ```bash
+> clawsqlite knowledge ingest
+> clawsqlite knowledge search
+> ...
+> ```
+>
+> The `kb` prefix here is legacy naming, used only to reflect the current
+> state of the code.
+
 Source: `clawkb/cli.py`.
 
 ### 1.1 `ingest`

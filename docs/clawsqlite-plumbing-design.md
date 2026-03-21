@@ -603,16 +603,16 @@ Actions:
 
 1. In `clawkb/cli.py`, list all current commands in a table, e.g.:
 
-   | Command              | Description                              |
-   |----------------------|------------------------------------------|
-   | `kb ingest`          | Fetch page, generate metadata, insert    |
-   | `kb search`          | Search articles with category/priority   |
-   | `kb show`            | Show a single article                    |
-   | `kb update`          | Update article fields                    |
-   | `kb delete`          | Delete article + content                 |
-   | `kb reindex`         | Rebuild FTS/vec indexes                  |
-   | `kb maintenance`     | Cleanup files + DB + indexes             |
-   | ...                  |                                          |
+   | Command                      | Description                              |
+   |------------------------------|------------------------------------------|
+   | `clawsqlite knowledge ingest`| Fetch page, generate metadata, insert    |
+   | `clawsqlite knowledge search`| Search articles with category/priority   |
+   | `clawsqlite knowledge show`  | Show a single article                    |
+   | `clawsqlite knowledge update`| Update article fields                    |
+   | `clawsqlite knowledge delete`| Delete article + content                 |
+   | `clawsqlite knowledge reindex`| Rebuild FTS/vec indexes                 |
+   | `clawsqlite knowledge maintenance`| Cleanup files + DB + indexes        |
+   | ...                          |                                          |
 
 2. For each command, classify it as:
 
