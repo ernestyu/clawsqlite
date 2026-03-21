@@ -573,17 +573,188 @@ once KB/reading use-cases are clearer, but the CLI surface stays generic.
 
 ## 4. How applications would use this
 
-- **KB (`clawsqlite kb ...`)**:
-  - `kb reindex` → wraps `index check` + `index rebuild` with fixed table/cols;
-  - `kb maintenance` → wraps `fs gc` + `db vacuum` + `index check`;
-  - `kb search` → internally calls `index search` then joins `rowid` to
+- **Knowledge app (`clawsqlite knowledge ...`)**:
+  - `knowledge reindex` → wraps `index check` + `index rebuild` with fixed table/cols;
+  - `knowledge maintenance` → wraps `fs gc` + `db vacuum` + `index check`;
+  - `knowledge search` → internally calls `index search` then joins `rowid` to
     `articles` table.
 
-- **Reading (`clawsqlite reading ...`)**:
+- **Reading app (`clawsqlite reading ...`)**:
   - `reading ingest-epub` → writes rows to a `reading_items` table, then
     calls `index rebuild` for that table;
   - `reading maintenance` → wraps `fs gc` for the reading root.
 
-This way, **all the KB/reading-specific verbs** stay under their own
-namespaces (`kb`, `reading`), while the low-level DB/FS/index machinery is
-consolidated and reusable.
+This way, **all the knowledge/reading-specific verbs** stay under their own
+namespaces (`knowledge`, `reading`), while the low-level DB/FS/index
+machinery is consolidated and reusable.
+
+---
+
+## 5. Refactor roadmap (implementation plan)
+
+This section is an explicit checklist for refactoring the existing
+`clawkb` CLI into the new `clawsqlite` structure.
+
+### 5.1 Step 0 – Inventory current commands
+
+Goal: get a clear map of what exists today.
+
+Actions:
+
+1. In `clawkb/cli.py`, list all current commands in a table, e.g.:
+
+   | Command              | Description                              |
+   |----------------------|------------------------------------------|
+   | `kb ingest`          | Fetch page, generate metadata, insert    |
+   | `kb search`          | Search articles with category/priority   |
+   | `kb show`            | Show a single article                    |
+   | `kb update`          | Update article fields                    |
+   | `kb delete`          | Delete article + content                 |
+   | `kb reindex`         | Rebuild FTS/vec indexes                  |
+   | `kb maintenance`     | Cleanup files + DB + indexes             |
+   | ...                  |                                          |
+
+2. For each command, classify it as:
+
+   - **plumbing wrapper candidate** (can be re-expressed using `db/index/fs`), or
+   - **application-level** (knowledge-specific business logic).
+
+This inventory table should live in a separate doc, e.g.
+`docs/clawsqlite-knowledge-commands.md`.
+
+---
+
+### 5.2 Step 1 – Establish CLI namespaces (no behavior change)
+
+Goal: introduce the new top-level structure without changing behavior.
+
+Actions:
+
+1. Add a new top-level command group:
+
+   ```bash
+   clawsqlite knowledge ...
+   ```
+
+   Internally, this can initially delegate to the existing `kb`
+   implementation so that:
+
+   ```bash
+   clawsqlite knowledge search
+   ```
+
+   behaves the same as:
+
+   ```bash
+   clawsqlite kb search
+   ```
+
+2. Decide whether to keep `kb` as a short alias for power users, but treat
+   `knowledge` as the **primary** namespace in docs and skills.
+
+3. Reserve the other namespaces (no implementation yet):
+
+   ```bash
+   clawsqlite db ...
+   clawsqlite index ...
+   clawsqlite fs ...
+   clawsqlite reading ...   # future
+   ```
+
+---
+
+### 5.3 Step 2 – Implement minimal plumbing commands
+
+Goal: get the **core plumbing** commands working so application commands
+can start wrapping them.
+
+Recommended initial set:
+
+- `clawsqlite db`:
+  - `db schema`
+  - `db exec`
+  - `db vacuum`
+  - `db backup`
+  - (optional at first) `db analyze`
+
+- `clawsqlite index`:
+  - `index check`
+  - `index rebuild`
+  - (optional at first) `index search`
+
+- `clawsqlite fs`:
+  - `fs list-orphans`
+  - `fs gc`
+  - (optional) `fs reconcile`
+
+Checklist for this step:
+
+1. Implement each command with a narrow, testable behavior.
+2. Add examples to the doc (this file) and smoke tests / examples under
+   `examples/`.
+3. Ensure they do not depend on KB-specific schema beyond the parameters
+   provided (`--table`, `--fts-col`, `--vec-col`, `--path-col`, etc.).
+
+---
+
+### 5.4 Step 3 – Migrate knowledge commands to use plumbing
+
+Goal: refactor existing KB commands to call `db/index/fs` internally.
+
+Examples:
+
+- `knowledge reindex`:
+
+  - Before: custom Python code that directly rebuilds FTS/vec indexes.
+  - After: wrapper around `index check` + `index rebuild` with fixed
+    `--table`/`--fts-col`/`--vec-col`.
+
+- `knowledge maintenance`:
+
+  - Before: custom combo of file cleanup + DB cleanup + index checks.
+  - After: wrapper around:
+
+    ```bash
+    clawsqlite fs gc ...
+    clawsqlite db vacuum ...
+    clawsqlite index check ...
+    ```
+
+Notes:
+
+- `knowledge ingest`, `knowledge update`, `knowledge delete`, `knowledge show`
+  remain **application-level**; they will call plumbing commands as needed
+  (e.g. `db exec` or `index rebuild`), but their semantics stay in the
+  `knowledge` namespace.
+
+- The goal is **not** to force every action into plumbing, but to avoid
+  duplicating generic DB/FS/index logic in each app.
+
+---
+
+### 5.5 Step 4 – Documentation and skill alignment
+
+Goal: align docs and OpenClaw skills with the new structure.
+
+Actions:
+
+1. Update `README.md` / `README_zh.md` to:
+   - introduce `clawsqlite` as the main CLI;
+   - describe the namespaces: `db`, `index`, `fs`, `knowledge`, `reading`.
+
+2. For ClawHub skills:
+
+   - Existing KB skill should:
+     - install `clawsqlite` from PyPI;
+     - call `clawsqlite knowledge ...` commands.
+
+   - Future reading skill should:
+     - also install the same `clawsqlite` package;
+     - call `clawsqlite reading ...`.
+
+3. Make sure examples in skill READMEs use the **application-level
+   namespaces** (`knowledge`, `reading`), not the plumbing ones. Plumbing
+   commands are for advanced users and other apps.
+
+With this roadmap documented, we can track progress step by step and avoid
+losing pieces during refactor.
