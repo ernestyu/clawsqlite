@@ -102,20 +102,20 @@ You can run the knowledge app via the main shell entrypoint:
 
 ```bash
 # From the repo root
-./bin/clawkb --help           # legacy name (kept for now)
+./bin/clawsqlite knowledge --help
 
 # Or explicitly choose a Python binary (e.g. your venv)
-CLAWKB_PYTHON=/opt/venv/bin/python ./bin/clawkb --help
+CLAWSQLITE_PYTHON=/opt/venv/bin/python ./bin/clawsqlite knowledge --help
 ```
 
-In the future, the recommended CLI entrypoint for skills/users will be:
+The recommended CLI entrypoint for skills/users is:
 
 ```bash
 clawsqlite knowledge ...
 ```
 
-Once the consolidated `clawsqlite` CLI is wired up, `clawsqlite knowledge`
-will invoke the same commands as `clawkb` does today.
+The older `clawkb` entrypoint may still exist in some environments but
+should be considered deprecated.
 
 `bin/clawkb` will:
 
@@ -260,7 +260,7 @@ Scraper output formats:
   Body...
   ```
 
-Clawkb will parse these into `title` and markdown body.
+The knowledge app will parse these into `title` and markdown body.
 
 ---
 
@@ -285,7 +285,7 @@ Clawkb will parse these into `title` and markdown body.
 3. **First ingest (text)** – this also creates the DB and basic tables:
 
    ```bash
-   python -m clawkb ingest \
+   clawsqlite knowledge ingest \
      --text "Hello Clawkb" \
      --title "First note" \
      --category dev \
@@ -303,7 +303,7 @@ Clawkb will parse these into `title` and markdown body.
 4. **Search it back**:
 
    ```bash
-   python -m clawkb search "Hello" --mode fts --json
+   clawsqlite knowledge search "Hello" --mode fts --json
    ```
 
    You should see the record you just created.
@@ -313,7 +313,7 @@ Clawkb will parse these into `title` and markdown body.
 Assuming you have a scraper command set in `.env`:
 
 ```bash
-python -m clawkb ingest \
+clawsqlite knowledge ingest \
   --url "https://example.com/article" \
   --category web \
   --tags example \
@@ -333,7 +333,7 @@ This will:
 If you know a URL’s content has changed and you want to refresh the existing record:
 
 ```bash
-python -m clawkb ingest \
+clawsqlite knowledge ingest \
   --url "https://example.com/article" \
   --gen-provider openclaw \
   --update-existing \
@@ -357,13 +357,13 @@ most one active record.
 ## 6. CLI Overview
 
 All commands share common flags (`--root`, `--db`, `--articles-dir`, `--json`, `--verbose`).
-Run `clawkb <command> --help` for full details.
+Run `clawsqlite knowledge <command> --help` for full details.
 
 ### 6.1 ingest
 
 ```bash
-python -m clawkb ingest --url URL [options]
-python -m clawkb ingest --text TEXT [options]
+clawsqlite knowledge ingest --url URL [options]
+clawsqlite knowledge ingest --text TEXT [options]
 ```
 
 Key options:
@@ -377,7 +377,7 @@ Key options:
 ### 6.2 search
 
 ```bash
-python -m clawkb search "query" --mode hybrid --topk 20 --json
+clawsqlite knowledge search "query" --mode hybrid --topk 20 --json
 ```
 
 Modes:

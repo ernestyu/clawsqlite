@@ -114,14 +114,14 @@ cd Clawkb
 /home/node/.openclaw/workspace/Clawkb
 ```
 
-推荐使用仓库自带的入口脚本运行 Clawkb：
+推荐使用仓库自带的入口脚本运行知识库应用：
 
 ```bash
 # 在仓库根目录
-./bin/clawkb --help
+./bin/clawsqlite knowledge --help
 
 # 或者显式指定 Python（例如虚拟环境）
-CLAWKB_PYTHON=/opt/venv/bin/python ./bin/clawkb --help
+CLAWSQLITE_PYTHON=/opt/venv/bin/python ./bin/clawsqlite knowledge --help
 ```
 
 `bin/clawkb` 会在调用 Python 之前自动完成几件事：
@@ -303,7 +303,7 @@ Clawkb 会从这两种格式中解析出标题和 Markdown 正文。
 3. 第一次入库（纯文本）：
 
    ```bash
-   python -m clawkb ingest \
+   clawsqlite knowledge ingest \
      --text "你好，Clawkb" \
      --title "第一次笔记" \
      --category test \
@@ -321,7 +321,7 @@ Clawkb 会从这两种格式中解析出标题和 Markdown 正文。
 4. 搜索刚才那条记录：
 
    ```bash
-   python -m clawkb search "Clawkb" --mode fts --json
+   clawsqlite knowledge search "Clawkb" --mode fts --json
    ```
 
 ### 5.2 从 URL 入库
@@ -329,7 +329,7 @@ Clawkb 会从这两种格式中解析出标题和 Markdown 正文。
 假设 `.env` 中已经配置了抓取脚本：
 
 ```bash
-python -m clawkb ingest \
+clawsqlite knowledge ingest \
   --url "https://example.com/article" \
   --category web \
   --tags example \
@@ -350,7 +350,7 @@ python -m clawkb ingest \
 当你知道某篇网页已经更新，希望在保持 URL/ID 不变的前提下刷新内容，可以：
 
 ```bash
-python -m clawkb ingest \
+clawsqlite knowledge ingest \
   --url "https://example.com/article" \
   --gen-provider openclaw \
   --update-existing \
@@ -386,7 +386,7 @@ python -m clawkb ingest \
 可以使用：
 
 ```bash
-python -m clawkb <command> --help
+clawsqlite knowledge <command> --help
 ```
 
 查看详细说明。
@@ -394,8 +394,8 @@ python -m clawkb <command> --help
 ### 6.1 ingest
 
 ```bash
-python -m clawkb ingest --url URL [选项]
-python -m clawkb ingest --text TEXT [选项]
+clawsqlite knowledge ingest --url URL [选项]
+clawsqlite knowledge ingest --text TEXT [选项]
 ```
 
 常用参数：
@@ -410,7 +410,7 @@ python -m clawkb ingest --text TEXT [选项]
 ### 6.2 search
 
 ```bash
-python -m clawkb search "查询词" --mode hybrid --topk 20 --json
+clawsqlite knowledge search "查询词" --mode hybrid --topk 20 --json
 ```
 
 模式：
@@ -435,14 +435,14 @@ python -m clawkb search "查询词" --mode hybrid --topk 20 --json
 示例：
 
 ```bash
-python -m clawkb show --id 12 --full --json
-python -m clawkb export --id 12 --format md --out /tmp/article.md
+clawsqlite knowledge show --id 12 --full --json
+clawsqlite knowledge export --id 12 --format md --out /tmp/article.md
 ```
 
 ### 6.4 update
 
 ```bash
-python -m clawkb update --id ID [补丁参数] [--regen ...]
+clawsqlite knowledge update --id ID [补丁参数] [--regen ...]
 ```
 
 行为：
@@ -456,19 +456,19 @@ python -m clawkb update --id ID [补丁参数] [--regen ...]
 
 ```bash
 # 手工修 tags
-python -m clawkb update --id 3 --tags "rag,sqlite,openclaw"
+clawsqlite knowledge update --id 3 --tags "rag,sqlite,openclaw"
 
 # 用启发式重新生成摘要
-python -m clawkb update --id 3 --regen summary --gen-provider openclaw
+clawsqlite knowledge update --id 3 --regen summary --gen-provider openclaw
 
 # 用小模型同时重刷标题/摘要/标签
-python -m clawkb update --id 3 --regen all --gen-provider llm
+clawsqlite knowledge update --id 3 --regen all --gen-provider llm
 ```
 
 ### 6.5 delete
 
 ```bash
-python -m clawkb delete --id ID [--hard] [--remove-file]
+clawsqlite knowledge delete --id ID [--hard] [--remove-file]
 ```
 
 语义：
@@ -487,10 +487,10 @@ python -m clawkb delete --id ID [--hard] [--remove-file]
 ### 6.6 reindex
 
 ```bash
-python -m clawkb reindex --check
-python -m clawkb reindex --fix-missing --gen-provider openclaw
-python -m clawkb reindex --rebuild --fts
-python -m clawkb reindex --rebuild --vec
+clawsqlite knowledge reindex --check
+clawsqlite knowledge reindex --fix-missing --gen-provider openclaw
+clawsqlite knowledge reindex --rebuild --fts
+clawsqlite knowledge reindex --rebuild --vec
 ```
 
 用途：
@@ -502,7 +502,7 @@ python -m clawkb reindex --rebuild --vec
 ### 6.7 maintenance
 
 ```bash
-python -m clawkb maintenance prune --days 3 --dry-run
+clawsqlite knowledge maintenance prune --days 3 --dry-run
 ```
 
 主要功能：
