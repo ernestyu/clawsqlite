@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-clawkb CLI entrypoint.
+Knowledge CLI entrypoint (clawsqlite_knowledge).
 
 Implements:
 - ingest / reindex / search / show / update / delete / export
@@ -724,35 +724,35 @@ def _add_common_flags(parser: argparse.ArgumentParser) -> None:
         "--root",
         default=None,
         help=(
-            "Root dir. Priority: CLI --root > $CLAWKB_ROOT > $CLAWKB_ROOT_FALLBACK > "
-            "<cwd>/clawkb_data."
+            "Root dir. Priority: CLI --root > $CLAWSQLITE_ROOT > $CLAWKB_ROOT > "
+            "$CLAWSQLITE_ROOT_FALLBACK/$CLAWKB_ROOT_FALLBACK > <cwd>/knowledge_data."
         ),
     )
     parser.add_argument(
         "--db",
         default=None,
-        help="SQLite db path. Priority: CLI --db > $CLAWKB_DB > <root>/clawkb.sqlite3",
+        help="SQLite db path. Priority: CLI --db > $CLAWSQLITE_DB > $CLAWKB_DB > <root>/knowledge.sqlite3",
     )
     parser.add_argument(
         "--articles-dir",
         default=None,
-        help="Articles markdown dir. Priority: CLI --articles-dir > $CLAWKB_ARTICLES_DIR > <root>/articles",
+        help="Articles markdown dir. Priority: CLI --articles-dir > $CLAWSQLITE_ARTICLES_DIR > $CLAWKB_ARTICLES_DIR > <root>/articles",
     )
     parser.add_argument(
         "--tokenizer-ext",
         default=None,
-        help="Tokenizer extension path. Default: /usr/local/lib/libsimple.so or $CLAWKB_TOKENIZER_EXT",
+        help="Tokenizer extension path. Default: /usr/local/lib/libsimple.so or $CLAWSQLITE_TOKENIZER_EXT/$CLAWKB_TOKENIZER_EXT",
     )
     parser.add_argument(
         "--vec-ext",
         default=None,
-        help="vec0 extension path. Default: auto-discover or $CLAWKB_VEC_EXT",
+        help="vec0 extension path. Default: auto-discover or $CLAWSQLITE_VEC_EXT/$CLAWKB_VEC_EXT",
     )
     parser.add_argument("--json", action="store_true", help="Output JSON")
     parser.add_argument("--verbose", action="store_true", help="Verbose logging")
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="clawkb", description="OpenClaw knowledge base CLI (SQLite + FTS5 + sqlite-vec).")
+    p = argparse.ArgumentParser(prog="clawsqlite knowledge", description="OpenClaw knowledge base CLI (SQLite + FTS5 + sqlite-vec).")
     # Also accept common flags before subcommand
     _add_common_flags(p)
 
@@ -771,7 +771,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--priority", default=0, type=int, help="Priority (0 default)")
     sp.add_argument("--gen-provider", default="openclaw", choices=["openclaw", "llm", "off"], help="Field generator provider")
     sp.add_argument("--max-summary-chars", default=1200, type=int, help="Hard limit for summary length (chars)")
-    sp.add_argument("--scrape-cmd", default=None, help="Scraper command for URL ingest. Or env CLAWKB_SCRAPE_CMD")
+    sp.add_argument("--scrape-cmd", default=None, help="Scraper command for URL ingest. Or env CLAWSQLITE_SCRAPE_CMD/CLAWKB_SCRAPE_CMD")
     sp.add_argument("--update-existing", action="store_true", help="If URL exists, refresh that record instead of inserting a new one")
     sp.set_defaults(func=cmd_ingest)
 

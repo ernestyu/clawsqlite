@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Utilities for clawkb.
+Utilities for clawsqlite_knowledge.
 
 All code comments are in English by design.
 """
@@ -66,45 +66,59 @@ def resolve_root_paths(
 
     Priority for root:
     1. CLI --root
-    2. CLAWKB_ROOT env
-    3. default_root (if provided)
-    4. $CLAWKB_ROOT_FALLBACK or <cwd>/clawkb_data
+    2. CLAWSQLITE_ROOT env (preferred)
+    3. legacy CLAWKB_ROOT env (fallback)
+    4. default_root (if provided)
+    5. $CLAWSQLITE_ROOT_FALLBACK or $CLAWKB_ROOT_FALLBACK or <cwd>/knowledge_data
 
     DB and articles dir follow the same pattern, but can be overridden via
-    CLAWKB_DB / CLAWKB_ARTICLES_DIR envs.
+    CLAWSQLITE_DB / CLAWSQLITE_ARTICLES_DIR (preferred) or legacy
+    CLAWKB_DB / CLAWKB_ARTICLES_DIR.
     """
 
     # Root
-    env_root = os.environ.get("CLAWKB_ROOT")
+    env_root_new = os.environ.get("CLAWSQLITE_ROOT")
+    env_root_legacy = os.environ.get("CLAWKB_ROOT")
     root: Path
     if cli_root:
         root = Path(cli_root)
-    elif env_root:
-        root = Path(env_root)
+    elif env_root_new:
+        root = Path(env_root_new)
+    elif env_root_legacy:
+        root = Path(env_root_legacy)
     elif default_root:
         root = Path(default_root)
     else:
-        fallback = os.environ.get("CLAWKB_ROOT_FALLBACK")
-        if fallback:
-            root = Path(fallback)
+        fallback_new = os.environ.get("CLAWSQLITE_ROOT_FALLBACK")
+        fallback_legacy = os.environ.get("CLAWKB_ROOT_FALLBACK")
+        if fallback_new:
+            root = Path(fallback_new)
+        elif fallback_legacy:
+            root = Path(fallback_legacy)
         else:
-            root = Path.cwd() / "clawkb_data"
+            root = Path.cwd() / "knowledge_data"
 
     # DB
-    env_db = os.environ.get("CLAWKB_DB")
+    env_db_new = os.environ.get("CLAWSQLITE_DB")
+    env_db_legacy = os.environ.get("CLAWKB_DB")
     if cli_db:
         db_path = Path(cli_db)
-    elif env_db:
-        db_path = Path(env_db)
+    elif env_db_new:
+        db_path = Path(env_db_new)
+    elif env_db_legacy:
+        db_path = Path(env_db_legacy)
     else:
-        db_path = root / "clawkb.sqlite3"
+        db_path = root / "knowledge.sqlite3"
 
     # Articles dir
-    env_articles = os.environ.get("CLAWKB_ARTICLES_DIR")
+    env_articles_new = os.environ.get("CLAWSQLITE_ARTICLES_DIR")
+    env_articles_legacy = os.environ.get("CLAWKB_ARTICLES_DIR")
     if cli_articles_dir:
         articles_dir = Path(cli_articles_dir)
-    elif env_articles:
-        articles_dir = Path(env_articles)
+    elif env_articles_new:
+        articles_dir = Path(env_articles_new)
+    elif env_articles_legacy:
+        articles_dir = Path(env_articles_legacy)
     else:
         articles_dir = root / "articles"
 

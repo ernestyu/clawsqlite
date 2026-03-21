@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-SQLite layer for clawkb.
+SQLite layer for clawsqlite_knowledge (knowledge app).
 
 Tables
 - articles: source of truth.
@@ -24,8 +24,15 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .utils import now_iso_z
 
-DEFAULT_DB_PATH = os.environ.get("CLAWKB_DB_DEFAULT", "/home/node/.openclaw/workspace/clawkb/clawkb.sqlite3")
-DEFAULT_TOKENIZER_EXT = os.environ.get("CLAWKB_TOKENIZER_EXT_DEFAULT", "/usr/local/lib/libsimple.so")
+# New defaults for clawsqlite_knowledge; keep legacy envs as fallbacks.
+DEFAULT_DB_PATH = os.environ.get(
+    "CLAWSQLITE_DB_DEFAULT",
+    os.environ.get("CLAWKB_DB_DEFAULT", "knowledge.sqlite3"),
+)
+DEFAULT_TOKENIZER_EXT = os.environ.get(
+    "CLAWSQLITE_TOKENIZER_EXT_DEFAULT",
+    os.environ.get("CLAWKB_TOKENIZER_EXT_DEFAULT", "/usr/local/lib/libsimple.so"),
+)
 
 _VEC_GLOBS = [
     "/app/node_modules/**/vec0.so",
@@ -154,7 +161,12 @@ def open_db(
     conn.executescript(BASE_SCHEMA_SQL)
 
     if need_fts:
-        ext = tokenizer_ext or os.environ.get("CLAWKB_TOKENIZER_EXT") or DEFAULT_TOKENIZER_EXT
+        ext = (
+            tokenizer_ext
+            or os.environ.get("CLAWSQLITE_TOKENIZER_EXT")
+            or os.environ.get("CLAWKB_TOKENIZER_EXT")
+            or DEFAULT_TOKENIZER_EXT
+        )
         tokenizer_loaded = False
         if ext and ext.lower() != "none":
             tokenizer_loaded = _try_load_ext(conn, ext)
@@ -172,7 +184,12 @@ def open_db(
             conn.executescript(FTS_SCHEMA_FALLBACK)
 
     if need_vec:
-        ext = vec_ext or os.environ.get("CLAWKB_VEC_EXT") or _find_vec0_so()
+        ext = (
+            vec_ext
+            or os.environ.get("CLAWSQLITE_VEC_EXT")
+            or os.environ.get("CLAWKB_VEC_EXT")
+            or _find_vec0_so()
+        )
         if ext and ext.lower() != "none":
             _try_load_ext(conn, ext)
         try:
