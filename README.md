@@ -4,19 +4,18 @@
 
 `clawsqlite` is a CLI toolbox for SQLite‑based applications in
 [OpenClaw](https://github.com/openclaw/openclaw). The first built‑in
-application is a local Markdown + SQLite knowledge base, previously called
-"Clawkb".
+application is a local Markdown + SQLite knowledge base.
 
 This repo currently focuses on the **knowledge** app:
 
 - commands are exposed under `clawsqlite knowledge ...` for users/skills;
-- the legacy `clawkb` entrypoint remains as a thin wrapper during
-  transition.
+- the old `clawkb` name has been fully migrated to `clawsqlite` in code and
+  package layout.
 
 A local Markdown + SQLite knowledge base for OpenClaw, designed for both
 humans and agents.
 
-Clawkb helps you:
+The knowledge app helps you:
 
 - Ingest URLs or raw text as Markdown files + SQLite records
 - Run fast full‑text search over your notes and scraped articles
@@ -38,8 +37,8 @@ Clawkb helps you:
   - Each article is stored as `articles/<id>__<slug>.md`
   - Markdown files include a small METADATA header + MARKDOWN body section
 - **Configurable root**
-  - All data lives under a single `CLAWKB_ROOT` directory
-  - DB and articles dir default to `<root>/clawkb.sqlite3` and `<root>/articles`
+  - All data lives under a single root directory
+  - DB and articles dir default to `<root>/knowledge.sqlite3` and `<root>/articles` (see env overrides below)
 - **Embeddings + LLM (optional)**
   - Embeddings: OpenAI‑compatible `/v1/embeddings` API
   - Small LLM: OpenAI‑compatible `/v1/chat/completions` API
@@ -50,7 +49,7 @@ Clawkb helps you:
 
 ## 2. Requirements
 
-Clawkb expects an environment similar to the OpenClaw container:
+The knowledge app expects an environment similar to the OpenClaw container:
 
 - Python 3.10+ with `sqlite3` and FTS5 enabled
 - Python dependencies:
@@ -80,7 +79,7 @@ In a fresh environment you typically need to:
     - Build from source following the upstream docs:
       - sqlite-vec: <https://github.com/asg017/sqlite-vec>
       - simple tokenizer: see the OpenClaw docs for building `libsimple.so`.
-  - If these extensions are missing, Clawkb will automatically degrade to:
+  - If these extensions are missing, the knowledge app will automatically degrade to:
     - SQLite built‑in tokenizer for FTS
     - FTS‑only mode when vec0 is unavailable.
 
@@ -91,12 +90,12 @@ In a fresh environment you typically need to:
 Clone the repo:
 
 ```bash
-git clone git@github.com:ernestyu/Clawkb.git
-cd Clawkb
+git clone git@github.com:ernestyu/clawsqlite.git
+cd clawsqlite
 ```
 
 (Inside OpenClaw’s workspace this repo may already be present at
-`/home/node/.openclaw/workspace/Clawkb`.)
+`/home/node/.openclaw/workspace/clawsqlite`.)
 
 You can run the knowledge app via the main shell entrypoint:
 
@@ -114,17 +113,12 @@ The recommended CLI entrypoint for skills/users is:
 clawsqlite knowledge ...
 ```
 
-The older `clawkb` entrypoint may still exist in some environments but
-should be considered deprecated.
+The older `clawkb` entrypoint is no longer part of this repo; new usage
+should always prefer:
 
-`bin/clawkb` will:
-
-- Auto‑load a project `.env` from the repo root (without overriding existing
-  OS env vars), so you can configure embedding / vec / scraper once.
-- Auto‑fix `CLAWKB_VEC_EXT` when it mistakenly includes a `.so` suffix (to avoid
-  `vec0.so.so` issues with SQLite load_extension).
-- Ensure `PYTHONPATH` and a sensible `CLAWKB_ROOT_DEFAULT` are set so that
-  `clawkb` can be imported and data defaults to `<repo>/clawkb_data`.
+```bash
+clawsqlite knowledge ...
+```
 
 ---
 
@@ -132,22 +126,24 @@ should be considered deprecated.
 
 ### 4.1 Root & paths
 
-Clawkb determines its root + DB + articles directory via CLI flags + env + defaults.
+The knowledge app determines its root + DB + articles directory via CLI
+flags + env + defaults.
 
 Priority for root:
 
 1. CLI: `--root`
-2. Env: `CLAWKB_ROOT`
-3. Env: `CLAWKB_ROOT_DEFAULT`
-4. Fallback: `<current working dir>/clawkb_data`
+2. Env: `CLAWSQLITE_ROOT` (preferred)
+3. Env: `CLAWKB_ROOT` (legacy, still read for compatibility)
+4. Env: `CLAWSQLITE_ROOT_FALLBACK` / `CLAWKB_ROOT_FALLBACK`
+5. Fallback: `<current working dir>/knowledge_data`
 
 DB path:
 
-- `--db` > `CLAWKB_DB` > `<root>/clawkb.sqlite3`
+- `--db` > `CLAWSQLITE_DB` > `CLAWKB_DB` (legacy) > `<root>/knowledge.sqlite3`
 
 Articles dir:
 
-- `--articles-dir` > `CLAWKB_ARTICLES_DIR` > `<root>/articles`
+- `--articles-dir` > `CLAWSQLITE_ARTICLES_DIR` > `CLAWKB_ARTICLES_DIR` (legacy) > `<root>/articles`
 
 ### 4.2 Project `.env`
 
@@ -178,7 +174,10 @@ SMALL_LLM_API_KEY=sk-your-small-llm-key
 # CLAWKB_ARTICLES_DIR=/path/to/articles
 ```
 
-At runtime, `clawkb.__main__` calls `load_project_env()` to read `.env` and populate `os.environ`.
+At runtime, callers are expected to configure the environment before
+invoking `clawsqlite knowledge ...` (or the `clawsqlite` CLI as a whole).
+In OpenClaw containers this is usually done via the agent’s env config
+rather than a local `.env` loader.
 
 ### 4.3 Embedding configuration
 
@@ -191,10 +190,10 @@ Required env (typically via `.env`):
 - `EMBEDDING_API_KEY` – bearer token
 - `CLAWKB_VEC_DIM` – embedding dimension (e.g. `1024` for BAAI/bge-m3)
 
-Clawkb will:
+The knowledge app will:
 
-- Use these env vars in `clawkb.embed.get_embedding()` (via httpx POST to `/v1/embeddings`)
-- Use `CLAWKB_VEC_DIM` to define `embedding float[DIM]` in `articles_vec`
+- Use these env vars in `clawsqlite_knowledge.embed.get_embedding()` (via httpx POST to `/v1/embeddings`)
+- Use `CLAWSQLITE_VEC_DIM` (or legacy `CLAWKB_VEC_DIM`) to define `embedding float[DIM]` in `articles_vec`
 
 If any of these are missing, **vector features are treated as disabled**:
 
@@ -212,18 +211,19 @@ SMALL_LLM_MODEL=your-small-llm
 SMALL_LLM_API_KEY=sk-your-small-llm-key
 ```
 
-Then use `--gen-provider llm` when ingesting or updating records. Clawkb will call an
-OpenAI‑compatible chat completions API to generate `title`, `summary`, and `tags`.
+Then use `--gen-provider llm` when ingesting or updating records. The
+knowledge app will call an OpenAI‑compatible chat completions API to
+generate `title`, `summary`, and `tags`.
 
 If these env vars are not set, `provider=openclaw` uses heuristics only (no network calls).
 
 ### 4.5 Scraper configuration
 
-Clawkb does **not** implement web scraping itself. For `--url` ingest it runs an external scraper
-command, configured via:
+The knowledge app does **not** implement web scraping itself. For `--url`
+ingest it runs an external scraper command, configured via:
 
 - CLI: `--scrape-cmd`
-- Env: `CLAWKB_SCRAPE_CMD`
+- Env: `CLAWSQLITE_SCRAPE_CMD` (preferred) or legacy `CLAWKB_SCRAPE_CMD`
 
 Recommended usage:
 
@@ -231,7 +231,7 @@ Recommended usage:
 CLAWKB_SCRAPE_CMD="node /path/to/scrape.js --some-flag"
 ```
 
-Clawkb will:
+The knowledge app will:
 
 - Load this value from `.env` (stripping outer quotes)
 - Use `shlex.split()` to build argv (no `shell=True` by default)
@@ -271,22 +271,19 @@ The knowledge app will parse these into `title` and markdown body.
 1. **Clone & cd**
 
    ```bash
-   git clone git@github.com:ernestyu/Clawkb.git
-   cd Clawkb
+   git clone git@github.com:ernestyu/clawsqlite.git
+   cd clawsqlite
    ```
 
-2. **Create `.env`** (optional but recommended)
-
-   ```bash
-   cp ENV.example .env
-   # Edit .env and adjust at least CLAWKB_ROOT, and optionally EMBEDDING_*/SMALL_LLM_*
-   ```
+2. （可选）在你的外层环境中配置好根目录和 Embedding/LLM 相关 env，或
+   直接在运行时通过 `--root/--db/--articles-dir` 传入。这里不再强依赖
+   项目内置 `.env` 加载逻辑。
 
 3. **First ingest (text)** – this also creates the DB and basic tables:
 
    ```bash
    clawsqlite knowledge ingest \
-     --text "Hello Clawkb" \
+     --text "Hello clawsqlite" \
      --title "First note" \
      --category dev \
      --tags test \
@@ -296,7 +293,7 @@ The knowledge app will parse these into `title` and markdown body.
 
    This will:
 
-   - Create `<root>/clawkb.sqlite3`
+   - Create `<root>/knowledge.sqlite3`
    - Create `<root>/articles/000001__first-note.md`
    - Index the record in FTS (and vec if embedding is configured)
 
@@ -371,7 +368,7 @@ Key options:
 - `--url` / `--text`
 - `--title`, `--summary`, `--tags`, `--category`, `--priority`
 - `--gen-provider {openclaw,llm,off}`
-- `--scrape-cmd` (or env `CLAWKB_SCRAPE_CMD`)
+- `--scrape-cmd` (or env `CLAWSQLITE_SCRAPE_CMD`/`CLAWKB_SCRAPE_CMD`)
 - `--update-existing` (for URL mode)
 
 ### 6.2 search
@@ -416,8 +413,9 @@ Maintenance operations:
 
 - `reindex --check` – report missing fields/indexes
 - `reindex --fix-missing` – regen fields/indexes using current generator
-- `reindex --rebuild --fts` – rebuild FTS index
-- `reindex --rebuild --vec` – rebuild vec index (if embedding enabled and vec table exists)
+- `reindex --rebuild --fts` – rebuild FTS index (via `clawsqlite index rebuild`)
+- `reindex --rebuild --vec` – clear vec index **only** (no embedding); use
+  `clawsqlite knowledge embed-from-summary` to refill embeddings.
 
 The check output includes flags like `vec_available` and `embedding_enabled` to help you
 understand whether vec features are actually usable for the current DB.
@@ -448,7 +446,8 @@ current format is stable and works well with existing tools.
 
 ## 8. 中文说明（简要）
 
-Clawkb 是一个基于 SQLite + FTS5 + sqlite-vec 的本地知识库 CLI，主要特性：
+`clawsqlite` 提供的知识库应用是一个基于 SQLite + FTS5 + sqlite-vec
+的本地知识库 CLI，主要特性：
 
 - 文章元数据存到 `articles` 表，全文索引用 FTS5，向量检索用 sqlite-vec
 - 每篇文章同时会写成一个 markdown 文件，包含 `--- METADATA ---` 和 `--- MARKDOWN ---`
@@ -462,22 +461,20 @@ Clawkb 是一个基于 SQLite + FTS5 + sqlite-vec 的本地知识库 CLI，主�
 1. 克隆仓库：
 
    ```bash
-   git clone git@github.com:ernestyu/Clawkb.git
-   cd Clawkb
+   git clone git@github.com:ernestyu/clawsqlite.git
+   cd clawsqlite
    ```
 
-2. 创建 `.env`：
-
-   ```bash
-   cp ENV.example .env
-   # 编辑 .env，至少配置 CLAWKB_ROOT，按需配置 EMBEDDING_* / SMALL_LLM_*
-   ```
+2. 在运行环境中配置好 `CLAWSQLITE_ROOT` / `CLAWSQLITE_DB` 等路径以及
+   EMBEDDING_* / SMALL_LLM_* 等变量，或直接在命令行通过
+   `--root/--db/--articles-dir` 传入。这一步通常在 OpenClaw 的 agent
+   配置中完成。
 
 3. 第一次入库（文本）：
 
    ```bash
-   python -m clawkb ingest \
-     --text "你好，Clawkb" \
+   clawsqlite knowledge ingest \
+     --text "你好，clawsqlite" \
      --title "第一次笔记" \
      --category test \
      --tags demo \
@@ -487,7 +484,7 @@ Clawkb 是一个基于 SQLite + FTS5 + sqlite-vec 的本地知识库 CLI，主�
 4. 搜索：
 
    ```bash
-   python -m clawkb search "Clawkb" --mode fts
+   clawsqlite knowledge search "clawsqlite" --mode fts
    ```
 
 ### URL 重抓 & 刷新
@@ -495,7 +492,7 @@ Clawkb 是一个基于 SQLite + FTS5 + sqlite-vec 的本地知识库 CLI，主�
 当你知道某篇文章更新了，并且之前已经用 URL 入过库，可以用：
 
 ```bash
-python -m clawkb ingest \
+clawsqlite knowledge ingest \
   --url "https://example.com/article" \
   --update-existing
 ```

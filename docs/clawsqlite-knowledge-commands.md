@@ -1,6 +1,6 @@
 # Knowledge CLI Commands (Current `clawkb` surface)
 
-This document inventories the existing `clawkb` CLI commands and classifies
+This document inventories the existing `clawsqlite knowledge` CLI commands and classifies
 them as:
 
 - **Plumbing wrapper candidate** – can/should be re-expressed using
@@ -11,20 +11,17 @@ them as:
 
 ## 1. Command inventory
 
-> NOTE: This section describes the **current** CLI surface as implemented
-> in `clawkb/cli.py`. In the refactor, these commands will be exposed to
-> users/skills under the clearer namespace:
+> NOTE: This section describes the CLI surface as implemented in
+> `clawsqlite_knowledge/cli.py`. These commands are exposed to
+> users/skills under the namespace:
 >
 > ```bash
 > clawsqlite knowledge ingest
 > clawsqlite knowledge search
 > ...
 > ```
->
-> The `kb` prefix here is legacy naming, used only to reflect the current
-> state of the code.
 
-Source: `clawkb/cli.py`.
+Source: `clawsqlite_knowledge/cli.py`.
 
 ### 1.1 `ingest`
 

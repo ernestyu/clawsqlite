@@ -14,9 +14,10 @@ These commands are intended to be:
 The CLI layout is:
 
 ```bash
-clawsqlite db ...     # raw SQLite operations (schema/exec/backup/vacuum)
-clawsqlite index ...  # generic FTS / vector index operations
-clawsqlite fs ...     # filesystem + DB consistency helpers
+clawsqlite db ...      # raw SQLite operations (schema/exec/backup/vacuum)
+clawsqlite index ...   # generic FTS / vector index operations
+clawsqlite fs ...      # filesystem + DB consistency helpers
+clawsqlite embed ...   # embedding primitives (text → vector tables)
 ```
 
 Below, each command is described with:
