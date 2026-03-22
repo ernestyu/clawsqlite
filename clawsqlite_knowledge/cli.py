@@ -73,6 +73,49 @@ def _open_for_command(db_path: str, *, need_fts: bool, need_vec: bool, args) -> 
     vec_ext = getattr(args, "vec_ext", None)
     return dbmod.open_db(db_path, need_fts=need_fts, need_vec=need_vec, tokenizer_ext=tokenizer_ext, vec_ext=vec_ext)
 
+
+def cmd_embed_from_summary(args) -> int:
+    """Embed article summaries into the vec table.
+
+    This is a knowledge-level wrapper around `clawsqlite embed column` that
+    knows the default KB schema:
+
+    - base table: articles
+    - id column: id
+    - text column: summary
+    - vec table: articles_vec
+    - default WHERE: undeleted rows with non-empty summary
+    """
+    from clawsqlite_plumbing import embed_cli as _embed_plumbing_cli  # local import to avoid hard dep at import time
+
+    paths = _resolve_paths(args)
+    db_path = paths["db"]
+
+    where = args.where or "deleted_at IS NULL AND summary IS NOT NULL AND trim(summary) != ''"
+    argv = [
+        "column",
+        "--db",
+        db_path,
+        "--table",
+        "articles",
+        "--id-col",
+        "id",
+        "--text-col",
+        "summary",
+        "--vec-table",
+        "articles_vec",
+        "--where",
+        where,
+    ]
+    if args.limit is not None:
+        argv += ["--limit", str(int(args.limit))]
+    if args.offset is not None:
+        argv += ["--offset", str(int(args.offset))]
+
+    code = _embed_plumbing_cli.main(argv)
+    return int(code)
+
+
 def cmd_ingest(args) -> int:
     paths = _resolve_paths(args)
     ensure_dir(paths["articles_dir"])
@@ -889,9 +932,17 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--fix-missing", action="store_true", help="Fill missing fields and index rows")
     sp.add_argument("--rebuild", action="store_true", help="Rebuild indexes")
     sp.add_argument("--fts", action="store_true", help="With --rebuild: rebuild FTS index")
-    sp.add_argument("--vec", action="store_true", help="With --rebuild: rebuild vec index (requires embedding enabled)")
+    sp.add_argument("--vec", action="store_true", help="With --rebuild: clear vec index (no embedding)")
     sp.add_argument("--gen-provider", default="openclaw", choices=["openclaw", "llm", "off"], help="Generator provider for fix-missing")
     sp.set_defaults(func=cmd_reindex)
+
+    # embed-from-summary (knowledge-level wrapper)
+    sp = sub.add_parser("embed-from-summary", help="Embed article summaries into articles_vec via plumbing")
+    _add_common_flags(sp)
+    sp.add_argument("--where", default=None, help="Optional SQL WHERE clause on articles (default: undeleted with non-empty summary)")
+    sp.add_argument("--limit", type=int, default=None, help="Optional LIMIT for batching")
+    sp.add_argument("--offset", type=int, default=None, help="Optional OFFSET for batching")
+    sp.set_defaults(func=cmd_embed_from_summary)
 
     # maintenance / gc
     sp = sub.add_parser("maintenance", help="Maintenance: prune orphan/backup files and check paths")
