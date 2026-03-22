@@ -33,6 +33,12 @@ from .scraper import scrape_url
 from .search import hybrid_search
 from . import reindex as reindex_mod
 
+# Plumbing layer (generic db/index/fs helpers)
+try:
+    from clawsqlite_plumbing import index_cli as _index_plumbing_cli
+except Exception:  # pragma: no cover
+    _index_plumbing_cli = None
+
 DEFAULT_ROOT = os.environ.get("CLAWKB_ROOT_DEFAULT", "")
 
 
@@ -705,7 +711,33 @@ def cmd_reindex(args) -> int:
             return 0
 
         if args.rebuild:
-            out = reindex_mod.rebuild(conn, rebuild_fts=bool(args.fts), rebuild_vec=bool(args.vec), embed_on=embed_on)
+            # 1) If requested, rebuild FTS index via plumbing layer so it
+            #    can be reused by other applications.
+            if args.fts and _index_plumbing_cli is not None:
+                try:
+                    _index_plumbing_cli.main(
+                        [
+                            "rebuild",
+                            "--db",
+                            paths["db"],
+                            "--table",
+                            "articles",
+                            "--fts-table",
+                            "articles_fts",
+                        ]
+                    )
+                except Exception as e:
+                    sys.stderr.write(f"WARNING: reindex: plumbing FTS rebuild failed: {e}\n")
+
+            # 2) Keep vec rebuild semantics as-is for now (recompute
+            #    embeddings), so existing workflows do not break. In the
+            #    future this can be split into a separate embedding task.
+            out = reindex_mod.rebuild(
+                conn,
+                rebuild_fts=False,  # FTS handled (or attempted) via plumbing above
+                rebuild_vec=bool(args.vec),
+                embed_on=embed_on,
+            )
             _print(out, bool(args.json))
             return 0 if not out.get("errors") else 4
 
