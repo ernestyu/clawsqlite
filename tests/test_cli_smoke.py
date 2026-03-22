@@ -34,6 +34,16 @@ PYTHON_BIN = os.environ.get("CLAWSQLITE_PYTHON", DEFAULT_PY)
 
 
 class CLISmokeTests(unittest.TestCase):
+    """End-to-end CLI tests for clawsqlite.
+
+    这些测试偏向“从外向内”的烟囱测试，目标是保证：
+
+    - `clawsqlite knowledge` 各主要子命令在一个临时 root 下能跑通；
+    - plumbing 层 (`clawsqlite db ...` 等) 在真实 DB 上能工作；
+    - 对 Embedding / vec0 / tokenizer 的依赖以“尽量不 hard-fail”为原则，
+      在依赖缺失时不会导致 Python 堆栈直接崩溃。
+    """
+
     maxDiff = None
 
     def _run(self, argv, *, env=None, expect_ok=True):
