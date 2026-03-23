@@ -1,0 +1,14 @@
+
+include LICENSE
+include README.md
+include pyproject.toml
+
+
+recursive-include clawsqlite_knowledge *.py
+recursive-include clawsqlite_plumbing *.py
+
+
+prune tests
+prune docs
+prune examples
+prune knowledge_data
