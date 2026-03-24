@@ -10,7 +10,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from . import db as dbmod
 from .utils import (
     build_fts_query_from_keywords,
-    extract_keywords_light,
     tag_exact_match_bonus,
     parse_iso,
 )
@@ -59,7 +58,7 @@ def hybrid_search(
         vec_hits = dbmod.vec_knn(conn, qblob, k=min(max(1, candidates), 200), include_deleted=include_deleted)
 
     # Build FTS query keywords
-    keywords = extract_keywords_light(query, max_k=10)
+    keywords = dbmod.fts_keywords_for_query(conn, query, max_k=10)
     fts_query = build_fts_query_from_keywords(keywords)
 
     if run_fts and fts_query:
@@ -70,6 +69,7 @@ def hybrid_search(
             try:
                 from .generator import generate_keywords_for_search
                 kws2 = generate_keywords_for_search(query, provider=gen_provider, max_k=12)
+                kws2 = dbmod.fts_normalize_keywords(conn, kws2, max_k=12)
                 fts_query2 = build_fts_query_from_keywords(kws2)
                 if fts_query2 and fts_query2 != fts_query:
                     fts_hits = dbmod.fts_search(conn, fts_query2, limit=min(max(1, candidates), 200), include_deleted=include_deleted)

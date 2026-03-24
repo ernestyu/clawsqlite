@@ -80,6 +80,8 @@ In a fresh environment you typically need to:
       - simple tokenizer: see the OpenClaw docs for building `libsimple.so`.
   - If these extensions are missing, the knowledge app will automatically degrade to:
     - SQLite built‑in tokenizer for FTS
+    - If `jieba` is available, optionally pre-segment CJK text in Python for better
+      Chinese recall (controlled by `CLAWSQLITE_FTS_JIEBA=auto|on|off`)
     - FTS‑only mode when vec0 is unavailable.
 
 ---

@@ -42,6 +42,7 @@ except Exception:  # pragma: no cover
     _index_plumbing_cli = None
 
 DEFAULT_ROOT = os.environ.get("CLAWSQLITE_ROOT_DEFAULT", "")
+_WARNED_FTS_FALLBACK = False
 
 
 def _resolve_paths(args) -> Dict[str, str]:
@@ -81,7 +82,22 @@ def _extract_markdown_body(content: str) -> str:
 def _open_for_command(db_path: str, *, need_fts: bool, need_vec: bool, args) -> Any:
     tokenizer_ext = getattr(args, "tokenizer_ext", None)
     vec_ext = getattr(args, "vec_ext", None)
-    return dbmod.open_db(db_path, need_fts=need_fts, need_vec=need_vec, tokenizer_ext=tokenizer_ext, vec_ext=vec_ext)
+    conn = dbmod.open_db(db_path, need_fts=need_fts, need_vec=need_vec, tokenizer_ext=tokenizer_ext, vec_ext=vec_ext)
+    if need_fts:
+        _maybe_warn_fts_fallback(conn)
+    return conn
+
+def _maybe_warn_fts_fallback(conn) -> None:
+    global _WARNED_FTS_FALLBACK
+    if _WARNED_FTS_FALLBACK:
+        return
+    warn = dbmod.fts_fallback_warning(conn)
+    if not warn:
+        return
+    sys.stderr.write("WARNING: " + warn["message"] + "\n")
+    sys.stderr.write("ERROR_KIND: " + warn["error_kind"] + "\n")
+    sys.stderr.write("NEXT: " + warn["next"] + "\n")
+    _WARNED_FTS_FALLBACK = True
 
 
 def cmd_embed_from_summary(args) -> int:
@@ -896,28 +912,34 @@ def cmd_reindex(args) -> int:
         if args.rebuild:
             # 1) If requested, rebuild FTS index via plumbing layer so it
             #    can be reused by other applications.
+            fts_done = False
             if args.fts and _index_plumbing_cli is not None:
-                try:
-                    _index_plumbing_cli.main(
-                        [
-                            "rebuild",
-                            "--db",
-                            paths["db"],
-                            "--table",
-                            "articles",
-                            "--fts-table",
-                            "articles_fts",
-                        ]
-                    )
-                except Exception as e:
-                    sys.stderr.write(f"WARNING: reindex: plumbing FTS rebuild failed: {e}\n")
+                use_jieba = dbmod.fts_jieba_enabled(conn)
+                if not use_jieba:
+                    try:
+                        _index_plumbing_cli.main(
+                            [
+                                "rebuild",
+                                "--db",
+                                paths["db"],
+                                "--table",
+                                "articles",
+                                "--fts-table",
+                                "articles_fts",
+                            ]
+                        )
+                        fts_done = True
+                    except Exception as e:
+                        sys.stderr.write(f"WARNING: reindex: plumbing FTS rebuild failed: {e}\n")
+                elif args.verbose:
+                    sys.stderr.write("INFO: reindex: jieba FTS fallback active; rebuilding in Python (skip plumbing).\n")
 
             # 2) Vec rebuild semantics: clear the vec table only. Embedding
             #    recomputation is handled by a separate embedding task/CLI
             #    (e.g. `clawsqlite knowledge embed-from-summary`).
             out = reindex_mod.rebuild(
                 conn,
-                rebuild_fts=False,  # FTS handled (or attempted) via plumbing above
+                rebuild_fts=bool(args.fts) and not fts_done,
                 rebuild_vec=bool(args.vec),
                 embed_on=embed_on,
             )

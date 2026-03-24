@@ -19,11 +19,20 @@ Degradation
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 import glob
 from typing import Any, Dict, List, Optional, Tuple
 
-from .utils import now_iso_z
+from .utils import now_iso_z, has_cjk, extract_keywords_light
+
+# Optional Chinese tokenizer: jieba
+try:  # pragma: no cover - optional dependency
+    import jieba  # type: ignore
+    _JIEBA_AVAILABLE = True
+except Exception:
+    jieba = None  # type: ignore
+    _JIEBA_AVAILABLE = False
 
 # Defaults for clawsqlite_knowledge.
 DEFAULT_DB_PATH = os.environ.get("CLAWSQLITE_DB_DEFAULT", "knowledge.sqlite3")
@@ -77,6 +86,142 @@ CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
   summary
 );
 """
+
+_FTS_TOKENIZER_RE = re.compile(r"tokenize\s*=\s*['\"]simple['\"]", re.IGNORECASE)
+_WORD_TOKEN_RE = re.compile(r"[\w\u4e00-\u9fff]")
+
+def _fts_uses_simple_tokenizer(conn: sqlite3.Connection) -> bool:
+    try:
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='articles_fts'"
+        ).fetchone()
+        if not row:
+            return False
+        sql = row[0] or ""
+        return bool(_FTS_TOKENIZER_RE.search(sql))
+    except Exception:
+        return False
+
+def fts_jieba_enabled(conn: sqlite3.Connection) -> bool:
+    """Return True if we should use jieba-based tokenization for FTS text/query.
+
+    Policy (env CLAWSQLITE_FTS_JIEBA):
+    - off/0/false: disable
+    - on/1/true: enable when jieba is available
+    - auto (default): enable only when jieba is available AND FTS is using
+      the fallback tokenizer (i.e. no 'simple' tokenizer loaded).
+    """
+    mode = (os.environ.get("CLAWSQLITE_FTS_JIEBA") or "auto").strip().lower()
+    if mode in ("0", "false", "off", "no"):
+        return False
+    elif not _JIEBA_AVAILABLE:
+        return False
+    elif mode in ("1", "true", "on", "yes", "force"):
+        return True
+    else:
+        # auto: only when FTS is not using the 'simple' tokenizer.
+        return not _fts_uses_simple_tokenizer(conn)
+
+def _jieba_tokens(text: str) -> List[str]:
+    if not text:
+        return []
+    if not _JIEBA_AVAILABLE:
+        return []
+    try:
+        return [t.strip() for t in jieba.cut(text) if t and t.strip()]
+    except Exception:
+        return []
+
+def _fts_text_for_index(conn: sqlite3.Connection, text: Optional[str]) -> str:
+    if not text:
+        return ""
+    if not fts_jieba_enabled(conn):
+        return text
+    if not has_cjk(text, threshold=2):
+        return text
+    tokens = _jieba_tokens(text)
+    return " ".join(tokens) if tokens else text
+
+def _jieba_keywords(text: str, *, max_k: int) -> List[str]:
+    tokens = _jieba_tokens(text)
+    if not tokens:
+        return extract_keywords_light(text, max_k=max_k)
+    out: List[str] = []
+    seen = set()
+    for t in tokens:
+        if not _WORD_TOKEN_RE.search(t):
+            continue
+        low = t.lower()
+        if low in seen:
+            continue
+        seen.add(low)
+        out.append(t)
+        if len(out) >= max_k:
+            break
+    return out
+
+def fts_keywords_for_query(conn: sqlite3.Connection, query: str, *, max_k: int = 10) -> List[str]:
+    if not query:
+        return []
+    if not fts_jieba_enabled(conn):
+        return extract_keywords_light(query, max_k=max_k)
+    if not has_cjk(query, threshold=1):
+        return extract_keywords_light(query, max_k=max_k)
+    return _jieba_keywords(query, max_k=max_k)
+
+def fts_normalize_keywords(conn: sqlite3.Connection, keywords: List[str], *, max_k: int = 10) -> List[str]:
+    if not keywords:
+        return []
+    if not fts_jieba_enabled(conn):
+        return keywords[:max_k]
+    out: List[str] = []
+    seen = set()
+    for kw in keywords:
+        kw = (kw or "").strip()
+        if not kw:
+            continue
+        if has_cjk(kw, threshold=1):
+            toks = _jieba_tokens(kw) or [kw]
+        else:
+            toks = [kw]
+        for t in toks:
+            t = t.strip()
+            if not t:
+                continue
+            if not _WORD_TOKEN_RE.search(t):
+                continue
+            low = t.lower()
+            if low in seen:
+                continue
+            seen.add(low)
+            out.append(t)
+            if len(out) >= max_k:
+                return out
+    return out
+
+def fts_fallback_warning(conn: sqlite3.Connection) -> Optional[Dict[str, str]]:
+    """Return a warning payload when FTS is in unicode61 fallback without jieba."""
+    if _fts_uses_simple_tokenizer(conn):
+        return None
+    if fts_jieba_enabled(conn):
+        return None
+    # At this point: no simple tokenizer, and jieba fallback disabled/unavailable.
+    mode = (os.environ.get("CLAWSQLITE_FTS_JIEBA") or "auto").strip().lower()
+    if _JIEBA_AVAILABLE and mode in ("0", "false", "off", "no"):
+        next_hint = (
+            "set CLAWSQLITE_FTS_JIEBA=on to enable jieba-based fallback tokenization, "
+            "or provide libsimple.so if you can install extensions."
+        )
+    else:
+        next_hint = (
+            "install jieba (pip install jieba) to enable CJK fallback tokenization; "
+            "libsimple.so often requires root/extension install."
+        )
+    return {
+        "message": "FTS is using the default unicode61 tokenizer; CJK recall will be poor.",
+        "error_kind": "fts_tokenizer_fallback",
+        "next": next_hint,
+    }
 
 def _vec_schema() -> Optional[str]:
     dim_env = os.environ.get("CLAWSQLITE_VEC_DIM")
@@ -280,6 +425,9 @@ def get_article_by_source(conn: sqlite3.Connection, source_url: str):
 
 def upsert_fts(conn: sqlite3.Connection, article_id: int, title: str, tags: str, summary: str) -> None:
     conn.execute("DELETE FROM articles_fts WHERE rowid=?", (article_id,))
+    title = _fts_text_for_index(conn, title)
+    tags = _fts_text_for_index(conn, tags)
+    summary = _fts_text_for_index(conn, summary)
     conn.execute(
         "INSERT INTO articles_fts(rowid, title, tags, summary) VALUES(?, ?, ?, ?)",
         (article_id, title or "", tags or "", summary or ""),
@@ -296,16 +444,35 @@ def delete_vec(conn: sqlite3.Connection, article_id: int) -> None:
 
 def rebuild_fts(conn: sqlite3.Connection, include_deleted: bool = False) -> None:
     conn.execute("DELETE FROM articles_fts")
-    if include_deleted:
-        conn.execute(
-            "INSERT INTO articles_fts(rowid, title, tags, summary) "
-            "SELECT id, coalesce(title,''), coalesce(tags,''), coalesce(summary,'') FROM articles"
-        )
+    if fts_jieba_enabled(conn):
+        if include_deleted:
+            rows = conn.execute(
+                "SELECT id, title, tags, summary FROM articles"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, title, tags, summary FROM articles WHERE deleted_at IS NULL"
+            ).fetchall()
+        for r in rows:
+            aid = int(r["id"])
+            title = _fts_text_for_index(conn, r["title"] or "")
+            tags = _fts_text_for_index(conn, r["tags"] or "")
+            summary = _fts_text_for_index(conn, r["summary"] or "")
+            conn.execute(
+                "INSERT INTO articles_fts(rowid, title, tags, summary) VALUES(?, ?, ?, ?)",
+                (aid, title, tags, summary),
+            )
     else:
-        conn.execute(
-            "INSERT INTO articles_fts(rowid, title, tags, summary) "
-            "SELECT id, coalesce(title,''), coalesce(tags,''), coalesce(summary,'') FROM articles WHERE deleted_at IS NULL"
-        )
+        if include_deleted:
+            conn.execute(
+                "INSERT INTO articles_fts(rowid, title, tags, summary) "
+                "SELECT id, coalesce(title,''), coalesce(tags,''), coalesce(summary,'') FROM articles"
+            )
+        else:
+            conn.execute(
+                "INSERT INTO articles_fts(rowid, title, tags, summary) "
+                "SELECT id, coalesce(title,''), coalesce(tags,''), coalesce(summary,'') FROM articles WHERE deleted_at IS NULL"
+            )
 
 def vec_knn(conn: sqlite3.Connection, query_vec_blob: bytes, k: int, include_deleted: bool = False) -> List[Tuple[int, float]]:
     if include_deleted:

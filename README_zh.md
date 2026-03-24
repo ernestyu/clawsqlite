@@ -95,6 +95,7 @@ Python 依赖：
 如果缺少这些扩展，知识库应用会自动降级：
 
 - FTS：使用 SQLite 内建 tokenizer；
+- ??? `jieba`??? Python ??? CJK ????? FTS?? `CLAWSQLITE_FTS_JIEBA=auto|on|off` ????
 - 向量检索：在 vec0 不可用时自动关闭，仅使用 FTS。
 
 ---
