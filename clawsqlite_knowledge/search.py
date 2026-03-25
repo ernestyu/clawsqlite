@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from . import db as dbmod
 from .utils import (
     build_fts_query_from_keywords,
-    tag_exact_match_bonus,
+    tag_match_score,
     parse_iso,
 )
 
@@ -181,7 +181,7 @@ def hybrid_search(
         else:
             fts_score = 0.0
 
-        bonus_tag = tag_exact_match_bonus(keywords, r["tags"] or "")
+        tag_score = tag_match_score(keywords, r["tags"] or "")
         bonus_priority = 1.0 if int(r["priority"] or 0) > 0 else 0.0
 
         # Recency bonus: rank by created_at among candidates
@@ -202,7 +202,7 @@ def hybrid_search(
                 "_vec_distance": float(dist) if dist is not None else None,
                 "_vec_score": vec_score,
                 "_fts_score": fts_score,
-                "_tag_bonus": 1.0 if bonus_tag > 0 else 0.0,
+                "_tag_score": tag_score,
                 "_priority_bonus": bonus_priority,
                 "_ts": ts,
             }
@@ -224,7 +224,7 @@ def hybrid_search(
         final = (
             0.60 * x["_vec_score"]
             + 0.25 * x["_fts_score"]
-            + 0.10 * x["_tag_bonus"]
+            + 0.10 * x["_tag_score"]
             + 0.03 * x["_priority_bonus"]
             + 0.02 * x["_recency_bonus"]
         )

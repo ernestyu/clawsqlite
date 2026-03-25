@@ -256,7 +256,12 @@ def comma_join_tags(tags: Any) -> str:
     return str(tags).strip()
 
 def tag_exact_match_bonus(query_keywords: List[str], tags_csv: str) -> float:
-    """Return a small bonus if any keyword is an exact tag."""
+    """Return a small bonus if any keyword is an exact tag.
+
+    Deprecated in favor of tag_match_score but kept for backward
+    compatibility. It only checks whether *any* keyword exactly matches a
+    tag (case-insensitive) and returns 1.0/0.0.
+    """
     if not query_keywords or not tags_csv:
         return 0.0
     tag_set = {t.strip().lower() for t in tags_csv.replace("，", ",").split(",") if t.strip()}
@@ -264,6 +269,63 @@ def tag_exact_match_bonus(query_keywords: List[str], tags_csv: str) -> float:
         if kw.strip().lower() in tag_set:
             return 1.0
     return 0.0
+
+
+def tag_match_score(query_keywords: List[str], tags_csv: str, *, max_tags_used: int = 10) -> float:
+    """Score how well query keywords match the tag list (0..1).
+
+    - Tags are stored as a comma-separated string; here we treat them as an
+      ordered list of importance (t0, t1, ...).
+    - For each query keyword, we look for the *first* exact tag match
+      (case-insensitive) and add a contribution of 1/(1+rank), where rank
+      is the tag index (0-based).
+    - The final score is normalized by the best possible score for the
+      given number of query keywords and tags, so it is always in [0, 1].
+    """
+    if not query_keywords or not tags_csv:
+        return 0.0
+
+    tags = [
+        t.strip().lower()
+        for t in tags_csv.replace("，", ",").split(",")
+        if t.strip()
+    ]
+    if not tags:
+        return 0.0
+
+    # Limit the number of tags participating in the score so that very
+    # long tag lists don't dominate.
+    tags = tags[: max_tags_used or 10]
+    index = {}
+    for i, t in enumerate(tags):
+        if t not in index:
+            index[t] = i
+
+    # Count contributions.
+    raw_score = 0.0
+    used_keywords = 0
+    for kw in query_keywords:
+        k = kw.strip().lower()
+        if not k:
+            continue
+        used_keywords += 1
+        if k in index:
+            rank = index[k]
+            raw_score += 1.0 / (1.0 + rank)
+
+    if raw_score <= 0.0 or used_keywords == 0:
+        return 0.0
+
+    # Compute theoretical best score for normalization: all keywords match
+    # the top tags.
+    max_matches = min(used_keywords, len(tags))
+    best = 0.0
+    for i in range(max_matches):
+        best += 1.0 / (1.0 + i)
+    if best <= 0.0:
+        return 0.0
+
+    return min(raw_score / best, 1.0)
 
 def extract_keywords_light(query: str, max_k: int = 10) -> List[str]:
     """Lightweight keyword extraction: split by whitespace and punctuation; keep meaningful tokens."""
