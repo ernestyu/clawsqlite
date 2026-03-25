@@ -250,6 +250,27 @@ Search ranking also uses tags as a small but important signal:
 - When `jieba` is not available, we fall back to a simple 0/1 bonus for
   any exact tag match, to avoid over‑interpreting a noisy tag order.
 
+The final hybrid score is a weighted blend of signals::
+
+    score = w_vec * vec_score + w_fts * fts_score
+            + w_tag * tag_score + w_priority * priority_bonus
+            + w_recency * recency_bonus
+
+By default we use::
+
+    CLAWSQLITE_SCORE_WEIGHTS=vec=0.55,fts=0.25,tag=0.15,priority=0.03,recency=0.02
+
+which roughly means:
+
+- ~55% vector similarity for deep semantic anchoring
+- ~25% BM25 keywords for textual sanity checks
+- ~15% tag match as your explicit “author intent” signal
+- ~3% priority as a manual pinning mechanism
+- ~2% recency to keep new knowledge slightly favored without dominating
+
+You can override these weights via `CLAWSQLITE_SCORE_WEIGHTS` (see
+`ENV.example` for details).
+
 ### 4.4 Small LLM configuration (optional)
 
 For better titles/summaries/tags you can configure a small LLM endpoint:

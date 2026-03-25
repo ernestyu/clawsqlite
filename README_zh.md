@@ -225,6 +225,33 @@ SMALL_LLM_API_KEY=sk-your-small-llm-key
   精确命中某个 tag，就给一个小加分，而不会对“看起来有顺序的 tag”
   过度解读。
 
+最终的混合得分是一个带权重的线性组合：
+
+```text
+score = w_vec * vec_score
+      + w_fts * fts_score
+      + w_tag * tag_score
+      + w_priority * priority_bonus
+      + w_recency * recency_bonus
+```
+
+默认配置等价于：
+
+```text
+CLAWSQLITE_SCORE_WEIGHTS=vec=0.55,fts=0.25,tag=0.15,priority=0.03,recency=0.02
+```
+
+大致含义是：
+
+- 约 55% 的向量分负责“深度语义锚定”；
+- 约 25% 的 FTS/BM25 分负责“文本重心校验”；
+- 约 15% 的标签分视为“作者显式意图”的主权信号；
+- 约 3% 的优先级分作为你手动置顶的物理接口；
+- 约 2% 的时效分让新知识稍微占点便宜，但不会形成霸榜。
+
+你可以通过 `CLAWSQLITE_SCORE_WEIGHTS` 覆盖这组权重（必须同时提供
+vec/fts/tag/priority/recency 五个键；详见 `ENV.example`）。
+
 ### 4.3 Embedding 配置
 
 当你需要向量检索（`articles_vec`）时，需要配置 Embedding 服务：

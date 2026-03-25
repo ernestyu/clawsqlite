@@ -4,6 +4,7 @@ Search logic for clawsqlite knowledge: vec / fts / hybrid.
 """
 from __future__ import annotations
 
+import os
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -26,6 +27,58 @@ def _rank_score(rank: int, total: int) -> float:
         return 0.0
     # 1.0 for best rank, down to ~0.0 for worst.
     return max(0.0, (total - rank) / total)
+
+
+_DEFAULT_SCORE_WEIGHTS: Dict[str, float] = {
+    "vec": 0.55,
+    "fts": 0.25,
+    "tag": 0.15,
+    "priority": 0.03,
+    "recency": 0.02,
+}
+
+
+def _score_weights_from_env() -> Dict[str, float]:
+    """Return final score weights (vec/fts/tag/priority/recency).
+
+    Users can override the defaults via CLAWSQLITE_SCORE_WEIGHTS, e.g.::
+
+        CLAWSQLITE_SCORE_WEIGHTS=vec=0.55,fts=0.25,tag=0.15,priority=0.03,recency=0.02
+
+    The env override must provide all five keys; otherwise it is ignored
+    and defaults are used. Values are normalized to sum to 1.0.
+    """
+    text = os.environ.get("CLAWSQLITE_SCORE_WEIGHTS", "").strip()
+    if not text:
+        return dict(_DEFAULT_SCORE_WEIGHTS)
+
+    parts = [p.strip() for p in text.split(",") if p.strip()]
+    tmp: Dict[str, float] = {}
+    for part in parts:
+        if "=" not in part:
+            continue
+        k, v = part.split("=", 1)
+        key = k.strip().lower()
+        if key not in _DEFAULT_SCORE_WEIGHTS:
+            continue
+        try:
+            val = float(v)
+        except Exception:
+            continue
+        if val < 0:
+            continue
+        tmp[key] = val
+
+    # Require all keys to be present; partial overrides are ignored to
+    # keep behavior predictable.
+    if set(tmp.keys()) != set(_DEFAULT_SCORE_WEIGHTS.keys()):
+        return dict(_DEFAULT_SCORE_WEIGHTS)
+
+    total = sum(tmp.values())
+    if total <= 0:
+        return dict(_DEFAULT_SCORE_WEIGHTS)
+
+    return {k: (tmp[k] / total) for k in _DEFAULT_SCORE_WEIGHTS.keys()}
 
 def hybrid_search(
     conn,
@@ -228,13 +281,14 @@ def hybrid_search(
             x["_recency_bonus"] = rec
 
     # Final score
+    weights = _score_weights_from_env()
     for x in results:
         final = (
-            0.60 * x["_vec_score"]
-            + 0.25 * x["_fts_score"]
-            + 0.10 * x["_tag_score"]
-            + 0.03 * x["_priority_bonus"]
-            + 0.02 * x["_recency_bonus"]
+            weights["vec"] * x["_vec_score"]
+            + weights["fts"] * x["_fts_score"]
+            + weights["tag"] * x["_tag_score"]
+            + weights["priority"] * x["_priority_bonus"]
+            + weights["recency"] * x["_recency_bonus"]
         )
         x["score"] = float(final)
 
