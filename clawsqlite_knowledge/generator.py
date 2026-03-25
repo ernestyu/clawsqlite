@@ -22,7 +22,7 @@ import urllib.request
 import urllib.error
 from typing import Any, Dict, List, Optional, Tuple
 
-from .utils import truncate_text, comma_join_tags, extract_keywords_light
+from .utils import truncate_text, comma_join_tags, extract_keywords_light, has_cjk
 from .embed import embedding_enabled, get_embedding
 
 # Optional Chinese tokenizer/keywords: jieba
@@ -303,6 +303,76 @@ def _heuristic_tags(content: str, max_tags: int = 8, *, snippet_chars: int = 800
             break
     return out
 
+
+def _heuristic_keywords_for_query(query: str, max_k: int = 10) -> List[str]:
+    """Heuristic keyword extraction for search queries.
+
+    Preference order (mirrors tag extraction but on the query text):
+    - If embeddings + jieba are available and CLAWSQLITE_TAGS_SEMANTIC is
+      `auto`/`on`, use jieba TextRank to get candidates and re-rank them via
+      semantic centrality against the query embedding.
+    - Else if jieba is available, use jieba.analyse.textrank on the query
+      (falling back to TF-IDF on error).
+    - Otherwise, fall back to extract_keywords_light.
+    """
+
+    text = (query or "").strip()
+    if not text:
+        return []
+    snippet = text[:400]
+
+    candidates: List[str]
+    # Only use jieba-based extraction when the query actually contains CJK;
+    # for pure ASCII we keep things simple and use extract_keywords_light.
+    if _JIEBA_AVAILABLE and _jieba_analyse is not None and has_cjk(snippet, threshold=1):
+        try:
+            candidates = list(_jieba_analyse.textrank(snippet, topK=max_k * 3))
+        except Exception:
+            try:
+                candidates = list(_jieba_analyse.extract_tags(snippet, topK=max_k * 3))
+            except Exception:
+                candidates = extract_keywords_light(snippet, max_k=max_k * 3)
+
+        if not candidates:
+            candidates = extract_keywords_light(snippet, max_k=max_k * 3)
+
+        mode = _tags_semantic_mode()
+        if mode in {"auto", "on"}:
+            try:
+                candidates = _semantic_rerank_candidates(snippet, candidates, max_k)
+            except Exception:
+                pass
+    else:
+        # No jieba (or no CJK): fall back to lightweight extractor. If jieba
+        # is missing entirely, emit a one-time NEXT hint.
+        global _JIEBA_WARNED
+        if not _JIEBA_WARNED and not _JIEBA_AVAILABLE:
+            _JIEBA_WARNED = True
+            sys.stderr.write(
+                "NEXT: jieba is not installed; query keywords fall back to a "
+                "lightweight extractor. For better Chinese search, install "
+                "jieba via 'pip install jieba'.\n"
+            )
+        candidates = extract_keywords_light(snippet, max_k=max_k * 3)
+
+    out: List[str] = []
+    seen = set()
+    for k in candidates:
+        k = (k or "").strip()
+        if not k:
+            continue
+        if len(k) > 24:
+            continue
+        low = k.lower()
+        if low in seen:
+            continue
+        seen.add(low)
+        out.append(k)
+        if len(out) >= max_k:
+            break
+    return out
+
+
 def generate_fields(
     content: str,
     *,
@@ -361,7 +431,7 @@ def generate_keywords_for_search(query: str, *, provider: str, max_k: int = 10) 
     """
     provider = (provider or "openclaw").strip().lower()
     if provider in ("off", "openclaw"):
-        return extract_keywords_light(query, max_k=max_k)
+        return _heuristic_keywords_for_query(query, max_k=max_k)
 
     if provider == "llm":
         if not _small_llm_enabled():

@@ -112,8 +112,13 @@ def hybrid_search(
         qblob = get_query_vec_blob(query)
         vec_hits = dbmod.vec_knn(conn, qblob, k=min(max(1, candidates), 200), include_deleted=include_deleted)
 
-    # Build FTS query keywords
-    keywords = dbmod.fts_keywords_for_query(conn, query, max_k=10)
+    # Build FTS query keywords from the natural-language query using the
+    # same heuristics as tag generation (TextRank + optional semantic
+    # centrality), then normalize them for FTS.
+    from .generator import generate_keywords_for_search
+
+    raw_keywords = generate_keywords_for_search(query, provider="openclaw", max_k=10)
+    keywords = dbmod.fts_normalize_keywords(conn, raw_keywords, max_k=10)
     fts_query = build_fts_query_from_keywords(keywords)
 
     if run_fts and fts_query:
