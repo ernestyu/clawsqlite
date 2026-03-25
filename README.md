@@ -250,6 +250,13 @@ Search ranking also uses tags as a small but important signal:
 - When `jieba` is not available, we fall back to a simple 0/1 bonus for
   any exact tag match, to avoid over‑interpreting a noisy tag order.
 
+For FTS queries we also extract a small set of keywords from the
+natural-language query using the same TextRank + optional semantic
+centrality pipeline as tag generation (when `provider=openclaw`). When
+`jieba` is missing, query keyword extraction falls back to a lightweight
+heuristic extractor and emits a `NEXT:` hint suggesting `pip install
+jieba`.
+
 The final hybrid score is a weighted blend of signals::
 
     score = w_vec * vec_score + w_fts * fts_score
