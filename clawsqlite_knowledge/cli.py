@@ -172,7 +172,8 @@ def cmd_ingest(args) -> int:
 
     # 2) Fields
     tags = args.tags or ""
-    summary = args.summary or ""
+    summary = (args.summary or "").strip()
+    summary_generated = False
     title = hint_title or ""
 
     if gen_provider != "off":
@@ -193,13 +194,17 @@ def cmd_ingest(args) -> int:
                     title = (gen.get("title") or "").strip()
                 if not summary:
                     summary = (gen.get("summary") or "").strip()
+                    summary_generated = True
                 if not tags and not args.tags:
                     tags = comma_join_tags(gen.get("tags"))
             except Exception as e:
                 sys.stderr.write(f"WARNING: generate_fields failed: {e}\n")
 
     title = title.strip() or "untitled"
-    summary = truncate_text(summary, max_chars=args.max_summary_chars)
+    if summary_generated:
+        summary = summary.strip()
+    else:
+        summary = truncate_text(summary, max_chars=args.max_summary_chars)
     tags = comma_join_tags(tags)
 
     created_at = now_iso_z()
@@ -597,7 +602,7 @@ def cmd_update(args) -> int:
                 title = (gen.get("title") or title).strip() or title
             if regen in ("summary", "all"):
                 gen = _gen_once()
-                summary = truncate_text((gen.get("summary") or summary).strip(), max_chars=args.max_summary_chars)
+                summary = (gen.get("summary") or summary).strip()
             if regen in ("tags", "all"):
                 gen = _gen_once()
                 tags = comma_join_tags(gen.get("tags") or tags)

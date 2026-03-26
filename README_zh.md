@@ -204,7 +204,6 @@ SMALL_LLM_API_KEY=sk-your-small-llm-key
 知识库应用会尽量通过启发式和（可选的）小模型，保持 `title` / `summary`
 和 `tags` 这些字段比较“干净好用”。
 
-标签生成相关行为由环境变量 `CLAWSQLITE_TAGS_SEMANTIC` 控制：
 
 - `auto`（默认）：
   - 当 Embedding + `jieba` 都可用时：先用 TextRank/TF‑IDF 选出候选
@@ -299,7 +298,7 @@ SMALL_LLM_API_KEY=sk-your-small-llm-key
 --gen-provider llm
 ```
 
-clawsqlite knowledge 会调用兼容 OpenAI 的 chat completions 接口，请求小模型输出一个 JSON，里面包含 `title`、`summary` 和 `tags` 三个字段。
+clawsqlite knowledge ????? OpenAI ? chat completions ???????????? JSON????? `tags` ???
 
 如果未配置 SMALL_LLM，则：
 
@@ -431,7 +430,7 @@ clawsqlite knowledge ingest \
 
 - 若数据库中存在同一 `source_url` 的记录（包括软删记录）：
   - 复用原来的 `id`；
-  - 更新 `title` / `summary` / `tags` / `category` / `priority`；
+  - 更新 `tags` / `category` / `priority`；
   - 重新生成 Markdown 文件；
   - 同步 FTS/vec 索引；
   - 旧 Markdown 文件会重命名为 `.bak_<timestamp>` 作为备份。
@@ -518,7 +517,7 @@ clawsqlite knowledge update --id ID [补丁参数] [--regen ...]
 行为：
 
 - `id` / `source_url` / `created_at` 视为只读字段，不会被修改；
-- 可更新：`title` / `summary` / `tags` / `category` / `priority`；
+- 可更新：`tags` / `category` / `priority`；
 - `--regen {title,summary,tags,all}`：根据当前 Markdown 正文调用生成器重新计算部分字段；
   - `embedding` 目前不会在 `update` 中执行向量重算；如需重建向量，请使用 `clawsqlite knowledge embed-from-summary`。
 - 更新后自动同步 FTS/vec 索引。

@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from . import db as dbmod
 from .embed import embedding_enabled, get_embedding, floats_to_f32_blob, _embedding_missing_keys
 from .generator import generate_fields
-from .utils import truncate_text, comma_join_tags
+from .utils import comma_join_tags
 
 def check(conn, *, embed_on: bool) -> Dict[str, Any]:
     missing = dbmod.count_missing(conn)
@@ -79,7 +79,7 @@ def fix_missing(
             try:
                 gen = generate_fields(content, hint_title=title or None, provider=gen_provider)
                 new_title = title or (gen.get("title") or "").strip()
-                new_summary = summary or truncate_text((gen.get("summary") or "").strip(), max_chars=1200)
+                new_summary = summary or (gen.get("summary") or "").strip()
                 new_tags = tags or comma_join_tags(gen.get("tags"))
                 dbmod.update_article_fields(conn, aid, title=new_title, summary=new_summary, tags=new_tags)
                 title, summary, tags = new_title, new_summary, new_tags

@@ -124,19 +124,25 @@ def hybrid_search(
     run_vec = mode in ("hybrid", "vec") and embed_enabled
     run_fts = mode in ("hybrid", "fts")
 
-    # Collect vec candidates
-    if run_vec:
-        qblob = get_query_vec_blob(query)
-        vec_hits = dbmod.vec_knn(conn, qblob, k=min(max(1, candidates), 200), include_deleted=include_deleted)
-
-    # Build FTS query keywords from the natural-language query using the
-    # same heuristics as tag generation (TextRank + optional semantic
-    # centrality), then normalize them for FTS.
+    # Build query keywords (v4 heuristic extractor; no embeddings) then
+    # normalize them for FTS. We also append these keywords to the query
+    # before embedding so the vec channel emphasizes the core intent.
     from .generator import generate_keywords_for_search
 
     raw_keywords = generate_keywords_for_search(query, provider="openclaw", max_k=10)
     keywords = dbmod.fts_normalize_keywords(conn, raw_keywords, max_k=10)
     fts_query = build_fts_query_from_keywords(keywords)
+
+    embed_query = (query or "").strip()
+    if keywords:
+        # Keep the original natural-language question (for context) but
+        # amplify core anchors by repeating them in a compact tail.
+        embed_query = (embed_query + "\n" + " ".join(keywords)).strip()
+
+    # Collect vec candidates
+    if run_vec:
+        qblob = get_query_vec_blob(embed_query)
+        vec_hits = dbmod.vec_knn(conn, qblob, k=min(max(1, candidates), 200), include_deleted=include_deleted)
 
     if run_fts and fts_query:
         fts_hits = dbmod.fts_search(conn, fts_query, limit=min(max(1, candidates), 200), include_deleted=include_deleted)
