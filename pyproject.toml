@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clawsqlite"
-version = "0.1.3"
+version = "0.1.4"
 description = "SQLite toolbox and knowledge base CLI for OpenClaw"
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { file = "LICENSE" }
