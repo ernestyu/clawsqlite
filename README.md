@@ -46,7 +46,19 @@ The knowledge app helps you:
   - If the LLM is not configured, tag generation degrades to jieba and emits
     a `NEXT` hint
   - Search ranking uses tag/query matching as an additional signal on top
-    of FTS and vector similarity
+    of FTS and vector similarity. Internally, the scorer:
+    - embeds both the article summary and the tag string into vec0 tables
+      (`articles_vec` and `articles_tag_vec`)
+    - normalizes vector distances via a **logistic sigmoid** over a
+      1/(1+d) transform, so that truly close neighbors get much higher
+      scores than merely okay matches
+    - splits the tag channel into **semantic (vector) tag score** and
+      **lexical tag match score**, with the split controlled by
+      `CLAWSQLITE_TAG_VEC_FRACTION` (default 0.7)
+    - applies an optional **log compression** to the lexical tag score
+      (`ln(1 + alpha*x) / ln(1 + alpha)`, `alpha` from
+      `CLAWSQLITE_TAG_FTS_LOG_ALPHA`, default 5.0) so that many partial
+      tag hits don’t overpower the semantic channels
 - **CLI first**
   - Simple subcommands: `ingest`, `search`, `show`, `export`, `update`, `delete`, `reindex`
 
@@ -263,14 +275,32 @@ By default we use::
 
 which roughly means:
 
-- ~55% vector similarity for deep semantic anchoring
-- ~25% BM25 keywords for textual sanity checks
-- ~15% tag match as your explicit “author intent” signal
+- ~55% vector similarity for deep semantic anchoring (summary vectors)
+- ~25% BM25 keywords for textual sanity checks (FTS over title/tags/summary)
+- ~15% tag channel (split between semantic tag vectors and lexical tag match)
 - ~3% priority as a manual pinning mechanism
 - ~2% recency to keep new knowledge slightly favored without dominating
 
 You can override these weights via `CLAWSQLITE_SCORE_WEIGHTS` (see
 `ENV.example` for details).
+
+For **mixed Chinese/English knowledge bases** you may want to bias more
+strongly towards tag semantics. A common production shape is::
+
+    CLAWSQLITE_SCORE_WEIGHTS=vec=0.30,fts=0.10,tag=0.55,priority=0.03,recency=0.02
+    CLAWSQLITE_TAG_VEC_FRACTION=0.82
+
+which yields approximately:
+
+- ~45% tag semantic (vector) score
+- ~30% summary semantic (vector) score
+- ~10% lexical tag match
+- ~10% full-text FTS
+- ~5% priority/recency
+
+And you can tune the lexical tag compression via::
+
+    CLAWSQLITE_TAG_FTS_LOG_ALPHA=5.0  # larger = stronger compression, 0 = disable
 
 ### 4.4 Small LLM configuration (optional)
 
