@@ -213,7 +213,9 @@ SMALL_LLM_API_KEY=sk-your-small-llm-key
 - 这些关键词用于 FTS 关键词检索、tag 匹配与加权打分
 - 向量检索仍会做 embedding，但输入是“原始 query + 关键词拼接”，以降低虚词干扰同时保留上下文
 
-### 4.3 Embedding 配置
+### 4.3 向量检索与打分（Embedding + 评分逻辑）
+
+当你需要向量检索（`articles_vec`）时，需要配置 Embedding 服务：
 
 当你需要向量检索（`articles_vec`）时，需要配置 Embedding 服务：
 
@@ -229,12 +231,22 @@ SMALL_LLM_API_KEY=sk-your-small-llm-key
 - 在 `clawsqlite_knowledge.embed.get_embedding()` 中调用上述 HTTP 接口获取向量；
 - 使用 `CLAWSQLITE_VEC_DIM` 创建
   `articles_vec` 表的 `embedding float[DIM]` 列；
+- 对摘要和标签分别计算向量：
+  - 摘要向量写入 `articles_vec`；
+  - 标签向量写入 `articles_tag_vec`（同一维度）；
+- 在归一化距离时，先做 `1/(1+d)`（d 为 L2 距离），再经过一个以 0.5 为中心的
+  **Logistic Sigmoid**，让“真正相似”的条目得分明显高于一般相似；
+- 在打分阶段，标签通道会拆成：
+  - 标签语义得分（tag vector）；
+  - 标签字面匹配得分（tag lexical），并可通过
+    `CLAWSQLITE_TAG_FTS_LOG_ALPHA` 对标签字面分做 `ln(1+αx)/ln(1+α)` 的 log 压缩
+    （默认 α=5.0，α<=0 时关闭压缩）；
 - 在 `embedding_enabled()` 为假或 vec 表不存在时自动降级为纯 FTS 模式。
 
 如果上述任一变量缺失：
 
 - `embedding_enabled()` 返回 `False`；
-- `ingest` 不会请求 Embedding，也不会写 `articles_vec`；
+- `ingest` 不会请求 Embedding，也不会写 `articles_vec` / `articles_tag_vec`；
 - `search` 的 `mode=hybrid` 会自动退化为 FTS，并输出 NEXT 提示。
 
 ### 4.4 小模型（Small LLM）配置

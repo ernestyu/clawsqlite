@@ -19,9 +19,25 @@ from .utils import (
 )
 
 def _normalize_vec_distance(distance: float) -> float:
-    # Convert L2 distance to a score in (0,1], higher is better.
-    # This is simple and stable.
-    return 1.0 / (1.0 + max(0.0, float(distance)))
+    """Convert L2 distance to a score in (0,1], higher is better.
+
+    Pipeline:
+      1) d -> base = 1/(1+d)
+      2) base -> score = sigmoid(k * (base - c))
+
+    where c≈0.5 is the midpoint and k controls the steepness. This
+    gives us a true logistic sigmoid over the (0,1) range of base.
+    """
+    import math
+
+    d = max(0.0, float(distance))
+    base = 1.0 / (1.0 + d)
+    # Logistic sigmoid centered at 0.5.
+    # k controls steepness; 30.0 gives strong separation between
+    # high-similarity and mediocre neighbors.
+    k = 30.0
+    x = base - 0.5
+    return 1.0 / (1.0 + math.exp(-k * x))
 
 def _rank_score(rank: int, total: int) -> float:
     if total <= 0:
@@ -39,6 +55,57 @@ _DEFAULT_SCORE_WEIGHTS: Dict[str, float] = {
 }
 
 _SCORE_WEIGHTS_WARNED = False
+
+# Fraction of the tag channel weight allocated to semantic (vector) tag
+# matching when embeddings are enabled. The remaining portion is used for
+# lexical tag matching. When embeddings are disabled, tag scoring falls
+# back to pure lexical behavior regardless of this setting.
+_TAG_VEC_FRACTION_DEFAULT = 0.7
+
+# Log-compression strength for lexical tag scores. Larger alpha means
+# stronger compression of mid/high scores; alpha=0 disables compression.
+_TAG_FTS_LOG_ALPHA_DEFAULT = 5.0
+
+
+def _tag_vec_fraction() -> float:
+    text = os.environ.get("CLAWSQLITE_TAG_VEC_FRACTION", "").strip()
+    if not text:
+        return _TAG_VEC_FRACTION_DEFAULT
+    try:
+        val = float(text)
+    except Exception:
+        return _TAG_VEC_FRACTION_DEFAULT
+    if val < 0.0:
+        return 0.0
+    if val > 1.0:
+        return 1.0
+    return val
+
+
+def _tag_lex_log_compress(x: float) -> float:
+    """Apply log compression to lexical tag scores in [0,1].
+
+    f(x) = ln(1 + alpha * x) / ln(1 + alpha)
+
+    where alpha is controlled by CLAWSQLITE_TAG_FTS_LOG_ALPHA
+    (default: 5.0). alpha<=0 disables compression.
+    """
+    import math
+
+    alpha_text = os.environ.get("CLAWSQLITE_TAG_FTS_LOG_ALPHA", "").strip()
+    if alpha_text:
+        try:
+            alpha = float(alpha_text)
+        except Exception:
+            alpha = _TAG_FTS_LOG_ALPHA_DEFAULT
+    else:
+        alpha = _TAG_FTS_LOG_ALPHA_DEFAULT
+
+    if alpha <= 0.0:
+        return max(0.0, min(1.0, float(x)))
+
+    x = max(0.0, min(1.0, float(x)))
+    return math.log(1.0 + alpha * x) / math.log(1.0 + alpha)
 
 
 def _score_weights_from_env() -> Dict[str, float]:
@@ -119,6 +186,7 @@ def hybrid_search(
 
     vec_hits: List[Tuple[int, float]] = []
     fts_hits: List[Tuple[int, float]] = []
+    tag_vec_hits: List[Tuple[int, float]] = []
 
     # Determine whether to run vec/fts channels
     run_vec = mode in ("hybrid", "vec") and embed_enabled
@@ -143,6 +211,8 @@ def hybrid_search(
     if run_vec:
         qblob = get_query_vec_blob(embed_query)
         vec_hits = dbmod.vec_knn(conn, qblob, k=min(max(1, candidates), 200), include_deleted=include_deleted)
+        # Tag semantic channel: use the same query embedding for tag_vec.
+        tag_vec_hits = dbmod.tag_vec_knn(conn, qblob, k=min(max(1, candidates), 200), include_deleted=include_deleted)
 
     if run_fts and fts_query:
         fts_hits = dbmod.fts_search(conn, fts_query, limit=min(max(1, candidates), 200), include_deleted=include_deleted)
@@ -178,6 +248,14 @@ def hybrid_search(
         cand_ids.append(aid)
         if len(cand_ids) >= candidates:
             break
+    # Allow tag_vec to contribute additional candidates when embeddings are enabled.
+    for aid, _d in tag_vec_hits:
+        if len(cand_ids) >= candidates:
+            break
+        if aid in seen:
+            continue
+        seen.add(aid)
+        cand_ids.append(aid)
 
     if not cand_ids:
         return []
@@ -189,6 +267,7 @@ def hybrid_search(
 
     # Build maps
     vec_map = {aid: dist for aid, dist in vec_hits}
+    tag_vec_map = {aid: dist for aid, dist in tag_vec_hits}
     # For FTS, use rank-based score (bm25 scale differs across builds)
     fts_rank_map: Dict[int, int] = {}
     for idx, (aid, _bm25) in enumerate(fts_hits):
@@ -264,13 +343,25 @@ def hybrid_search(
         else:
             fts_score = 0.0
 
-        # Use richer tag match scoring only when jieba is available (tags
-        # are ordered by importance). Without jieba we fall back to a
-        # simple 0/1 exact-match bonus to avoid overfitting noisy order.
+        # Tag scoring: lexical + semantic (vector) channel.
+        # Use richer lexical tag scoring only when jieba is available
+        # (tags are ordered by importance). Without jieba we fall back to
+        # a simple 0/1 exact-match bonus.
         if has_jieba_for_tags():
-            tag_score = tag_match_score(keywords, r["tags"] or "")
+            tag_lex_score_raw = tag_match_score(keywords, r["tags"] or "")
         else:
-            tag_score = tag_exact_match_bonus(keywords, r["tags"] or "")
+            tag_lex_score_raw = tag_exact_match_bonus(keywords, r["tags"] or "")
+        tag_lex_score = _tag_lex_log_compress(tag_lex_score_raw)
+
+        tag_vec_dist = tag_vec_map.get(aid, None)
+        tag_vec_score = _normalize_vec_distance(tag_vec_dist) if tag_vec_dist is not None else 0.0
+
+        if embed_enabled:
+            frac = _tag_vec_fraction()
+            tag_score = frac * tag_vec_score + (1.0 - frac) * tag_lex_score
+        else:
+            tag_score = tag_lex_score
+
         bonus_priority = 1.0 if int(r["priority"] or 0) > 0 else 0.0
 
         # Recency bonus: rank by created_at among candidates
@@ -292,6 +383,8 @@ def hybrid_search(
                 "_vec_score": vec_score,
                 "_fts_score": fts_score,
                 "_tag_score": tag_score,
+                "_tag_lex_score": tag_lex_score,
+                "_tag_vec_score": tag_vec_score,
                 "_priority_bonus": bonus_priority,
                 "_ts": ts,
             }

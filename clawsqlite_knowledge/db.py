@@ -240,6 +240,29 @@ CREATE VIRTUAL TABLE IF NOT EXISTS articles_vec USING vec0(
 );
 """
 
+
+def _tag_vec_schema() -> Optional[str]:
+    """Schema for optional tag vector table.
+
+    We reuse CLAWSQLITE_VEC_DIM for tag embeddings as well so that the
+    same embedding service can be used for both summary and tag vectors.
+    """
+    dim_env = os.environ.get("CLAWSQLITE_VEC_DIM")
+    if not dim_env:
+        return None
+    try:
+        dim = int(dim_env)
+    except Exception:
+        return None
+    if dim <= 0:
+        return None
+    return f"""
+CREATE VIRTUAL TABLE IF NOT EXISTS articles_tag_vec USING vec0(
+  id INTEGER PRIMARY KEY,
+  embedding float[{dim}]
+);
+"""
+
 def _find_vec0_so() -> Optional[str]:
     for pat in _VEC_GLOBS:
         hits = glob.glob(pat, recursive=True)
@@ -332,6 +355,12 @@ def open_db(
         if schema:
             try:
                 conn.executescript(schema)
+            except Exception:
+                pass
+        tag_schema = _tag_vec_schema()
+        if tag_schema:
+            try:
+                conn.executescript(tag_schema)
             except Exception:
                 pass
 
@@ -439,6 +468,13 @@ def delete_fts(conn: sqlite3.Connection, article_id: int) -> None:
 def upsert_vec(conn: sqlite3.Connection, article_id: int, embedding_blob: bytes) -> None:
     conn.execute("INSERT OR REPLACE INTO articles_vec(id, embedding) VALUES(?, ?)", (article_id, embedding_blob))
 
+
+def upsert_tag_vec(conn: sqlite3.Connection, article_id: int, embedding_blob: bytes) -> None:
+    conn.execute(
+        "INSERT OR REPLACE INTO articles_tag_vec(id, embedding) VALUES(?, ?)",
+        (article_id, embedding_blob),
+    )
+
 def delete_vec(conn: sqlite3.Connection, article_id: int) -> None:
     conn.execute("DELETE FROM articles_vec WHERE id=?", (article_id,))
 
@@ -489,6 +525,31 @@ def vec_knn(conn: sqlite3.Connection, query_vec_blob: bytes, k: int, include_del
           AND v.embedding MATCH ? AND k = ?
         """
         rows = conn.execute(sql, (query_vec_blob, k)).fetchall()
+    return [(int(r["id"]), float(r["distance"])) for r in rows]
+
+
+def tag_vec_knn(conn: sqlite3.Connection, query_vec_blob: bytes, k: int, include_deleted: bool = False) -> List[Tuple[int, float]]:
+    """KNN over articles_tag_vec; mirrors vec_knn semantics.
+
+    If the table does not exist, we return an empty list.
+    """
+    try:
+        if include_deleted:
+            rows = conn.execute(
+                "SELECT id, distance FROM articles_tag_vec WHERE embedding MATCH ? AND k = ?",
+                (query_vec_blob, k),
+            ).fetchall()
+        else:
+            sql = """
+            SELECT v.id AS id, v.distance AS distance
+            FROM articles_tag_vec v
+            JOIN articles a ON a.id = v.id
+            WHERE a.deleted_at IS NULL
+              AND v.embedding MATCH ? AND k = ?
+            """
+            rows = conn.execute(sql, (query_vec_blob, k)).fetchall()
+    except Exception:
+        return []
     return [(int(r["id"]), float(r["distance"])) for r in rows]
 
 def fts_search(conn: sqlite3.Connection, fts_query: str, limit: int, include_deleted: bool = False) -> List[Tuple[int, float]]:

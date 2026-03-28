@@ -104,6 +104,16 @@ def fix_missing(
             except Exception as e:
                 errors.append(f"id={aid}: vec upsert failed: {e}")
 
+            # Tag vectors: embed tags string when available.
+            tag_text = (tags or "").strip()
+            if tag_text:
+                try:
+                    emb_tag = get_embedding(tag_text)
+                    blob_tag = floats_to_f32_blob(emb_tag)
+                    dbmod.upsert_tag_vec(conn, aid, blob_tag)
+                except Exception as e:
+                    errors.append(f"id={aid}: tag vec upsert failed: {e}")
+
     conn.commit()
     return {
         "updated_rows": updated,
@@ -143,10 +153,15 @@ def rebuild(
 
     if rebuild_vec:
         # Embedding recomputation is now a separate concern; here we only
-        # clear the vec table so that a dedicated embedding command can
-        # repopulate it.
+        # clear the vec tables so that a dedicated embedding command can
+        # repopulate them.
         try:
             conn.execute("DELETE FROM articles_vec")
+            try:
+                conn.execute("DELETE FROM articles_tag_vec")
+            except Exception:
+                # Tag vec table may not exist in older DBs; ignore.
+                pass
             out["vec_rebuilt"] = True
         except Exception as e:
             out["errors"].append(f"vec rebuild (clear) failed: {e}")
