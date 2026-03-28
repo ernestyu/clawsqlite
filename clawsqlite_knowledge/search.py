@@ -21,15 +21,21 @@ from .utils import (
 def _normalize_vec_distance(distance: float) -> float:
     """Convert L2 distance to a score in (0,1], higher is better.
 
-    We apply a simple 1/(1+d) transform and then a sigmoid-style
-    sharpening to increase contrast between close and far neighbors.
+    Pipeline:
+      1) d -> base = 1/(1+d)
+      2) base -> score = sigmoid(k * (base - c))
+
+    where c≈0.5 is the midpoint and k controls the steepness. This
+    gives us a true logistic sigmoid over the (0,1) range of base.
     """
+    import math
+
     d = max(0.0, float(distance))
     base = 1.0 / (1.0 + d)
-    # Simple sharpening: emphasize high base scores while squashing
-    # low ones. This is not a strict logistic curve but behaves
-    # similarly over (0,1).
-    return base * base
+    # Logistic sigmoid centered at 0.5.
+    k = 8.0
+    x = base - 0.5
+    return 1.0 / (1.0 + math.exp(-k * x))
 
 def _rank_score(rank: int, total: int) -> float:
     if total <= 0:
