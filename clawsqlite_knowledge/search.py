@@ -60,6 +60,10 @@ _SCORE_WEIGHTS_WARNED = False
 # back to pure lexical behavior regardless of this setting.
 _TAG_VEC_FRACTION_DEFAULT = 0.7
 
+# Log-compression strength for lexical tag scores. Larger alpha means
+# stronger compression of mid/high scores; alpha=0 disables compression.
+_TAG_FTS_LOG_ALPHA_DEFAULT = 5.0
+
 
 def _tag_vec_fraction() -> float:
     text = os.environ.get("CLAWSQLITE_TAG_VEC_FRACTION", "").strip()
@@ -74,6 +78,32 @@ def _tag_vec_fraction() -> float:
     if val > 1.0:
         return 1.0
     return val
+
+
+def _tag_lex_log_compress(x: float) -> float:
+    """Apply log compression to lexical tag scores in [0,1].
+
+    f(x) = ln(1 + alpha * x) / ln(1 + alpha)
+
+    where alpha is controlled by CLAWSQLITE_TAG_FTS_LOG_ALPHA
+    (default: 5.0). alpha<=0 disables compression.
+    """
+    import math
+
+    alpha_text = os.environ.get("CLAWSQLITE_TAG_FTS_LOG_ALPHA", "").strip()
+    if alpha_text:
+        try:
+            alpha = float(alpha_text)
+        except Exception:
+            alpha = _TAG_FTS_LOG_ALPHA_DEFAULT
+    else:
+        alpha = _TAG_FTS_LOG_ALPHA_DEFAULT
+
+    if alpha <= 0.0:
+        return max(0.0, min(1.0, float(x)))
+
+    x = max(0.0, min(1.0, float(x)))
+    return math.log(1.0 + alpha * x) / math.log(1.0 + alpha)
 
 
 def _score_weights_from_env() -> Dict[str, float]:
@@ -316,9 +346,10 @@ def hybrid_search(
         # (tags are ordered by importance). Without jieba we fall back to
         # a simple 0/1 exact-match bonus.
         if has_jieba_for_tags():
-            tag_lex_score = tag_match_score(keywords, r["tags"] or "")
+            tag_lex_score_raw = tag_match_score(keywords, r["tags"] or "")
         else:
-            tag_lex_score = tag_exact_match_bonus(keywords, r["tags"] or "")
+            tag_lex_score_raw = tag_exact_match_bonus(keywords, r["tags"] or "")
+        tag_lex_score = _tag_lex_log_compress(tag_lex_score_raw)
 
         tag_vec_dist = tag_vec_map.get(aid, None)
         tag_vec_score = _normalize_vec_distance(tag_vec_dist) if tag_vec_dist is not None else 0.0
