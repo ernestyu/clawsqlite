@@ -32,6 +32,7 @@ from .embed import embedding_enabled, get_embedding, floats_to_f32_blob, _embedd
 from .scraper import scrape_url
 from .search import hybrid_search
 from . import reindex as reindex_mod
+from . import interest as interest_mod
 
 # Plumbing layer (generic db/index/fs helpers)
 try:
@@ -995,12 +996,61 @@ def _add_common_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true", help="Output JSON")
     parser.add_argument("--verbose", action="store_true", help="Verbose logging")
 
+
+def cmd_build_interest_clusters(args) -> int:
+    paths = _resolve_paths(args)
+    db_path = paths["db"]
+    if not os.path.exists(db_path):
+        sys.stderr.write(f"ERROR: db not found at {db_path}. Check --root/--db or .env configuration.\n")
+        sys.stderr.write(
+            "NEXT: set --root/--db (or CLAWSQLITE_ROOT/CLAWSQLITE_DB) to an existing knowledge_data directory, "
+            "or run an ingest command first to initialize the DB.\n"
+        )
+        return 2
+    conn = None
+    try:
+        conn = _open_for_command(db_path, need_fts=False, need_vec=True, args=args)
+        # We require embeddings + vec0 to be meaningful.
+        missing_keys = _embedding_missing_keys()
+        if missing_keys:
+            sys.stderr.write(
+                "ERROR: build-interest-clusters requires embeddings; missing "
+                + ", ".join(missing_keys)
+                + "\n"
+            )
+            sys.stderr.write(
+                "NEXT: configure EMBEDDING_MODEL/EMBEDDING_BASE_URL/EMBEDDING_API_KEY and CLAWSQLITE_VEC_DIM, "
+                "and ensure vec0 is available.\n"
+            )
+            return 2
+        out = interest_mod.build_interest_clusters(
+            conn,
+            min_size=int(getattr(args, "min_size", 5) or 5),
+            max_clusters=int(getattr(args, "max_clusters", 64) or 64),
+        )
+        _print(out, bool(getattr(args, "json", False)))
+        return 0 if out.get("ok") else 4
+    except Exception as e:
+        sys.stderr.write(f"ERROR: build-interest-clusters failed: {e}\n")
+        return 4
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="clawsqlite knowledge", description="OpenClaw knowledge base CLI (SQLite + FTS5 + sqlite-vec).")
     # Also accept common flags before subcommand
     _add_common_flags(p)
 
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    # build-interest-clusters
+    sp = sub.add_parser("build-interest-clusters", help="Build interest clusters from existing article embeddings")
+    _add_common_flags(sp)
+    sp.add_argument("--min-size", type=int, default=5, help="Minimum cluster size (articles per cluster)")
+    sp.add_argument("--max-clusters", type=int, default=64, help="Maximum number of clusters to keep")
+    sp.set_defaults(func=cmd_build_interest_clusters)
 
     # ingest
     sp = sub.add_parser("ingest", help="Ingest a URL or a text into the KB")
