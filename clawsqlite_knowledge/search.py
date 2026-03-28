@@ -33,7 +33,9 @@ def _normalize_vec_distance(distance: float) -> float:
     d = max(0.0, float(distance))
     base = 1.0 / (1.0 + d)
     # Logistic sigmoid centered at 0.5.
-    k = 8.0
+    # k controls steepness; 30.0 gives strong separation between
+    # high-similarity and mediocre neighbors.
+    k = 30.0
     x = base - 0.5
     return 1.0 / (1.0 + math.exp(-k * x))
 
