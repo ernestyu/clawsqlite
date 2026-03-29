@@ -68,6 +68,13 @@ CREATE INDEX IF NOT EXISTS idx_articles_priority    ON articles(priority);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_source_url_unique
   ON articles(source_url)
   WHERE source_url IS NOT NULL AND trim(source_url) != '' AND source_url != 'Local';
+
+CREATE TABLE IF NOT EXISTS article_usage (
+  article_id      INTEGER PRIMARY KEY,
+  view_count      INTEGER NOT NULL DEFAULT 0,
+  first_viewed_at TEXT,
+  last_viewed_at  TEXT
+);
 """
 
 FTS_SCHEMA_SIMPLE = """
