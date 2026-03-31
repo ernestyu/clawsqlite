@@ -305,6 +305,78 @@ WHERE a.deleted_at IS NULL
         conn.commit()
         return {"ok": True, "clusters": 0, "articles": 0}
 
+    # Optional post-merge step: merge clusters whose centroids are too close.
+    merge_thresh = float(os.environ.get("CLAWSQLITE_INTEREST_MERGE_DISTANCE", "0.06") or 0.06)
+    if merge_thresh > 0.0 and len(final_centers) > 1:
+        cids = sorted(final_centers.keys())
+        # Union-find structure over cluster ids
+        parent: Dict[int, int] = {cid: cid for cid in cids}
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(a: int, b: int) -> None:
+            ra, rb = find(a), find(b)
+            if ra == rb:
+                return
+            # Simple union: attach smaller id to larger or vice versa
+            if ra < rb:
+                parent[rb] = ra
+            else:
+                parent[ra] = rb
+
+        # Compute cosine distances between centroids and merge when below threshold.
+        for i in range(len(cids)):
+            ci = cids[i]
+            vi = final_centers[ci]
+            for j in range(i + 1, len(cids)):
+                cj = cids[j]
+                vj = final_centers[cj]
+                # cosine distance = 1 - cos_sim
+                na = math.sqrt(_squared_l2(vi, [0.0] * dim))
+                nb = math.sqrt(_squared_l2(vj, [0.0] * dim))
+                if na == 0.0 or nb == 0.0:
+                    continue
+                dot = sum(vi[d] * vj[d] for d in range(dim))
+                cos_sim = dot / (na * nb)
+                cos_dist = 1.0 - cos_sim
+                if cos_dist < merge_thresh:
+                    union(ci, cj)
+
+        # Group clusters by representative
+        groups: Dict[int, List[int]] = {}
+        for cid in cids:
+            root = find(cid)
+            groups.setdefault(root, []).append(cid)
+
+        # Build merged clusters
+        merged_clusters: Dict[int, List[int]] = {}
+        merged_centers: Dict[int, List[float]] = {}
+        for root, members_cids in groups.items():
+            merged_members: List[int] = []
+            acc = [0.0] * dim
+            count = 0
+            for cid in members_cids:
+                for idx in final_clusters[cid]:
+                    merged_members.append(idx)
+                    p = points[idx]
+                    for d in range(dim):
+                        acc[d] += p[d]
+                    count += 1
+            if count == 0:
+                continue
+            inv = 1.0 / count
+            for d in range(dim):
+                acc[d] *= inv
+            merged_clusters[root] = merged_members
+            merged_centers[root] = acc
+
+        final_clusters = merged_clusters
+        final_centers = merged_centers
+
     # Map internal cluster ids to sequential ids starting from 1.
     sorted_cids = sorted(final_clusters.keys())
     cid_map = {old: i + 1 for i, old in enumerate(sorted_cids)}
