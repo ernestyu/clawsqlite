@@ -69,39 +69,54 @@ def _squared_l2(a: List[float], b: List[float]) -> float:
     return sum((x - y) * (x - y) for x, y in zip(a, b))
 
 
-def _kmeans(points: List[List[float]], k: int, *, max_iters: int = 10) -> Tuple[List[int], List[List[float]]]:
+def _kmeans(
+    points: List[List[float]],
+    k: int,
+    *,
+    max_iters: int = 10,
+    init_centers: List[List[float]] | None = None,
+) -> Tuple[List[int], List[List[float]]]:
     """Very small k-means implementation.
 
     Returns (assignments, centers):
       - assignments: len(points) ints in [0, k-1]
       - centers: k center vectors
+
+    If ``init_centers`` is provided, it is used as the initial centers and
+    its length determines ``k``. This is used by the second-stage clustering
+    where the effective k' is inferred from merged coarse clusters.
     """
     n = len(points)
-    if k <= 0:
-        k = 1
     if n == 0:
         return [], []
-    if n <= k:
-        # Degenerate: one point per cluster up to k.
-        centers = [p[:] for p in points]
-        assignments = list(range(n))
-        return assignments, centers
 
     dim = len(points[0])
 
-    # Deterministic init: pick k points roughly evenly along the dataset.
-    centers: List[List[float]] = []
-    step = max(1, n // k)
-    idx = 0
-    used = set()
-    for _ in range(k):
-        if idx >= n:
-            idx = n - 1
-        if idx in used:
-            idx = (idx + 1) % n
-        centers.append(points[idx][:])
-        used.add(idx)
-        idx += step
+    if init_centers is not None and len(init_centers) > 0:
+        centers = [c[:] for c in init_centers]
+        k = len(centers)
+    else:
+        if k <= 0:
+            k = 1
+        if n <= k:
+            # Degenerate: one point per cluster up to k.
+            centers = [p[:] for p in points]
+            assignments = list(range(n))
+            return assignments, centers
+
+        # Deterministic init: pick k points roughly evenly along the dataset.
+        centers = []
+        step = max(1, n // k)
+        idx = 0
+        used = set()
+        for _ in range(k):
+            if idx >= n:
+                idx = n - 1
+            if idx in used:
+                idx = (idx + 1) % n
+            centers.append(points[idx][:])
+            used.add(idx)
+            idx += step
 
     assignments = [0] * n
 
@@ -121,15 +136,15 @@ def _kmeans(points: List[List[float]], k: int, *, max_iters: int = 10) -> Tuple[
                 changed = True
 
         # Update step
-        counts = [0] * k
-        new_centers = [[0.0] * dim for _ in range(k)]
+        counts = [0] * len(centers)
+        new_centers = [[0.0] * dim for _ in range(len(centers))]
         for i, p in enumerate(points):
             j = assignments[i]
             counts[j] += 1
             cj = new_centers[j]
             for d in range(dim):
                 cj[d] += p[d]
-        for j in range(k):
+        for j in range(len(centers)):
             if counts[j] > 0:
                 inv = 1.0 / counts[j]
                 cj = new_centers[j]
@@ -211,6 +226,7 @@ WHERE a.deleted_at IS NULL
             ids.append(int(r["id"]))
             points.append(vec)
         except Exception:
+            # Best-effort: skip rows that cannot be decoded.
             continue
 
     n = len(points)
@@ -227,14 +243,15 @@ WHERE a.deleted_at IS NULL
     max_clusters = max(1, int(max_clusters) or 1)
 
     if n <= min_size:
-        k = 1
+        k0 = 1
     else:
         max_by_size = max(1, n // min_size)
-        k = min(max_clusters, max_by_size)
-        if k <= 0:
-            k = 1
+        k0 = min(max_clusters, max_by_size)
+        if k0 <= 0:
+            k0 = 1
 
-    assignments, centers = _kmeans(points, k)
+    # First-stage k-means with high k (k0).
+    assignments, centers = _kmeans(points, k0, max_iters=20)
     if not assignments:
         # Safety fallback
         _ensure_interest_tables(conn)
@@ -280,10 +297,9 @@ WHERE a.deleted_at IS NULL
         cluster_members = new_members
         centers = [large_centers[j] for j in large_clusters]
 
-    # Recompute centers based on final memberships
+    # Recompute centers based on final memberships from first stage.
     final_clusters: Dict[int, List[int]] = {}
     final_centers: Dict[int, List[float]] = {}
-    dim = len(points[0])
     for cid, members in cluster_members.items():
         if not members:
             continue
@@ -305,11 +321,13 @@ WHERE a.deleted_at IS NULL
         conn.commit()
         return {"ok": True, "clusters": 0, "articles": 0}
 
-    # Optional post-merge step: merge clusters whose centroids are too close.
+    # Phase 2: merge clusters whose centroids are too close, then run a
+    # second k-means using the merged centroids as initialization.
     merge_thresh = float(os.environ.get("CLAWSQLITE_INTEREST_MERGE_DISTANCE", "0.06") or 0.06)
     if merge_thresh > 0.0 and len(final_centers) > 1:
         cids = sorted(final_centers.keys())
-        # Union-find structure over cluster ids
+
+        # Union-find structure over cluster ids.
         parent: Dict[int, int] = {cid: cid for cid in cids}
 
         def find(x: int) -> int:
@@ -322,7 +340,6 @@ WHERE a.deleted_at IS NULL
             ra, rb = find(a), find(b)
             if ra == rb:
                 return
-            # Simple union: attach smaller id to larger or vice versa
             if ra < rb:
                 parent[rb] = ra
             else:
@@ -346,22 +363,20 @@ WHERE a.deleted_at IS NULL
                 if cos_dist < merge_thresh:
                     union(ci, cj)
 
-        # Group clusters by representative
+        # Group clusters by representative.
         groups: Dict[int, List[int]] = {}
         for cid in cids:
             root = find(cid)
             groups.setdefault(root, []).append(cid)
 
-        # Build merged clusters
-        merged_clusters: Dict[int, List[int]] = {}
-        merged_centers: Dict[int, List[float]] = {}
-        for root, members_cids in groups.items():
-            merged_members: List[int] = []
+        # Build initial centers for second-stage k-means: each group becomes
+        # one center, computed as the mean of all member article vectors.
+        init_centers: List[List[float]] = []
+        for members_cids in groups.values():
             acc = [0.0] * dim
             count = 0
             for cid in members_cids:
                 for idx in final_clusters[cid]:
-                    merged_members.append(idx)
                     p = points[idx]
                     for d in range(dim):
                         acc[d] += p[d]
@@ -371,11 +386,44 @@ WHERE a.deleted_at IS NULL
             inv = 1.0 / count
             for d in range(dim):
                 acc[d] *= inv
-            merged_clusters[root] = merged_members
-            merged_centers[root] = acc
+            init_centers.append(acc)
 
-        final_clusters = merged_clusters
-        final_centers = merged_centers
+        if init_centers:
+            # Second-stage k-means with k' = len(init_centers).
+            assignments2, centers2 = _kmeans(
+                points,
+                k=len(init_centers),
+                max_iters=10,
+                init_centers=init_centers,
+            )
+            if assignments2:
+                cluster_members2: Dict[int, List[int]] = {j: [] for j in range(len(centers2))}
+                for idx, cid in enumerate(assignments2):
+                    cluster_members2[cid].append(idx)
+
+                # Recompute final clusters and centers after second stage.
+                final_clusters = {}
+                final_centers = {}
+                for cid, members in cluster_members2.items():
+                    if not members:
+                        continue
+                    acc = [0.0] * dim
+                    for idx in members:
+                        p = points[idx]
+                        for d in range(dim):
+                            acc[d] += p[d]
+                    inv = 1.0 / len(members)
+                    for d in range(dim):
+                        acc[d] *= inv
+                    final_clusters[cid] = members
+                    final_centers[cid] = acc
+
+    if not final_clusters:
+        _ensure_interest_tables(conn)
+        conn.execute("DELETE FROM interest_cluster_members")
+        conn.execute("DELETE FROM interest_clusters")
+        conn.commit()
+        return {"ok": True, "clusters": 0, "articles": 0}
 
     # Map internal cluster ids to sequential ids starting from 1.
     sorted_cids = sorted(final_clusters.keys())
