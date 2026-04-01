@@ -1041,10 +1041,14 @@ def cmd_build_interest_clusters(args) -> int:
                 "and ensure vec0 is available.\n"
             )
             return 2
+        params = resolve_interest_params(
+            cli_min_size=getattr(args, "min_size", None),
+            cli_max_clusters=getattr(args, "max_clusters", None),
+        )
         out = interest_mod.build_interest_clusters(
             conn,
-            min_size=int(getattr(args, "min_size", 5) or 5),
-            max_clusters=int(getattr(args, "max_clusters", 64) or 64),
+            min_size=int(params["min_size"]),
+            max_clusters=int(params["max_clusters"]),
         )
         _print(out, bool(getattr(args, "json", False)))
         return 0 if out.get("ok") else 4
