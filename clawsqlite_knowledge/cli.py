@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 
 from . import db as dbmod
 from .utils import now_iso_z, truncate_text, comma_join_tags, resolve_root_paths, resolve_interest_params
+from .report_interest import run_interest_report
 from .storage import (
     ensure_dir,
     article_abspath,
