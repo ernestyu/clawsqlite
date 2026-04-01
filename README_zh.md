@@ -259,6 +259,70 @@ SMALL_LLM_MODEL=your-small-llm
 SMALL_LLM_API_KEY=sk-your-small-llm-key
 ```
 
+---
+
+### 4.5 兴趣簇（interest clusters）配置与调试
+
+在知识库已经积累了一定文章（例如几十到几百篇）后，可以基于摘要和
+标签 embedding 构建“兴趣簇”，把知识 base 看成若干兴趣主题：
+
+- 簇定义存储在：
+  - `interest_clusters(id,label,size,summary_centroid,created_at,updated_at)`
+  - `interest_cluster_members(cluster_id,article_id,membership)`
+- 上层应用（例如个人读报雷达）可以把这些簇当成 topic/兴趣点来使用。
+
+构建命令：
+
+```bash
+clawsqlite knowledge build-interest-clusters \
+  --db /path/to/clawkb.sqlite3 \
+  --min-size 5 \
+  --max-clusters 16
+```
+
+并可通过以下 env 或 `.env` 控制行为（CLI 参数优先）：
+
+- `CLAWSQLITE_INTEREST_MIN_SIZE`（默认 5）
+  - 每个簇的最小文章数，小于该值的小簇会被重分配到最近大簇；
+- `CLAWSQLITE_INTEREST_MAX_CLUSTERS`（默认 16）
+  - 第一阶段 k-means 的簇上限，实际 k0= `min(max_clusters, n//min_size)`；
+- `CLAWSQLITE_INTEREST_MERGE_DISTANCE`（默认 0.06）
+  - 基于簇心余弦距离的“合并阈值”，使用 `1 - cos_sim`；
+  - 值越小，簇越细；值越大，簇越粗，最终簇数越少；
+- `CLAWSQLITE_INTEREST_MERGE_ALPHA`（默认 0.4）
+  - 用于自动建议 merge 阈值的比例系数：
+    - 根据当前兴趣簇计算每簇的 `mean_radius`（成员到簇心的平均 1 - cos 距离）；
+    - 取其中位数作为典型半径 `median(mean_radius)`；
+    - 推荐阈值约为 `merge_distance ≈ alpha * median(mean_radius)`。
+
+调试与可视化：
+
+```bash
+clawsqlite knowledge inspect-interest-clusters \
+  --db /path/to/clawkb.sqlite3 \
+  --vec-dim 1024
+```
+
+- 打印每簇：`size / n_members / mean_radius / max_radius`；
+- 打印簇心两两 `1 - cos` 距离的 `min / max / median`；
+- 若安装了 matplotlib，则生成一张 PCA 2D 散点图：
+  - 点位置：簇心的 (PC1,PC2) 坐标；
+  - 点大小：与簇大小成比例（开根号缩放）；
+  - 点颜色：映射 `mean_radius`，色条标签为 `mean_radius (1 - cos)`；
+  - PNG 默认输出为：`./interest_clusters_pca.png`。
+
+可以加 `--no-plot` 只看数值不画图。
+
+实际建议的调参流程：
+
+1. 先用当前 env/参数跑一轮 `build-interest-clusters`；
+2. 使用 `inspect-interest-clusters` 观察簇大小分布、簇内半径和簇间距离；
+3. 使用 `tests/test_interest_merge_suggest.py` 或类似逻辑（按
+   `alpha * median(mean_radius)`）估算一个合适的 merge 阈值；
+4. 更新 `.env` 中的 `CLAWSQLITE_INTEREST_*` 参数，重新构建并观察结构变化。
+
+---
+
 然后在入库或更新时使用：
 
 ```bash

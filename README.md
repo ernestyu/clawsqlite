@@ -523,7 +523,110 @@ understand whether vec features are actually usable for the current DB.
 
 ---
 
-### 6.5 maintenance
+### 6.5 interest clustering (topics)
+
+`clawsqlite` 还支持在现有文章摘要 + 标签向量之上构建“兴趣簇”，供上层
+应用（例如个人读报雷达）当作主题簇使用。
+
+#### 6.5.1 构建兴趣簇
+
+```bash
+clawsqlite knowledge build-interest-clusters \
+  --db /path/to/clawkb.sqlite3 \
+  --min-size 5 \
+  --max-clusters 16
+```
+
+行为（简化描述）：
+
+1. 从 `articles` / `articles_vec` / `articles_tag_vec` 中选择未删除、summary
+   非空的文章；
+2. 对每篇文章构造“interest 向量”：
+   - 默认从 summary embedding 和 tag embedding 线性混合得到：
+     `interest = w_sum * summary_vec + w_tag * tag_vec`；
+   - 混合权重由 `CLAWSQLITE_INTEREST_TAG_WEIGHT` 控制（默认 0.75，范围 0~1）；
+3. 第一阶段：高 k k‑means + 小簇重分配：
+   - 初始 k0 由 `min_size` 和 `max_clusters` 决定：
+     `k0 = min(max_clusters, n // min_size)`；
+   - 运行 k‑means 后，将小于 `min_size` 的簇里的点重分配给最近的大簇；
+4. 第二阶段：基于簇心距离阈值自动合并 + 再聚类：
+   - 计算剩余簇心之间的 `cosine distance = 1 - cos_sim`；
+   - 若两簇心距离 `< CLAWSQLITE_INTEREST_MERGE_DISTANCE`，视为“太近”，用
+     union-find 归并到同一组；
+   - 每个组的所有成员向量求平均，得到新的组中心；
+   - 以这些组中心为初始化，再跑一轮 k‑means 得到最终兴趣簇；
+5. 将结果写入：
+   - `interest_clusters(id, label, size, summary_centroid, created_at, updated_at)`
+   - `interest_cluster_members(cluster_id, article_id, membership)`（当前 `membership` 固定为 1.0）。
+
+#### 6.5.2 兴趣簇配置（ENV）
+
+可以通过以下环境变量或 `.env` 控制兴趣簇构建行为（CLI 显式参数优先）：
+
+- `CLAWSQLITE_INTEREST_MIN_SIZE`（默认 5）
+  - 每个簇的最小文章数，小于该值的小簇会在第一阶段被重分配到最近的大簇；
+- `CLAWSQLITE_INTEREST_MAX_CLUSTERS`（默认 16）
+  - 第一阶段高 k 聚类的上限：实际 k0 取 `min(max_clusters, n // min_size)`；
+- `CLAWSQLITE_INTEREST_MERGE_DISTANCE`（默认 0.06）
+  - 第二阶段“簇心距离过近需要合并”的阈值，使用 `1 - cos_sim` 度量：
+    - 较小值（~0.05–0.07）→ 话题更细，簇数略多；
+    - 较大值（~0.08–0.12）→ 话题更粗，簇数更少；
+  - 实际推荐值可以结合质量脚本动态估计（见下文）；
+- `CLAWSQLITE_INTEREST_MERGE_ALPHA`（默认 0.4）
+  - 用于“自动推荐 merge 阈值”的比例系数：
+    - 先根据当前兴趣簇计算每个簇的 `mean_radius`（成员到簇心的平均 1 - cos 距离）；
+    - 取其中位数 `median(mean_radius)`，推荐值约为
+      `CLAWSQLITE_INTEREST_MERGE_DISTANCE ≈ alpha * median(mean_radius)`；
+    - 在当前 149 篇示例 KB 上，`median(mean_radius)≈0.17`，
+      `alpha=0.4` 对应的推荐阈值约为 `0.07`。
+
+#### 6.5.3 兴趣簇质量分析 & 可视化
+
+为了调参和观察兴趣簇结构，可使用内置分析命令：
+
+```bash
+clawsqlite knowledge inspect-interest-clusters \
+  --db /path/to/clawkb.sqlite3 \
+  --vec-dim 1024
+```
+
+该命令会：
+
+1. 从 `interest_clusters` / `interest_cluster_members` 读出当前簇；
+2. 以与构建簇相同的方式重建 interest 向量；
+3. 打印每个簇的：`size / n_members / mean_radius / max_radius`；
+4. 打印簇心之间 `1 - cos` 距离的 `min / max / median`；
+5. 若环境可用 `matplotlib`，生成一张 PCA 2D 散点图：
+   - 点位置：簇心的 PCA 降维坐标 (PC1, PC2)；
+   - 点大小：与簇大小成比例（使用开根号压缩动态范围）；
+   - 点颜色：对应该簇的 `mean_radius`，配色为 `viridis`，色条标签
+     为 `mean_radius (1 - cos)`；
+   - PNG 默认写到当前工作目录：`./interest_clusters_pca.png`。
+
+可以加 `--no-plot` 仅打印数值统计，不生成图片：
+
+```bash
+clawsqlite knowledge inspect-interest-clusters \
+  --db /path/to/clawkb.sqlite3 \
+  --vec-dim 1024 \
+  --no-plot
+```
+
+实际调参建议：
+
+1. 先用当前 KB 跑一轮 `build-interest-clusters`，再运行
+   `inspect-interest-clusters` 看各簇的大小、半径以及簇心距离；
+2. 使用辅助脚本（`tests/test_interest_merge_suggest.py`）或类似逻辑，按
+   `alpha * median(mean_radius)` 估算一个合适的
+   `CLAWSQLITE_INTEREST_MERGE_DISTANCE`（例如 0.07）；
+3. 调整 `.env` 中的
+   `CLAWSQLITE_INTEREST_MIN_SIZE` / `CLAWSQLITE_INTEREST_MAX_CLUSTERS` /
+   `CLAWSQLITE_INTEREST_MERGE_DISTANCE` 后重新构建，并用
+   `inspect-interest-clusters` 观察结构变化。
+
+---
+
+### 6.6 maintenance
 
 ```bash
 clawsqlite knowledge maintenance prune --days 3 --dry-run
