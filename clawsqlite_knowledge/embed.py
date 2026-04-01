@@ -59,7 +59,7 @@ def _embeddings_url(base_url: str) -> str:
         return base + "/embeddings"
     return base + "/v1/embeddings" if base.startswith("http") else base + "/embeddings"
 
-def get_embedding(text: str, *, timeout: int = 60) -> List[float]:
+def get_embedding(text: str, *, timeout: int = 300) -> List[float]:
     """Call embedding service and return a float list.
 
     Uses httpx with a sane default User-Agent to avoid being trivially
