@@ -260,25 +260,12 @@ def _ensure_mplconfigdir() -> None:
       falling back to DejaVu Sans.
     """
     os.environ.setdefault("MPLCONFIGDIR", "/tmp/mplconfig")
+    # 为了最大兼容性，这里不再强制声明 CJK 字体族，交给 Matplotlib 默认逻辑；
+    # 图上的文案已经统一为 ASCII，避免因为缺少 CJK 字体而产生大量 findfont 警告。
+    # 保留 try/except 结构便于未来扩展。
     try:
-        import matplotlib
-
-        # Prefer Noto Sans CJK if available (installed via fonts-noto-cjk),
-        # then fall back to DejaVu Sans.
-        font_candidates = [
-            "Noto Sans CJK SC",
-            "Noto Sans CJK JP",
-            "Noto Sans CJK TC",
-            "Noto Sans CJK KR",
-            "Noto Sans CJK",
-            "DejaVu Sans",
-        ]
-        matplotlib.rcParams["font.family"] = font_candidates
-        matplotlib.rcParams["font.sans-serif"] = font_candidates
-        matplotlib.rcParams["axes.unicode_minus"] = False
+        import matplotlib  # noqa: F401
     except Exception:
-        # Best-effort: if matplotlib is not available or rcParams cannot be
-        # updated, we still proceed with default settings.
         pass
 
 
