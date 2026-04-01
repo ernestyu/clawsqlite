@@ -19,7 +19,7 @@ import datetime as _dt
 from typing import Any, Dict, List, Optional
 
 from . import db as dbmod
-from .utils import now_iso_z, truncate_text, comma_join_tags, resolve_root_paths
+from .utils import now_iso_z, truncate_text, comma_join_tags, resolve_root_paths, resolve_interest_params
 from .storage import (
     ensure_dir,
     article_abspath,
