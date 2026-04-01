@@ -24,6 +24,7 @@ except Exception:  # pragma: no cover - optional dependency
 
 ISO_Z_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
 
+
 def now_iso_z() -> str:
     """Return current UTC time in ISO 8601 with Z suffix."""
     return _dt.datetime.utcnow().replace(tzinfo=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
@@ -117,6 +118,70 @@ def resolve_root_paths(
         "articles_dir": str(articles_dir),
     }
 
+
+def resolve_interest_params(
+    *,
+    cli_min_size: Optional[int] = None,
+    cli_max_clusters: Optional[int] = None,
+    cli_alpha: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Resolve interest clustering parameters with a clear priority chain.
+
+    Priority for each parameter:
+    1. CLI explicit value (if not None)
+    2. Environment variable (CLAWSQLITE_INTEREST_*)
+    3. Hard-coded default:
+       - min_size: 5
+       - max_clusters: 16
+       - alpha: 0.4
+
+    This helper keeps the policy in one place so CLI commands and
+    internal tools can share the same behavior.
+    """
+
+    # min_size
+    if cli_min_size is not None:
+        min_size = cli_min_size
+    else:
+        env_min = os.environ.get("CLAWSQLITE_INTEREST_MIN_SIZE")
+        try:
+            min_size = int(env_min) if env_min is not None else 5
+        except Exception:
+            min_size = 5
+    if min_size <= 0:
+        min_size = 1
+
+    # max_clusters
+    if cli_max_clusters is not None:
+        max_clusters = cli_max_clusters
+    else:
+        env_max = os.environ.get("CLAWSQLITE_INTEREST_MAX_CLUSTERS")
+        try:
+            max_clusters = int(env_max) if env_max is not None else 16
+        except Exception:
+            max_clusters = 16
+    if max_clusters <= 0:
+        max_clusters = 1
+
+    # alpha (for merge distance suggestion)
+    if cli_alpha is not None:
+        alpha = float(cli_alpha)
+    else:
+        env_alpha = os.environ.get("CLAWSQLITE_INTEREST_MERGE_ALPHA")
+        try:
+            alpha = float(env_alpha) if env_alpha is not None else 0.4
+        except Exception:
+            alpha = 0.4
+    if alpha <= 0.0:
+        alpha = 0.4
+
+    return {
+        "min_size": int(min_size),
+        "max_clusters": int(max_clusters),
+        "alpha": float(alpha),
+    }
+
+
 def parse_iso(s: str) -> Optional[_dt.datetime]:
     """Parse ISO 8601 time. Return None if parsing fails."""
     if not s:
@@ -129,13 +194,16 @@ def parse_iso(s: str) -> Optional[_dt.datetime]:
     except Exception:
         return None
 
+
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+
 
 def has_cjk(text: str, threshold: int = 2) -> bool:
     """Heuristic CJK detection: True if at least `threshold` CJK chars exist."""
     if not text:
         return False
     return len(_CJK_RE.findall(text)) >= threshold
+
 
 def slugify(title: str, max_len: int = 60) -> str:
     """Generate a filesystem-safe slug for filenames.
@@ -216,6 +284,7 @@ def slugify(title: str, max_len: int = 60) -> str:
         slug = "untitled"
     return slug[:max_len]
 
+
 def truncate_text(s: str, max_chars: int = 1200) -> str:
     """Hard truncate text with a soft boundary preference."""
     if s is None:
@@ -231,17 +300,20 @@ def truncate_text(s: str, max_chars: int = 1200) -> str:
             return cut[: idx + 1].strip()
     return cut.strip()
 
+
 def safe_json_load(s: str) -> Optional[dict]:
     try:
         return json.loads(s)
     except Exception:
         return None
 
+
 def coalesce(*vals):
     for v in vals:
         if v is not None and v != "":
             return v
     return ""
+
 
 def comma_join_tags(tags: Any) -> str:
     """Normalize tags to a comma-separated string."""
@@ -258,125 +330,5 @@ def comma_join_tags(tags: Any) -> str:
             if x is None:
                 continue
             parts.append(str(x).strip())
-        parts = [p for p in parts if p]
-        return ",".join(parts)
-    return str(tags).strip()
-
-def has_jieba_for_tags() -> bool:
-    """Return True if jieba is available for tag scoring heuristics."""
-    return _JIEBA_FOR_TAGS_AVAILABLE
-
-
-def tag_exact_match_bonus(query_keywords: List[str], tags_csv: str) -> float:
-    """Return a small bonus if any keyword is an exact tag.
-
-    Deprecated in favor of tag_match_score but kept for backward
-    compatibility. It only checks whether *any* keyword exactly matches a
-    tag (case-insensitive) and returns 1.0/0.0.
-    """
-    if not query_keywords or not tags_csv:
-        return 0.0
-    tag_set = {t.strip().lower() for t in tags_csv.replace("，", ",").split(",") if t.strip()}
-    for kw in query_keywords:
-        if kw.strip().lower() in tag_set:
-            return 1.0
-    return 0.0
-
-
-def tag_match_score(query_keywords: List[str], tags_csv: str, *, max_tags_used: int = 10) -> float:
-    """Score how well query keywords match the tag list (0..1).
-
-    - Tags are stored as a comma-separated string; here we treat them as an
-      ordered list of importance (t0, t1, ...).
-    - For each query keyword, we look for the *first* exact tag match
-      (case-insensitive) and add a contribution of 1/(1+rank), where rank
-      is the tag index (0-based).
-    - The final score is normalized by the best possible score for the
-      given number of query keywords and tags, so it is always in [0, 1].
-    """
-    if not query_keywords or not tags_csv:
-        return 0.0
-
-    tags = [
-        t.strip().lower()
-        for t in tags_csv.replace("，", ",").split(",")
-        if t.strip()
-    ]
-    if not tags:
-        return 0.0
-
-    # Limit the number of tags participating in the score so that very
-    # long tag lists don't dominate.
-    tags = tags[: max_tags_used or 10]
-    index = {}
-    for i, t in enumerate(tags):
-        if t not in index:
-            index[t] = i
-
-    # Count contributions.
-    raw_score = 0.0
-    used_keywords = 0
-    for kw in query_keywords:
-        k = kw.strip().lower()
-        if not k:
-            continue
-        used_keywords += 1
-        if k in index:
-            rank = index[k]
-            raw_score += 1.0 / (1.0 + rank)
-
-    if raw_score <= 0.0 or used_keywords == 0:
-        return 0.0
-
-    # Compute theoretical best score for normalization: all keywords match
-    # the top tags.
-    max_matches = min(used_keywords, len(tags))
-    best = 0.0
-    for i in range(max_matches):
-        best += 1.0 / (1.0 + i)
-    if best <= 0.0:
-        return 0.0
-
-    return min(raw_score / best, 1.0)
-
-def extract_keywords_light(query: str, max_k: int = 10) -> List[str]:
-    """Lightweight keyword extraction: split by whitespace and punctuation; keep meaningful tokens."""
-    if not query:
-        return []
-    q = query.strip()
-    # Replace punctuation with space
-    q = re.sub(r"[^\w\u4e00-\u9fff]+", " ", q)
-    parts = [p.strip() for p in q.split() if p.strip()]
-    # Deduplicate preserving order
-    seen = set()
-    out = []
-    for p in parts:
-        if p in seen:
-            continue
-        seen.add(p)
-        out.append(p)
-        if len(out) >= max_k:
-            break
-    return out
-
-def build_fts_query_from_keywords(keywords: List[str]) -> str:
-    """
-    Build an FTS5 MATCH query from keywords.
-
-    We use OR to broaden recall.
-    Escape double quotes; wrap terms that contain special chars.
-    """
-    terms = []
-    for kw in keywords:
-        kw = kw.strip()
-        if not kw:
-            continue
-        kw = kw.replace('"', '""')
-        # Quote if contains spaces
-        if " " in kw:
-            terms.append(f'"{kw}"')
-        else:
-            terms.append(kw)
-    if not terms:
-        return ""
-    return " OR ".join(terms)
+        return ",".join([p for p in parts if p])
+    return str(tags)
