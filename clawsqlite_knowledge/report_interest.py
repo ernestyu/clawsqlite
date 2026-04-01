@@ -252,8 +252,33 @@ def _theme_for_cluster(
 
 
 def _ensure_mplconfigdir() -> None:
-    # Avoid permission issues in containers where ~/.cache is not writable.
+    """Ensure Matplotlib can write configs and has a CJK-capable font.
+
+    - MPLCONFIGDIR is set to a writable location to avoid ~/.cache issues.
+    - When possible, prefer Noto Sans CJK (fonts-noto-cjk) for Chinese text,
+      falling back to DejaVu Sans.
+    """
     os.environ.setdefault("MPLCONFIGDIR", "/tmp/mplconfig")
+    try:
+        import matplotlib
+
+        # Prefer Noto Sans CJK if available (installed via fonts-noto-cjk),
+        # then fall back to DejaVu Sans.
+        font_candidates = [
+            "Noto Sans CJK SC",
+            "Noto Sans CJK JP",
+            "Noto Sans CJK TC",
+            "Noto Sans CJK KR",
+            "Noto Sans CJK",
+            "DejaVu Sans",
+        ]
+        matplotlib.rcParams["font.family"] = font_candidates
+        matplotlib.rcParams["font.sans-serif"] = font_candidates
+        matplotlib.rcParams["axes.unicode_minus"] = False
+    except Exception:
+        # Best-effort: if matplotlib is not available or rcParams cannot be
+        # updated, we still proceed with default settings.
+        pass
 
 
 def run_interest_report(
