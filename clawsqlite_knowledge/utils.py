@@ -134,9 +134,6 @@ def resolve_interest_params(
        - min_size: 5
        - max_clusters: 16
        - alpha: 0.4
-
-    This helper keeps the policy in one place so CLI commands and
-    internal tools can share the same behavior.
     """
 
     # min_size
@@ -249,7 +246,6 @@ def slugify(title: str, max_len: int = 60) -> str:
             continue
         cat = _ud.category(ch)
         if cat[0] in ("L", "N"):
-            # Letter or Number (keep Unicode, including CJK)
             buf.append(ch)
         else:
             # punctuation / others -> boundary
@@ -330,5 +326,128 @@ def comma_join_tags(tags: Any) -> str:
             if x is None:
                 continue
             parts.append(str(x).strip())
-        return ",".join([p for p in parts if p])
-    return str(tags)
+        parts = [p for p in parts if p]
+        return ",".join(parts)
+    return str(tags).strip()
+
+
+def has_jieba_for_tags() -> bool:
+    """Return True if jieba is available for tag scoring heuristics."""
+    return _JIEBA_FOR_TAGS_AVAILABLE
+
+
+def tag_exact_match_bonus(query_keywords: List[str], tags_csv: str) -> float:
+    """Return a small bonus if any keyword is an exact tag.
+
+    Deprecated in favor of tag_match_score but kept for backward
+    compatibility. It only checks whether *any* keyword exactly matches a
+    tag (case-insensitive) and returns 1.0/0.0.
+    """
+    if not query_keywords or not tags_csv:
+        return 0.0
+    tag_set = {t.strip().lower() for t in tags_csv.replace("，", ",").split(",") if t.strip()}
+    for kw in query_keywords:
+        if kw.strip().lower() in tag_set:
+            return 1.0
+    return 0.0
+
+
+def tag_match_score(query_keywords: List[str], tags_csv: str, *, max_tags_used: int = 10) -> float:
+    """Score how well query keywords match the tag list (0..1).
+
+    - Tags are stored as a comma-separated string; here we treat them as an
+      ordered list of importance (t0, t1, ...).
+    - For each query keyword, we look for the *first* exact tag match
+      (case-insensitive) and add a contribution of 1/(1+rank), where rank
+      is the tag index (0-based).
+    - The final score is normalized by the best possible score for the
+      given number of query keywords and tags, so it is always in [0, 1].
+    """
+    if not query_keywords or not tags_csv:
+        return 0.0
+
+    tags = [
+        t.strip().lower()
+        for t in tags_csv.replace("，", ",").split(",")
+        if t.strip()
+    ]
+    if not tags:
+        return 0.0
+
+    # Limit the number of tags participating in the score so that very
+    # long tag lists don't dominate.
+    tags = tags[: max_tags_used or 10]
+    index = {}
+    for i, t in enumerate(tags):
+        if t not in index:
+            index[t] = i
+
+    # Count contributions.
+    raw_score = 0.0
+    used_keywords = 0
+    for kw in query_keywords:
+        k = kw.strip().lower()
+        if not k:
+            continue
+        used_keywords += 1
+        if k in index:
+            rank = index[k]
+            raw_score += 1.0 / (1.0 + rank)
+
+    if raw_score <= 0.0 or used_keywords == 0:
+        return 0.0
+
+    # Compute theoretical best score for normalization: all keywords match
+    # the top tags.
+    max_matches = min(used_keywords, len(tags))
+    best = 0.0
+    for i in range(max_matches):
+        best += 1.0 / (1.0 + i)
+    if best <= 0.0:
+        return 0.0
+
+    return min(raw_score / best, 1.0)
+
+
+def extract_keywords_light(query: str, max_k: int = 10) -> List[str]:
+    """Lightweight keyword extraction: split by whitespace and punctuation; keep meaningful tokens."""
+    if not query:
+        return []
+    q = query.strip()
+    # Replace punctuation with space
+    q = re.sub(r"[^\w\u4e00-\u9fff]+", " ", q)
+    parts = [p.strip() for p in q.split() if p.strip()]
+    # Deduplicate preserving order
+    seen = set()
+    out = []
+    for p in parts:
+        if p in seen:
+            continue
+        seen.add(p)
+        out.append(p)
+        if len(out) >= max_k:
+            break
+    return out
+
+
+def build_fts_query_from_keywords(keywords: List[str]) -> str:
+    """
+    Build an FTS5 MATCH query from keywords.
+
+    We use OR to broaden recall.
+    Escape double quotes; wrap terms that contain special chars.
+    """
+    terms = []
+    for kw in keywords:
+        kw = kw.strip()
+        if not kw:
+            continue
+        kw = kw.replace('"', '""')
+        # Quote if contains spaces
+        if " " in kw:
+            terms.append(f'"{kw}"')
+        else:
+            terms.append(kw)
+    if not terms:
+        return ""
+    return " OR ".join(terms)
