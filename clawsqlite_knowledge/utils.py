@@ -32,9 +32,13 @@ def now_iso_z() -> str:
 def load_project_env(path: Optional[Path] = None) -> None:
     """Load project-level .env file into os.environ (if it exists).
 
-    This is a lightweight replacement for python-dotenv, kept intentionally
-    simple: KEY=VALUE per line, '#' starts a comment, blank lines ignored.
-    We only set variables that are not already present in os.environ.
+    Priority model (matching clawsqlite docs):
+    - CLI arguments have highest precedence (handled elsewhere);
+    - project .env overrides existing process env vars;
+    - system environment is the baseline.
+
+    The file format is intentionally simple: KEY=VALUE per line,
+    lines starting with '#' or without '=' are ignored.
     """
 
     if path is None:
@@ -60,7 +64,8 @@ def load_project_env(path: Optional[Path] = None) -> None:
         # Strip optional surrounding single/double quotes: VAR="value" or VAR='value'
         if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
             value = value[1:-1]
-        os.environ.setdefault(key, value)
+        # Project .env overrides existing env to follow: CLI > .env > system env.
+        os.environ[key] = value
 
 
 def resolve_root_paths(
