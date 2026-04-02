@@ -19,7 +19,7 @@ import datetime as _dt
 from typing import Any, Dict, List, Optional
 
 from . import db as dbmod
-from .utils import now_iso_z, truncate_text, comma_join_tags, resolve_root_paths, resolve_interest_params
+from .utils import now_iso_z, truncate_text, comma_join_tags, resolve_root_paths, resolve_interest_params, load_project_env
 from .report_interest import run_interest_report
 from .storage import (
     ensure_dir,
@@ -1259,6 +1259,13 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 def main(argv: Optional[List[str]] = None) -> int:
+    # Load project-level .env from repo root early so that config
+    # resolution follows CLI > .env > system env.
+    try:
+        load_project_env()
+    except Exception:
+        # Best-effort; CLI/env resolution will still work with system env only.
+        pass
     parser = build_parser()
     args = parser.parse_args(argv)
     return int(args.func(args))
