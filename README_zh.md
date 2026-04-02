@@ -196,8 +196,8 @@ SMALL_LLM_API_KEY=sk-your-small-llm-key
 ```
 
 运行时，`clawsqlite knowledge ...`（以及 `python -m clawsqlite_cli`）会自动加载
-当前工作目录下的 `.env`，且不会覆盖已存在的环境变量。OpenClaw 场景下通常
-通过 agent 配置注入环境变量。
+当前工作目录下的 `.env`，并覆盖同名环境变量；整体优先级为：CLI 参数 > 项目 `.env` > 进程环境变量。
+OpenClaw 场景下通常通过 agent 配置注入环境变量。
 
 ### 4.3 标签生成（长摘要 + LLM / jieba 降级）
 
