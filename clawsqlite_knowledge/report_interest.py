@@ -19,6 +19,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+# Ensure Matplotlib uses a writable config/cache dir in container environments.
+# This avoids permission errors when the default ~/.cache/matplotlib is not writable.
+if "MPLCONFIGDIR" not in os.environ:
+    os.environ["MPLCONFIGDIR"] = "/tmp/mplconfig"
+
 from .embed import _resolve_vec_dim
 from .db import _find_vec0_so
 from .inspect_interest import _cosine_distance, _load_clusters, _load_interest_vectors
