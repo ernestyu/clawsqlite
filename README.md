@@ -60,7 +60,7 @@ The knowledge app helps you:
       `CLAWSQLITE_TAG_FTS_LOG_ALPHA`, default 5.0) so that many partial
       tag hits don’t overpower the semantic channels
 - **CLI first**
-  - Simple subcommands: `ingest`, `search`, `show`, `export`, `update`, `delete`, `reindex`
+  - Simple subcommands: `ingest`, `search`, `show`, `export`, `update`, `delete`, `reindex`, `doctor`
 
 ---
 
@@ -153,6 +153,15 @@ Use:
 
 ```bash
 clawsqlite knowledge ...
+```
+
+To run a quick self-check of your knowledge DB + env (paths, vec0, embedding,
+small LLM), you can use:
+
+```bash
+clawsqlite knowledge doctor --json
+# or, from source without installing the package
+python -m clawsqlite_knowledge.cli doctor
 ```
 
 ---

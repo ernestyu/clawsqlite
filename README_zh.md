@@ -47,7 +47,7 @@
   - 小模型（small LLM）：通过兼容 `/v1/chat/completions` 的接口生成标签
 
 - **命令行优先**
-  - 核心子命令：`ingest`，`search`，`show`，`export`，`update`，`delete`，`reindex`，`maintenance`
+  - 核心子命令：`ingest`，`search`，`show`，`export`，`update`，`delete`，`reindex`，`maintenance`，`doctor`
 
 ---
 
@@ -142,6 +142,14 @@ CLAWSQLITE_PYTHON=/opt/venv/bin/python ./bin/clawsqlite knowledge --help
 
 Embedding / 抓取等配置建议通过外部环境变量
 （例如 OpenClaw 的 Agent 配置）来管理。
+
+如果你想快速自检当前知识库配置（路径、vec0、embedding、小模型），可以运行：
+
+```bash
+clawsqlite knowledge doctor --json
+# 或在源码目录下（未安装包时）：
+python -m clawsqlite_knowledge.cli doctor
+```
 
 ---
 

@@ -23,12 +23,12 @@ usage: clawsqlite knowledge [-h] [--root ROOT] [--db DB]
                             [--articles-dir ARTICLES_DIR]
                             [--tokenizer-ext TOKENIZER_EXT]
                             [--vec-ext VEC_EXT] [--json] [--verbose]
-                            {build-interest-clusters,ingest,search,show,export,update,delete,reindex,inspect-interest-clusters,embed-from-summary,maintenance} ...
+                            {build-interest-clusters,ingest,search,show,export,update,delete,reindex,inspect-interest-clusters,embed-from-summary,maintenance,doctor} ...
 
 OpenClaw knowledge base CLI (SQLite + FTS5 + sqlite-vec).
 
 positional arguments:
-  {build-interest-clusters,ingest,search,show,export,update,delete,reindex,inspect-interest-clusters,embed-from-summary,maintenance}
+  {build-interest-clusters,ingest,search,show,export,update,delete,reindex,inspect-interest-clusters,embed-from-summary,maintenance,doctor}
     build-interest-clusters
                         Build interest clusters from existing article
                         embeddings
@@ -43,6 +43,7 @@ positional arguments:
                         Inspect interest cluster radius + PCA scatter plot
     embed-from-summary  Embed article summaries into articles_vec via plumbing
     maintenance         Maintenance: prune orphan/backup files and check paths
+    doctor              Self-check knowledge DB/env, output JSON report
 
 options:
   -h, --help            show this help message and exit
