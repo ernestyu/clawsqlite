@@ -1,3 +1,4 @@
 httpx>=0.23
 jieba>=0.42
 pypinyin>=0.55
+numpy
