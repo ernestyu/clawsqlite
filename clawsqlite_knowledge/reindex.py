@@ -41,6 +41,12 @@ def fix_missing(
     *,
     gen_provider: str,
     embed_on: bool,
+    max_summary_chars: int = 1200,
+    allow_heuristic: bool = True,
+    llm_context_window_chars: int = 24000,
+    llm_prompt_reserved_chars: int = 4000,
+    llm_chunk_overlap_chars: int = 500,
+    llm_timeout_seconds: int = 60,
     verbose: bool = False,
 ) -> Dict[str, Any]:
     """
@@ -77,7 +83,17 @@ def fix_missing(
                 content = (summary or title or "")
 
             try:
-                gen = generate_fields(content, hint_title=title or None, provider=gen_provider)
+                gen = generate_fields(
+                    content,
+                    hint_title=title or None,
+                    provider=gen_provider,
+                    max_summary_chars=max_summary_chars,
+                    allow_heuristic=allow_heuristic,
+                    llm_context_window_chars=llm_context_window_chars,
+                    llm_prompt_reserved_chars=llm_prompt_reserved_chars,
+                    llm_chunk_overlap_chars=llm_chunk_overlap_chars,
+                    llm_timeout_seconds=llm_timeout_seconds,
+                )
                 new_title = title or (gen.get("title") or "").strip()
                 new_summary = summary or (gen.get("summary") or "").strip()
                 new_tags = tags or comma_join_tags(gen.get("tags"))

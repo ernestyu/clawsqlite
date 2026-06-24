@@ -57,7 +57,19 @@ CREATE TABLE IF NOT EXISTS articles (
   deleted_at       TEXT,
   category         TEXT,
   local_file_path  TEXT,
-  priority         INTEGER NOT NULL DEFAULT 0
+  priority         INTEGER NOT NULL DEFAULT 0,
+  generation_provider TEXT,
+  generation_quality  TEXT,
+  summary_model       TEXT,
+  tags_model          TEXT,
+  embedding_model     TEXT,
+  embedding_dim       INTEGER,
+  ingest_status       TEXT,
+  ingest_error        TEXT,
+  content_type        TEXT,
+  key_claims          TEXT,
+  entities            TEXT,
+  config_path         TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_articles_created_at  ON articles(created_at);
@@ -98,6 +110,21 @@ CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
 
 _FTS_TOKENIZER_RE = re.compile(r"tokenize\s*=\s*['\"]simple['\"]", re.IGNORECASE)
 _WORD_TOKEN_RE = re.compile(r"[\w\u4e00-\u9fff]")
+
+_ARTICLE_EXTRA_COLUMNS: Dict[str, str] = {
+    "generation_provider": "TEXT",
+    "generation_quality": "TEXT",
+    "summary_model": "TEXT",
+    "tags_model": "TEXT",
+    "embedding_model": "TEXT",
+    "embedding_dim": "INTEGER",
+    "ingest_status": "TEXT",
+    "ingest_error": "TEXT",
+    "content_type": "TEXT",
+    "key_claims": "TEXT",
+    "entities": "TEXT",
+    "config_path": "TEXT",
+}
 
 def _fts_uses_simple_tokenizer(conn: sqlite3.Connection) -> bool:
     try:
@@ -349,6 +376,21 @@ def _drop_fts(conn: sqlite3.Connection) -> None:
         pass
 
 
+def _ensure_article_columns(conn: sqlite3.Connection) -> None:
+    try:
+        rows = conn.execute("PRAGMA table_info(articles)").fetchall()
+    except Exception:
+        return
+    existing = {str(r["name"] if isinstance(r, sqlite3.Row) else r[1]) for r in rows}
+    for name, ddl in _ARTICLE_EXTRA_COLUMNS.items():
+        if name in existing:
+            continue
+        try:
+            conn.execute(f"ALTER TABLE articles ADD COLUMN {name} {ddl}")
+        except Exception:
+            pass
+
+
 def _create_fts(conn: sqlite3.Connection, *, use_simple: bool) -> None:
     conn.executescript(FTS_SCHEMA_SIMPLE if use_simple else FTS_SCHEMA_FALLBACK)
 
@@ -382,6 +424,7 @@ def open_db(
     _try_enable_ext(conn)
 
     conn.executescript(BASE_SCHEMA_SQL)
+    _ensure_article_columns(conn)
 
     if need_fts:
         ext = tokenizer_ext or os.environ.get("CLAWSQLITE_TOKENIZER_EXT") or DEFAULT_TOKENIZER_EXT
@@ -432,14 +475,54 @@ def insert_article(
     local_file_path: str,
     priority: int,
     created_at: Optional[str] = None,
+    generation_provider: str = "",
+    generation_quality: str = "",
+    summary_model: str = "",
+    tags_model: str = "",
+    embedding_model: str = "",
+    embedding_dim: Optional[int] = None,
+    ingest_status: str = "",
+    ingest_error: str = "",
+    content_type: str = "",
+    key_claims: str = "",
+    entities: str = "",
+    config_path: str = "",
 ) -> int:
     ts = created_at or now_iso_z()
     cur = conn.execute(
         """
-        INSERT INTO articles(title, source_url, tags, summary, created_at, modified_at, deleted_at, category, local_file_path, priority)
-        VALUES(?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+        INSERT INTO articles(
+          title, source_url, tags, summary, created_at, modified_at, deleted_at,
+          category, local_file_path, priority,
+          generation_provider, generation_quality, summary_model, tags_model,
+          embedding_model, embedding_dim, ingest_status, ingest_error,
+          content_type, key_claims, entities, config_path
+        )
+        VALUES(?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (title, source_url, tags, summary, ts, ts, category, local_file_path, priority),
+        (
+            title,
+            source_url,
+            tags,
+            summary,
+            ts,
+            ts,
+            category,
+            local_file_path,
+            priority,
+            generation_provider,
+            generation_quality,
+            summary_model,
+            tags_model,
+            embedding_model,
+            embedding_dim,
+            ingest_status,
+            ingest_error,
+            content_type,
+            key_claims,
+            entities,
+            config_path,
+        ),
     )
     return int(cur.lastrowid)
 
@@ -454,6 +537,18 @@ def update_article_fields(
     local_file_path: Optional[str] = None,
     priority: Optional[int] = None,
     deleted_at: Optional[str] = None,
+    generation_provider: Optional[str] = None,
+    generation_quality: Optional[str] = None,
+    summary_model: Optional[str] = None,
+    tags_model: Optional[str] = None,
+    embedding_model: Optional[str] = None,
+    embedding_dim: Optional[int] = None,
+    ingest_status: Optional[str] = None,
+    ingest_error: Optional[str] = None,
+    content_type: Optional[str] = None,
+    key_claims: Optional[str] = None,
+    entities: Optional[str] = None,
+    config_path: Optional[str] = None,
 ) -> None:
     fields = []
     vals: List[Any] = []
@@ -479,6 +574,24 @@ def update_article_fields(
     if deleted_at is not None:
         fields.append("deleted_at=?")
         vals.append(deleted_at)
+    extra = {
+        "generation_provider": generation_provider,
+        "generation_quality": generation_quality,
+        "summary_model": summary_model,
+        "tags_model": tags_model,
+        "embedding_model": embedding_model,
+        "embedding_dim": embedding_dim,
+        "ingest_status": ingest_status,
+        "ingest_error": ingest_error,
+        "content_type": content_type,
+        "key_claims": key_claims,
+        "entities": entities,
+        "config_path": config_path,
+    }
+    for col, value in extra.items():
+        if value is not None:
+            fields.append(f"{col}=?")
+            vals.append(value)
 
     fields.append("modified_at=?")
     vals.append(now_iso_z())
@@ -658,6 +771,8 @@ def count_missing(conn: sqlite3.Connection) -> Dict[str, int]:
         "path": _count("local_file_path IS NULL OR trim(local_file_path) = ''"),
         "created_at": _count("created_at IS NULL OR trim(created_at) = ''"),
         "modified_at": _count("modified_at IS NULL OR trim(modified_at) = ''"),
+        "generation_quality": _count("generation_quality IS NULL OR trim(generation_quality) = ''"),
+        "ingest_status": _count("ingest_status IS NULL OR trim(ingest_status) = ''"),
     }
 
 def count_file_missing(conn: sqlite3.Connection) -> int:

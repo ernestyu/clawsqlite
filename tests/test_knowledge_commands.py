@@ -30,6 +30,8 @@ import unittest
 import uuid
 from pathlib import Path
 
+from tests.helpers import write_knowledge_config
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BASE_TMP = Path(os.environ.get("CLAWSQLITE_TEST_TMP", str(REPO_ROOT / ".tmp_tests")))
@@ -74,6 +76,7 @@ class KnowledgeCLITests(unittest.TestCase):
         with _tempdir() as tmpdir:
             root = Path(tmpdir) / "kb_root"
             root.mkdir(parents=True, exist_ok=True)
+            config_path = write_knowledge_config(root)
 
             # 1) ingest 两条记录
             def _ingest(text, title):
@@ -93,9 +96,11 @@ class KnowledgeCLITests(unittest.TestCase):
                     "demo",
                     "--gen-provider",
                     "off",
+                    "--allow-heuristic",
+                    "--allow-missing-embedding",
                     "--json",
-                    "--root",
-                    str(root),
+                    "--config",
+                    str(config_path),
                 ]
                 p = self._run(cmd)
                 return json.loads(p.stdout)
@@ -118,8 +123,8 @@ class KnowledgeCLITests(unittest.TestCase):
                 "--topk",
                 "10",
                 "--json",
-                "--root",
-                str(root),
+                "--config",
+                str(config_path),
             ]
             p = self._run(search_cmd)
             res = json.loads(p.stdout)
@@ -138,8 +143,8 @@ class KnowledgeCLITests(unittest.TestCase):
                 "1",
                 "--full",
                 "--json",
-                "--root",
-                str(root),
+                "--config",
+                str(config_path),
             ]
             p = self._run(show_cmd)
             show_row = json.loads(p.stdout)
@@ -160,8 +165,8 @@ class KnowledgeCLITests(unittest.TestCase):
                 "md",
                 "--out",
                 str(out_md),
-                "--root",
-                str(root),
+                "--config",
+                str(config_path),
                 "--json",
             ]
             p = self._run(export_cmd)
@@ -179,8 +184,8 @@ class KnowledgeCLITests(unittest.TestCase):
                 "1",
                 "--title",
                 "Article 1 Updated",
-                "--root",
-                str(root),
+                "--config",
+                str(config_path),
                 "--json",
             ]
             p = self._run(update_cmd)
@@ -197,8 +202,8 @@ class KnowledgeCLITests(unittest.TestCase):
                 "--id",
                 "1",
                 "--json",
-                "--root",
-                str(root),
+                "--config",
+                str(config_path),
             ]
             p = self._run(show2_cmd)
             show2 = json.loads(p.stdout)
@@ -213,8 +218,8 @@ class KnowledgeCLITests(unittest.TestCase):
                 "delete",
                 "--id",
                 "2",
-                "--root",
-                str(root),
+                "--config",
+                str(config_path),
                 "--json",
             ]
             p = self._run(delete_cmd)
@@ -245,8 +250,8 @@ class KnowledgeCLITests(unittest.TestCase):
                 "knowledge",
                 "reindex",
                 "--check",
-                "--root",
-                str(root),
+                "--config",
+                str(config_path),
                 "--json",
             ]
             self._run(reindex_cmd)
@@ -262,8 +267,8 @@ class KnowledgeCLITests(unittest.TestCase):
                 "--days",
                 "0",
                 "--dry-run",
-                "--root",
-                str(root),
+                "--config",
+                str(config_path),
                 "--json",
             ]
             p = self._run(maint_dry_cmd)
@@ -279,8 +284,8 @@ class KnowledgeCLITests(unittest.TestCase):
                 "gc",
                 "--days",
                 "0",
-                "--root",
-                str(root),
+                "--config",
+                str(config_path),
                 "--json",
             ]
             p = self._run(maint_cmd)
@@ -292,6 +297,7 @@ class KnowledgeCLITests(unittest.TestCase):
         with _tempdir() as tmpdir:
             root = Path(tmpdir) / "kb_root"
             root.mkdir(parents=True, exist_ok=True)
+            config_path = write_knowledge_config(root)
             scraper = Path(tmpdir) / "scrape.py"
             scraper.write_text(
                 "print('Title: Duplicate URL')\n"
@@ -312,9 +318,11 @@ class KnowledgeCLITests(unittest.TestCase):
                 f"{PYTHON_BIN} {scraper}",
                 "--gen-provider",
                 "off",
+                "--allow-heuristic",
+                "--allow-missing-embedding",
                 "--json",
-                "--root",
-                str(root),
+                "--config",
+                str(config_path),
             ]
 
             first = self._run(base_cmd)
@@ -335,6 +343,7 @@ class KnowledgeCLITests(unittest.TestCase):
             root = Path(tmpdir) / "kb_root"
             articles = root / "articles"
             articles.mkdir(parents=True, exist_ok=True)
+            config_path = write_knowledge_config(root)
             old_backup = articles / "000001__old.md.bak_deleted_20000101000000"
             old_backup.write_text("old backup", encoding="utf-8")
 
@@ -347,8 +356,8 @@ class KnowledgeCLITests(unittest.TestCase):
                 "prune",
                 "--days",
                 "0",
-                "--root",
-                str(root),
+                "--config",
+                str(config_path),
                 "--json",
             ]
             p = self._run(maint_cmd)

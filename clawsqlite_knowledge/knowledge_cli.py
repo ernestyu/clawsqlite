@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from .cli import build_parser as _build_kb_parser
-from .utils import load_project_env
+from .cli import main as _main
 
 
 def build_parser():
@@ -23,12 +23,7 @@ def build_parser():
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    # Load project-level .env so knowledge config works when invoked via
-    # the top-level `clawsqlite` entrypoint.
-    load_project_env()
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    return int(args.func(args))
+    return int(_main(argv))
 
 
 if __name__ == "__main__":  # pragma: no cover

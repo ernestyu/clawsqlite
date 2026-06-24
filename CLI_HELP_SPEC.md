@@ -1,268 +1,80 @@
-# CLI Help Spec (generated from argparse)
+# CLI Help Spec
 
-## clawsqlite knowledge --help
-usage: clawsqlite knowledge [-h] [--root ROOT] [--db DB]
-                            [--articles-dir ARTICLES_DIR]
-                            [--tokenizer-ext TOKENIZER_EXT]
-                            [--vec-ext VEC_EXT] [--json] [--verbose]
-                            {build-interest-clusters,ingest,doctor,search,show,export,update,delete,reindex,inspect-interest-clusters,report-interest,embed-from-summary,maintenance}
-                            ...
+This is the compact CLI contract for `clawsqlite knowledge`.
 
-OpenClaw knowledge base CLI (SQLite + FTS5 + sqlite-vec).
+## Namespace
 
-positional arguments:
-  {build-interest-clusters,ingest,doctor,search,show,export,update,delete,reindex,inspect-interest-clusters,report-interest,embed-from-summary,maintenance}
-    build-interest-clusters
-                        Build interest clusters from existing article
-                        embeddings
-    ingest              Ingest a URL or a text into the KB
-    doctor              Self-check knowledge DB/env, output JSON report
-    search              Search the KB (fts/vec/hybrid)
-    show                Show one record
-    export              Export one record to file
-    update              Update one record (patch or regen)
-    delete              Delete one record (soft by default)
-    reindex             Maintenance: check/fix/rebuild
-    inspect-interest-clusters
-                        Inspect interest cluster radius + PCA scatter plot
-                        (requires numpy)
-    report-interest     Generate an interest cluster activity report (Markdown
-                        + optional PDF)
-    embed-from-summary  Embed article summaries into articles_vec via plumbing
-    maintenance         Maintenance: prune orphan/backup files and check paths
+```text
+clawsqlite knowledge [common flags] <command> [command flags]
+```
 
-options:
-  -h, --help            show this help message and exit
-  --root ROOT           Root dir. Priority: CLI --root > $CLAWSQLITE_ROOT >
-                        $CLAWSQLITE_ROOT_DEFAULT > <cwd>/knowledge_data.
-  --db DB               SQLite db path. Priority: CLI --db > $CLAWSQLITE_DB >
-                        <root>/knowledge.sqlite3
-  --articles-dir ARTICLES_DIR
-                        Articles markdown dir. Priority: CLI --articles-dir >
-                        $CLAWSQLITE_ARTICLES_DIR > <root>/articles
-  --tokenizer-ext TOKENIZER_EXT
-                        Tokenizer extension path. Default:
-                        /usr/local/lib/libsimple.so or
-                        $CLAWSQLITE_TOKENIZER_EXT
-  --vec-ext VEC_EXT     vec0 extension path. Default: auto-discover or
-                        $CLAWSQLITE_VEC_EXT
-  --json                Output JSON
-  --verbose             Verbose logging
+Common flags are accepted before or after the subcommand:
 
-## clawsqlite knowledge build-interest-clusters --help
-usage: clawsqlite knowledge build-interest-clusters [-h] [--root ROOT]
-                                                    [--db DB]
-                                                    [--articles-dir ARTICLES_DIR]
-                                                    [--tokenizer-ext TOKENIZER_EXT]
-                                                    [--vec-ext VEC_EXT]
-                                                    [--json] [--verbose]
-                                                    [--algo {kmeans++,hierarchical}]
-                                                    [--tag-weight TAG_WEIGHT]
-                                                    [--use-pca] [--no-pca]
-                                                    [--pca-explained-variance-threshold PCA_EXPLAINED_VARIANCE_THRESHOLD]
-                                                    [--min-size MIN_SIZE]
-                                                    [--max-clusters MAX_CLUSTERS]
-                                                    [--kmeans-random-state KMEANS_RANDOM_STATE]
-                                                    [--kmeans-n-init KMEANS_N_INIT]
-                                                    [--kmeans-max-iter KMEANS_MAX_ITER]
-                                                    [--enable-post-merge]
-                                                    [--disable-post-merge]
-                                                    [--merge-distance-threshold MERGE_DISTANCE_THRESHOLD]
-                                                    [--hierarchical-distance-threshold HIERARCHICAL_DISTANCE_THRESHOLD]
-                                                    [--hierarchical-linkage {average,complete}]
+- `--config CONFIG`: Knowledge config path. Priority: CLI `--config` > `$CLAWSQLITE_CONFIG` > nearest `clawsqlite.toml`.
+- `--root ROOT`: debug override for `[knowledge].root`.
+- `--db DB`: debug override for `[knowledge].db`.
+- `--articles-dir ARTICLES_DIR`: debug override for `[knowledge].articles_dir`.
+- `--tokenizer-ext TOKENIZER_EXT`
+- `--vec-ext VEC_EXT`
+- `--json`
+- `--verbose`
 
-options:
-  -h, --help            show this help message and exit
-  --root ROOT           Root dir. Priority: CLI --root > $CLAWSQLITE_ROOT >
-                        $CLAWSQLITE_ROOT_DEFAULT > <cwd>/knowledge_data.
-  --db DB               SQLite db path. Priority: CLI --db > $CLAWSQLITE_DB >
-                        <root>/knowledge.sqlite3
-  --articles-dir ARTICLES_DIR
-                        Articles markdown dir. Priority: CLI --articles-dir >
-                        $CLAWSQLITE_ARTICLES_DIR > <root>/articles
-  --tokenizer-ext TOKENIZER_EXT
-                        Tokenizer extension path. Default:
-                        /usr/local/lib/libsimple.so or
-                        $CLAWSQLITE_TOKENIZER_EXT
-  --vec-ext VEC_EXT     vec0 extension path. Default: auto-discover or
-                        $CLAWSQLITE_VEC_EXT
-  --json                Output JSON
-  --verbose             Verbose logging
-  --algo {kmeans++,hierarchical}
-                        Clustering backend (default from env or kmeans++)
-  --tag-weight TAG_WEIGHT
-                        Weight of tag_vec in interest-vector mix, range [0,1]
-  --use-pca             Enable PCA before clustering
-  --no-pca              Disable PCA and cluster in original vector space
-  --pca-explained-variance-threshold PCA_EXPLAINED_VARIANCE_THRESHOLD
-                        PCA cumulative explained variance threshold (e.g.
-                        0.90, 0.95)
-  --min-size, --min-cluster-size MIN_SIZE
-                        Minimum cluster size
-  --max-clusters MAX_CLUSTERS
-                        Maximum initial clusters (kmeans++)
-  --kmeans-random-state KMEANS_RANDOM_STATE
-                        Random seed for kmeans++
-  --kmeans-n-init KMEANS_N_INIT
-                        Number of kmeans++ restarts
-  --kmeans-max-iter KMEANS_MAX_ITER
-                        Max iterations per kmeans++ run
-  --enable-post-merge   Enable post-merge of close clusters (kmeans++)
-  --disable-post-merge  Disable post-merge of close clusters (kmeans++)
-  --merge-distance-threshold MERGE_DISTANCE_THRESHOLD
-                        Post-merge cosine-distance threshold (kmeans++)
-  --hierarchical-distance-threshold HIERARCHICAL_DISTANCE_THRESHOLD
-                        Distance threshold used to cut hierarchical tree
-  --hierarchical-linkage {average,complete}
-                        Hierarchical linkage strategy
+Knowledge commands require `clawsqlite.toml` by default. `init-config` does not.
+`doctor --allow-missing-config` is the only diagnostic exception.
 
-## clawsqlite knowledge inspect-interest-clusters --help
-usage: clawsqlite knowledge inspect-interest-clusters [-h] [--root ROOT]
-                                                      [--db DB]
-                                                      [--articles-dir ARTICLES_DIR]
-                                                      [--tokenizer-ext TOKENIZER_EXT]
-                                                      [--vec-ext VEC_EXT]
-                                                      [--json] [--verbose]
-                                                      [--vec-dim VEC_DIM]
-                                                      [--no-plot]
+## Commands
 
-options:
-  -h, --help            show this help message and exit
-  --root ROOT           Root dir. Priority: CLI --root > $CLAWSQLITE_ROOT >
-                        $CLAWSQLITE_ROOT_DEFAULT > <cwd>/knowledge_data.
-  --db DB               SQLite db path. Priority: CLI --db > $CLAWSQLITE_DB >
-                        <root>/knowledge.sqlite3
-  --articles-dir ARTICLES_DIR
-                        Articles markdown dir. Priority: CLI --articles-dir >
-                        $CLAWSQLITE_ARTICLES_DIR > <root>/articles
-  --tokenizer-ext TOKENIZER_EXT
-                        Tokenizer extension path. Default:
-                        /usr/local/lib/libsimple.so or
-                        $CLAWSQLITE_TOKENIZER_EXT
-  --vec-ext VEC_EXT     vec0 extension path. Default: auto-discover or
-                        $CLAWSQLITE_VEC_EXT
-  --json                Output JSON
-  --verbose             Verbose logging
-  --vec-dim VEC_DIM     Embedding dimension (optional, default:
-                        CLAWSQLITE_VEC_DIM / auto)
-  --no-plot             Only print stats, do not generate PNG plot
+- `init-config`: create a `clawsqlite.toml` template.
+- `ingest`: ingest a URL or raw text into the knowledge DB.
+- `doctor`: self-check config, DB, schema, vec, embedding, and LLM readiness.
+- `search`: search with `fts`, `vec`, or `hybrid`.
+- `show`: show one record.
+- `export`: export one record to Markdown or JSON.
+- `update`: patch fields or regenerate fields for one record.
+- `delete`: soft or hard delete one record.
+- `reindex`: check/fix/rebuild FTS and vec indexes.
+- `rebuild-quality`: regenerate low-quality rows with strict LLM generation.
+- `embed-from-summary`: knowledge wrapper around plumbing embedding.
+- `maintenance`: prune orphan/backup files.
+- `build-interest-clusters`: build interest clusters from existing vectors.
+- `inspect-interest-clusters`: inspect cluster quality.
+- `report-interest`: generate interest reports.
 
-## clawsqlite knowledge delete --help
-usage: clawsqlite knowledge delete [-h] [--root ROOT] [--db DB]
-                                   [--articles-dir ARTICLES_DIR]
-                                   [--tokenizer-ext TOKENIZER_EXT]
-                                   [--vec-ext VEC_EXT] [--json] [--verbose]
-                                   --id ID [--hard] [--remove-file]
+## Strict Ingest
 
-options:
-  -h, --help            show this help message and exit
-  --root ROOT           Root dir. Priority: CLI --root > $CLAWSQLITE_ROOT >
-                        $CLAWSQLITE_ROOT_DEFAULT > <cwd>/knowledge_data.
-  --db DB               SQLite db path. Priority: CLI --db > $CLAWSQLITE_DB >
-                        <root>/knowledge.sqlite3
-  --articles-dir ARTICLES_DIR
-                        Articles markdown dir. Priority: CLI --articles-dir >
-                        $CLAWSQLITE_ARTICLES_DIR > <root>/articles
-  --tokenizer-ext TOKENIZER_EXT
-                        Tokenizer extension path. Default:
-                        /usr/local/lib/libsimple.so or
-                        $CLAWSQLITE_TOKENIZER_EXT
-  --vec-ext VEC_EXT     vec0 extension path. Default: auto-discover or
-                        $CLAWSQLITE_VEC_EXT
-  --json                Output JSON
-  --verbose             Verbose logging
-  --id ID               Article id
-  --hard                Hard delete (remove db row)
-  --remove-file         When hard delete, permanently remove markdown file (no
-                        backup)
+```text
+clawsqlite knowledge ingest (--url URL | --text TEXT) [options]
+```
 
-## clawsqlite knowledge embed-from-summary --help
-usage: clawsqlite knowledge embed-from-summary [-h] [--root ROOT] [--db DB]
-                                               [--articles-dir ARTICLES_DIR]
-                                               [--tokenizer-ext TOKENIZER_EXT]
-                                               [--vec-ext VEC_EXT] [--json]
-                                               [--verbose] [--where WHERE]
-                                               [--limit LIMIT]
-                                               [--offset OFFSET]
+Important options:
 
-options:
-  -h, --help            show this help message and exit
-  --root ROOT           Root dir. Priority: CLI --root > $CLAWSQLITE_ROOT >
-                        $CLAWSQLITE_ROOT_DEFAULT > <cwd>/knowledge_data.
-  --db DB               SQLite db path. Priority: CLI --db > $CLAWSQLITE_DB >
-                        <root>/knowledge.sqlite3
-  --articles-dir ARTICLES_DIR
-                        Articles markdown dir. Priority: CLI --articles-dir >
-                        $CLAWSQLITE_ARTICLES_DIR > <root>/articles
-  --tokenizer-ext TOKENIZER_EXT
-                        Tokenizer extension path. Default:
-                        /usr/local/lib/libsimple.so or
-                        $CLAWSQLITE_TOKENIZER_EXT
-  --vec-ext VEC_EXT     vec0 extension path. Default: auto-discover or
-                        $CLAWSQLITE_VEC_EXT
-  --json                Output JSON
-  --verbose             Verbose logging
-  --where WHERE         Optional SQL WHERE clause on articles (default:
-                        undeleted with non-empty summary)
-  --limit LIMIT         Optional LIMIT for batching
-  --offset OFFSET       Optional OFFSET for batching
+- `--gen-provider {openclaw,llm,off}`: override generator provider; default comes from `clawsqlite.toml`.
+- `--max-summary-chars N`: override `[ingest].summary_target_chars`.
+- `--update-existing`: refresh an existing URL row.
+- `--allow-heuristic`: explicitly allow heuristic generation when LLM generation is unavailable.
+- `--allow-missing-embedding`: explicitly allow ingest without vector embeddings.
 
-... (other subcommands unchanged)
+Default config policy is strict:
 
-## clawsqlite knowledge search --help
-usage: clawsqlite knowledge search [-h] [--root ROOT] [--db DB]
-                                   [--articles-dir ARTICLES_DIR]
-                                   [--tokenizer-ext TOKENIZER_EXT]
-                                   [--vec-ext VEC_EXT] [--json] [--verbose]
-                                   [--mode {hybrid,fts,vec}] [--topk TOPK]
-                                   [--candidates CANDIDATES]
-                                   [--llm-keywords {auto,on,off}]
-                                   [--gen-provider {openclaw,llm,off}]
-                                   [--category CATEGORY] [--tag TAG]
-                                   [--since SINCE] [--priority PRIORITY]
-                                   [--include-deleted] [--explain]
-                                   query
+```toml
+[ingest]
+require_llm = true
+require_embedding = true
+fallback = "fail"
+```
 
-options:
-  --explain             Include query plan and score breakdown in JSON output
+In strict mode, missing LLM or embedding requirements fail with `ERROR_KIND`
+diagnostics instead of silently degrading.
 
-## clawsqlite knowledge report-interest --help
-usage: clawsqlite knowledge report-interest [-h] [--root ROOT] [--db DB]
-                                            [--articles-dir ARTICLES_DIR]
-                                            [--tokenizer-ext TOKENIZER_EXT]
-                                            [--vec-ext VEC_EXT] [--json]
-                                            [--verbose] [--days DAYS]
-                                            [--from DATE_FROM] [--to DATE_TO]
-                                            [--vec-dim VEC_DIM]
-                                            [--out-dir OUT_DIR] [--lang LANG]
-                                            [--format {md,html}] [--no-pdf]
+`reindex --fix-missing` follows the same generator policy: default provider
+comes from config, and degraded generation requires `--allow-heuristic`.
 
-options:
-  -h, --help            show this help message and exit
-  --root ROOT           Root dir. Priority: CLI --root > $CLAWSQLITE_ROOT >
-                        $CLAWSQLITE_ROOT_DEFAULT > <cwd>/knowledge_data.
-  --db DB               SQLite db path. Priority: CLI --db > $CLAWSQLITE_DB >
-                        <root>/knowledge.sqlite3
-  --articles-dir ARTICLES_DIR
-                        Articles markdown dir. Priority: CLI --articles-dir >
-                        $CLAWSQLITE_ARTICLES_DIR > <root>/articles
-  --tokenizer-ext TOKENIZER_EXT
-                        Tokenizer extension path. Default:
-                        /usr/local/lib/libsimple.so or
-                        $CLAWSQLITE_TOKENIZER_EXT
-  --vec-ext VEC_EXT     vec0 extension path. Default: auto-discover or
-                        $CLAWSQLITE_VEC_EXT
-  --json                Output JSON
-  --verbose             Verbose logging
-  --days DAYS           Lookback window in days (ignored if --from/--to
-                        provided)
-  --from DATE_FROM      Start date (YYYY-MM-DD)
-  --to DATE_TO          End date (YYYY-MM-DD, exclusive)
-  --vec-dim VEC_DIM     Embedding dimension (optional, default:
-                        CLAWSQLITE_VEC_DIM / auto)
-  --out-dir OUT_DIR     Root directory for reports (default: ./reports)
-  --lang LANG           Report language (en/zh). Default:
-                        $CLAWSQLITE_REPORT_LANG or en
-  --format {md,html}    Additional output format: 'md' (default) or 'html'
-                        (also write report.html via pandoc)
-  --no-pdf              Do not run pandoc to generate PDF
+## Quality Rebuild
+
+```text
+clawsqlite knowledge rebuild-quality [--id ID] [--since ISO] [--limit N] [--dry-run] [--json]
+```
+
+Selects undeleted rows whose generation metadata is not LLM-quality, regenerates
+fields with the configured LLM, rewrites Markdown metadata, refreshes FTS, and
+refreshes embeddings when configured.

@@ -6,7 +6,7 @@ from __future__ import annotations
 `clawsqlite knowledge doctor` 会运行一组检查，输出一份 JSON 报告，
 帮助你快速判断：
 
-- CLAWSQLITE_ROOT / CLAWSQLITE_DB 是否指向有效的知识库；
+- clawsqlite.toml 中的 root / DB 是否指向有效的知识库；
 - vec0 扩展和 vec 表是否可用；
 - Embedding 配置是否完整且能正常调用；
 - SMALL_LLM_* 配置是否完整；
@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional
 from .embed import embedding_enabled, get_embedding, _embedding_missing_keys, _resolve_vec_dim
 from .utils import resolve_root_paths
 from . import db as dbmod
+from .config import KnowledgeConfig
 
 
 @dataclass
@@ -37,15 +38,16 @@ class CheckResult:
     details: Optional[Dict[str, Any]] = None
 
 
-def _load_paths_from_env() -> Dict[str, str]:
-    """Resolve root/db/articles-dir in the same way as the CLI.
+def _load_paths_from_env(config: Optional[KnowledgeConfig] = None) -> Dict[str, str]:
+    """Resolve root/db/articles-dir for doctor.
 
-    This mirrors knowledge CLI behavior: CLI > env > defaults.
-    Here we only care about env-level resolution, so we pass
-    None for CLI overrides.
+    Normal CLI execution passes a KnowledgeConfig loaded from clawsqlite.toml.
+    The env/default fallback is only used by `doctor --allow-missing-config`.
     """
 
-    # DEFAULT_ROOT is resolved in cli.py via CLAWSQLITE_ROOT_DEFAULT.
+    if config is not None:
+        return {"root": config.root, "db": config.db, "articles_dir": config.articles_dir}
+
     default_root = os.environ.get("CLAWSQLITE_ROOT_DEFAULT") or None
     return resolve_root_paths(
         cli_root=None,
@@ -55,8 +57,8 @@ def _load_paths_from_env() -> Dict[str, str]:
     )
 
 
-def _check_kb_paths() -> CheckResult:
-    paths = _load_paths_from_env()
+def _check_kb_paths(config: Optional[KnowledgeConfig] = None) -> CheckResult:
+    paths = _load_paths_from_env(config)
     root = paths["root"]
     db_path = paths["db"]
 
@@ -71,9 +73,8 @@ def _check_kb_paths() -> CheckResult:
                 f"Knowledge root {root!r} and DB {db_path!r} do not exist or are not configured."
             ),
             next=(
-                "Set CLAWSQLITE_ROOT/CLAWSQLITE_DB (or CLAWSQLITE_ROOT_DEFAULT) to a valid "
-                "knowledge_data directory and DB file, then run 'clawsqlite knowledge ingest' "
-                "to initialize the database."
+                "Create or fix clawsqlite.toml ([knowledge].root/[knowledge].db), "
+                "then run 'clawsqlite knowledge ingest' to initialize the database."
             ),
             details={"root": root, "db": db_path},
         )
@@ -86,8 +87,8 @@ def _check_kb_paths() -> CheckResult:
                 f"Knowledge root exists at {root!r}, but DB file {db_path!r} is missing."
             ),
             next=(
-                "Point CLAWSQLITE_DB to an existing knowledge DB, or run a first ingest "
-                "via 'clawsqlite knowledge ingest' to create it."
+                "Point [knowledge].db in clawsqlite.toml to an existing knowledge DB, "
+                "or run a first ingest via 'clawsqlite knowledge ingest' to create it."
             ),
             details={"root": root, "db": db_path},
         )
@@ -97,11 +98,11 @@ def _check_kb_paths() -> CheckResult:
             name="knowledge_paths",
             ok=True,
             message=(
-                f"DB file exists at {db_path!r}, but CLAWSQLITE_ROOT {root!r} directory is missing."
+                f"DB file exists at {db_path!r}, but configured root {root!r} directory is missing."
             ),
             next=(
-                "Consider setting CLAWSQLITE_ROOT to the directory that contains your articles/ "
-                "and matches the DB configuration, or recreate the expected directory tree."
+                "Set [knowledge].root in clawsqlite.toml to the directory that contains "
+                "your articles/, or recreate the expected directory tree."
             ),
             details={"root": root, "db": db_path},
         )
@@ -114,8 +115,8 @@ def _check_kb_paths() -> CheckResult:
     )
 
 
-def _check_db_schema() -> CheckResult:
-    paths = _load_paths_from_env()
+def _check_db_schema(config: Optional[KnowledgeConfig] = None) -> CheckResult:
+    paths = _load_paths_from_env(config)
     db_path = paths["db"]
     if not db_path or not Path(db_path).is_file():
         return CheckResult(
@@ -123,8 +124,8 @@ def _check_db_schema() -> CheckResult:
             ok=False,
             message=f"DB path {db_path!r} not found; cannot inspect schema.",
             next=(
-                "Set CLAWSQLITE_DB to an existing knowledge DB or run an ingest command "
-                "to initialize it, then rerun doctor."
+                "Set [knowledge].db in clawsqlite.toml to an existing knowledge DB or "
+                "run an ingest command to initialize it, then rerun doctor."
             ),
         )
 
@@ -183,15 +184,15 @@ def _check_db_schema() -> CheckResult:
         conn.close()
 
 
-def _check_vec_extension() -> CheckResult:
-    paths = _load_paths_from_env()
+def _check_vec_extension(config: Optional[KnowledgeConfig] = None) -> CheckResult:
+    paths = _load_paths_from_env(config)
     db_path = paths["db"]
     if not db_path or not Path(db_path).is_file():
         return CheckResult(
             name="vec_extension",
             ok=False,
             message=f"DB path {db_path!r} not found; cannot verify vec0 extension.",
-            next="Set CLAWSQLITE_DB to a valid knowledge DB, then rerun doctor.",
+            next="Set [knowledge].db in clawsqlite.toml to a valid knowledge DB, then rerun doctor.",
         )
 
     try:
@@ -375,14 +376,93 @@ def _check_capability_mode() -> CheckResult:
     )
 
 
-def run_doctor() -> int:
+def _db_summary(config: Optional[KnowledgeConfig]) -> Dict[str, Any]:
+    paths = _load_paths_from_env(config)
+    db_path = paths["db"]
+    out: Dict[str, Any] = {
+        "exists": bool(db_path and Path(db_path).is_file()),
+        "article_count": 0,
+        "low_quality_count": 0,
+        "failed_ingest_count": 0,
+    }
+    if not out["exists"]:
+        return out
+    try:
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        out["article_count"] = int(cur.execute("SELECT COUNT(*) FROM articles").fetchone()[0])
+        out["low_quality_count"] = int(
+            cur.execute(
+                "SELECT COUNT(*) FROM articles WHERE deleted_at IS NULL AND coalesce(generation_quality,'') != 'llm'"
+            ).fetchone()[0]
+        )
+        out["failed_ingest_count"] = int(
+            cur.execute(
+                "SELECT COUNT(*) FROM articles WHERE coalesce(ingest_status,'') = 'failed'"
+            ).fetchone()[0]
+        )
+    except Exception:
+        pass
+    finally:
+        try:
+            conn.close()  # type: ignore[name-defined]
+        except Exception:
+            pass
+    return out
+
+
+def _config_report(config: Optional[KnowledgeConfig]) -> Dict[str, Any]:
+    if config is None:
+        return {}
+    return {
+        "active_config": {
+            "config_path": config.config_path,
+            "root": config.root,
+            "db": config.db,
+            "articles_dir": config.articles_dir,
+        },
+        "ingest_policy": {
+            "require_llm": config.ingest.require_llm,
+            "require_embedding": config.ingest.require_embedding,
+            "summary_mode": config.ingest.summary_mode,
+            "summary_target_chars": config.ingest.summary_target_chars,
+            "tags_mode": config.ingest.tags_mode,
+            "fallback": config.ingest.fallback,
+        },
+        "llm": {
+            "configured": bool(config.llm.base_url and config.llm.model and os.environ.get(config.llm.api_key_env)),
+            "model": config.llm.model,
+            "base_url": config.llm.base_url,
+            "api_key_env": config.llm.api_key_env,
+            "has_api_key": bool(os.environ.get(config.llm.api_key_env)),
+            "context_window_chars": config.llm.context_window_chars,
+            "prompt_reserved_chars": config.llm.prompt_reserved_chars,
+        },
+        "embedding": {
+            "configured": bool(config.embedding.base_url and config.embedding.model and os.environ.get(config.embedding.api_key_env) and config.embedding.dim > 0),
+            "model": config.embedding.model,
+            "base_url": config.embedding.base_url,
+            "api_key_env": config.embedding.api_key_env,
+            "has_api_key": bool(os.environ.get(config.embedding.api_key_env)),
+            "dim": config.embedding.dim,
+        },
+    }
+
+
+def run_doctor(
+    *,
+    config: Optional[KnowledgeConfig] = None,
+    check_embedding: bool = False,
+    check_llm: bool = False,
+) -> int:
     checks: List[CheckResult] = []
 
-    checks.append(_check_kb_paths())
-    checks.append(_check_db_schema())
-    checks.append(_check_vec_extension())
+    checks.append(_check_kb_paths(config))
+    checks.append(_check_db_schema(config))
+    checks.append(_check_vec_extension(config))
     checks.append(_check_embedding_config())
-    checks.append(_check_embedding_roundtrip())
+    if check_embedding:
+        checks.append(_check_embedding_roundtrip())
     checks.append(_check_small_llm())
     checks.append(_check_capability_mode())
 
@@ -391,7 +471,9 @@ def run_doctor() -> int:
     report = {
         "ok": not any_error,
         "checks": [asdict(c) for c in checks],
+        "db": _db_summary(config),
     }
+    report.update(_config_report(config))
 
     json.dump(report, sys.stdout, ensure_ascii=False, indent=2)
     print()  # newline

@@ -1,748 +1,323 @@
 # clawsqlite（knowledge）
 
-`clawsqlite` 是一个围绕 SQLite 打造的 CLI 工具箱，主要面向
-[OpenClaw](https://github.com/openclaw/openclaw) 场景。
+**语言：**[English](README.md) | 中文
 
-当前仓库内置的第一个应用是 **本地 Markdown + SQLite 知识库**。
+`clawsqlite` 是一个围绕 SQLite 打造的 CLI 工具箱。它有两层：
 
-- 面向用户 / Skill 的入口统一为：`clawsqlite knowledge ...`
+- `clawsqlite_plumbing`：通用 SQLite / FTS / 向量 / 文件系统基础命令，不读取知识库配置。
+- `clawsqlite_knowledge`：面向文章、笔记、想法入库的知识库应用，读取 `clawsqlite.toml`。
 
-下面的文档仍然以“知识库应用”的视角展开。
-
-这个知识库主要帮你解决两件事：
-
-- 把网页和零散笔记统一存成 Markdown 文件 + SQLite 记录，放在一个可控的根目录里；
-- 提供快速的全文检索和可选的向量检索，让你和 Agent 都能稳定地查到这些内容。
-
-核心能力包括：
-
-- 将 URL 或原始文本入库为 Markdown 文件 + 数据库记录
-- 基于 FTS5 的全文检索
-- 可选的向量检索（依赖外部 Embedding 服务）
-- 基于启发式或小模型的小结（title / summary，tags 可选由小模型生成）生成与刷新
-- 日常维护命令（检查 / 修复 / 重建索引，以及清理孤儿文件）
-
-> 状态：已经在真实的 OpenClaw 环境中使用，接口尽量保持简单、稳定。
+这一层次很重要：底层 plumbing 应该能服务任何 SQLite 数据库；Knowledge 只负责“网页/想法入库、检索、维护”这一类知识库工作流。
 
 ---
 
-## 1. 特性概览
+## 1. 它解决什么问题
 
-- **纯 SQLite 后端**
-  - `articles` 表：保存主记录（标题、摘要、标签、分类、路径、时间戳等）
-  - `articles_fts`：FTS5 全文索引，用于按标题/标签/摘要/正文检索
-  - `articles_vec`：vec0 向量表（可选），用于向量检索
+你可以把日常看到的好文章、自己的想法、和 Agent 讨论后的总结放进本地知识库：
 
-- **Markdown 正文存储**
-  - 每篇文章保存为一个 Markdown 文件：`<articles_dir>/<id>__<slug>.md`
-  - 文件包含一个简短的 `--- METADATA ---` 区块和 `--- MARKDOWN ---` 正文区
+- 正文保存为 Markdown 文件；
+- 元数据保存进 SQLite；
+- 通过 FTS5 做全文检索；
+- 可选通过 embedding 做向量检索；
+- 入库时用小模型生成摘要、标签、关键观点、实体等结构化字段；
+- 日后让 Agent 用 `clawsqlite knowledge search ...` 找回相关内容。
 
-- **统一根目录**
-  - 所有数据放在同一个根目录下：根目录可通过 `--root` / `CLAWSQLITE_ROOT` 配置
-  - 数据库默认：`<root>/knowledge.sqlite3`
-  - Markdown 目录默认：`<root>/articles`
-
-- **可选 Embedding 和小模型**
-  - Embedding：通过兼容 OpenAI 的 `/v1/embeddings` HTTP 接口
-  - 小模型（small LLM）：通过兼容 `/v1/chat/completions` 的接口生成标签
-
-- **命令行优先**
-  - 核心子命令：`ingest`，`search`，`show`，`export`，`update`，`delete`，`reindex`，`maintenance`，`doctor`
-
----
-
-## 2. 运行环境
-
-知识库应用设计时默认运行在 OpenClaw 容器内，但也可以在普通
-Linux 环境中独立使用。
-
-必要条件：
-
-- Python 3.10+
-- SQLite 内置 FTS5 支持
-
-Python 依赖：
-
-- `jieba`（可选但强烈推荐，用于中文标签和关键词抽取）
-- `pypinyin`（可选，用于中文标题生成拼音 slug）
-
-推荐但可选的 sqlite 扩展：
-
-- simple tokenizer 扩展：`libsimple.so`（适合中英混合文本的分词）
-- sqlite-vec 的 vec0 扩展：`vec0.so`
-
-默认假设的路径（可以通过参数/环境变量覆盖）：
-
-- Tokenizer 扩展：`/usr/local/lib/libsimple.so`
-- vec0 扩展：自动在 `/app/node_modules/**/vec0.so` 或系统库路径中探测
-
-在一个全新的环境中，一般需要：
-
-- 安装 jieba：
-
-  ```bash
-  pip install jieba
-  ```
-
-- 准备 `libsimple.so` 和 `vec0.so`：
-  - 在 OpenClaw 官方容器中，这两个扩展已经预装好；
-  - 在自建环境中，可以：
-    - 优先查一下你所在发行版是否提供 sqlite-vec / simple tokenizer 的二进制包；
-    - 或者根据上游文档自行编译：
-      - sqlite-vec：<https://github.com/asg017/sqlite-vec>
-      - simple tokenizer：参考 OpenClaw 文档中关于 `libsimple.so` 的构建说明。
-
-如果缺少这些扩展，知识库应用会自动降级：
-
-- FTS：使用 SQLite 内建 tokenizer；
-- 若 `jieba` 可用，可在 Python 侧对 CJK 文本做分词以提升召回（由 `CLAWSQLITE_FTS_JIEBA=auto|on|off` 控制）；
-- 向量检索：在 vec0 不可用时自动关闭，仅使用 FTS。
-
----
-
-## 3. 安装与启动
-
-### 3.1 通过 PyPI 安装（推荐给一般用户）
-
-发布到 PyPI 后，你可以直接在环境里安装并使用：
+核心入口：
 
 ```bash
-pip install clawsqlite
-
-# 然后
-clawsqlite knowledge --help
-```
-
-这会在当前环境中安装一个 `clawsqlite` 命令行入口，方便在任意目录调用。
-
-### 3.2 从源码运行（开发 / OpenClaw 工作目录）
-
-克隆本仓库：
-
-```bash
-git clone git@github.com:ernestyu/clawsqlite.git
-cd clawsqlite
-```
-
-在 OpenClaw 工作目录中，这个仓库通常位于：
-
-```text
-/home/node/.openclaw/workspace/clawsqlite
-```
-
-推荐使用仓库自带的入口脚本运行知识库应用：
-
-```bash
-# 在仓库根目录
-./bin/clawsqlite knowledge --help
-
-# 或者显式指定 Python（例如虚拟环境）
-CLAWSQLITE_PYTHON=/opt/venv/bin/python ./bin/clawsqlite knowledge --help
-```
-
-Embedding / 抓取等配置建议通过外部环境变量
-（例如 OpenClaw 的 Agent 配置）来管理。
-
-如果你想快速自检当前知识库配置（路径、vec0、embedding、小模型），可以运行：
-
-```bash
-clawsqlite knowledge doctor --json
-# 或在源码目录下（未安装包时）：
-python3 -m clawsqlite_knowledge.cli doctor
+clawsqlite knowledge ...
 ```
 
 ---
 
-## 4. 配置
+## 2. 配置文件优先
 
-### 4.1 根目录与路径
+Knowledge 命令默认会读取 `clawsqlite.toml`。不要让 Agent 猜数据库路径。
 
-知识库应用的根目录、数据库路径、Markdown 目录均可通过 CLI 参数或
-环境变量配置，优先级如下：
+配置查找顺序：
 
-**根目录：**
+1. `--config /path/to/clawsqlite.toml`
+2. 环境变量 `CLAWSQLITE_CONFIG`
+3. 从当前目录向上查找最近的 `clawsqlite.toml`
 
-1. CLI 参数：`--root`
-2. 环境变量：`CLAWSQLITE_ROOT`（推荐）
-3. 默认：`<当前工作目录>/knowledge_data`
-
-**数据库路径：**
-
-- `--db` > `CLAWSQLITE_DB` > `<root>/knowledge.sqlite3`
-
-**Markdown 目录：**
-
-- `--articles-dir` > `CLAWSQLITE_ARTICLES_DIR` > `<root>/articles`
-
-### 4.2 项目级 `.env`
-
-clawsqlite knowledge 推荐使用项目根目录下的 `.env` 文件集中配置。可以先从例子复制：
+创建模板：
 
 ```bash
-cp ENV.example .env
-# 然后编辑 .env
+clawsqlite knowledge init-config --out clawsqlite.toml
+# 或者
+cp clawsqlite.toml.example clawsqlite.toml
 ```
-
-`ENV.example` 中包含：
-
-```env
-# Embedding 服务（用于向量检索）
-EMBEDDING_BASE_URL=https://embed.example.com/v1
-EMBEDDING_MODEL=your-embedding-model
-EMBEDDING_API_KEY=sk-your-embedding-key
-CLAWSQLITE_VEC_DIM=1024
-
-# 小模型（可选，用于生成标签）
-SMALL_LLM_BASE_URL=https://llm.example.com/v1
-SMALL_LLM_MODEL=your-small-llm
-SMALL_LLM_API_KEY=sk-your-small-llm-key
-
-# 根目录及路径覆盖（可选）
-# CLAWSQLITE_ROOT=/path/to/knowledge_root
-# CLAWSQLITE_DB=/path/to/knowledge.sqlite3
-# CLAWSQLITE_ARTICLES_DIR=/path/to/articles
-```
-
-运行时，`clawsqlite knowledge ...`（以及 `python3 -m clawsqlite_cli`）会自动加载
-当前工作目录下的 `.env`。默认情况下，`.env` 只填充缺失的变量，不覆盖已有
-进程环境变量；整体优先级为：CLI 参数 > 进程环境变量 > 项目 `.env` > 默认值。
-如果确实希望项目 `.env` 覆盖进程环境变量，可以设置
-`CLAWSQLITE_ENV_OVERRIDE=1`。OpenClaw 场景下通常通过 agent 配置注入环境变量。
-
-### 4.3 标签生成（长摘要 + LLM / jieba 降级）
-
-入库抓取到正文后，会先从正文构造“长摘要”（写入 summary 字段）：
-- 取正文开头约 1200 字（到自然段结尾；可能略多或略少）
-- 再加上文章最后一段（通常是总结）
-
-标签 tags 就从这个长摘要生成（不会直接用全文）：
-- 满配：`--gen-provider llm` 且配置 `SMALL_LLM_BASE_URL/SMALL_LLM_MODEL/SMALL_LLM_API_KEY` 时，用小模型从长摘要生成 tags（要求按重要性降序输出）。
-- 降级：未配置 LLM 或调用失败时，会输出 WARNING/NEXT 提示，并使用 jieba v6 启发式算法从长摘要提取 tags；若未安装 jieba，则退回轻量关键词提取。
-
-查询侧（search）会先从自然语言 query 抽取关键词（v4 纯算法；CJK 优先用 jieba），例如 `["网络", "爬虫", "文章"]`：
-- 这些关键词用于 FTS 关键词检索、tag 匹配与加权打分
-- 查询侧会先构造一个 “query plan”：
-  - `query_refine`：更适合检索的一句话（启用小模型时由 LLM 改写；否则等于原 query）
-  - `query_tags`：关键词/短语列表（启用小模型时由 LLM 生成；否则用 v4 启发式抽取）
-  - `query_refine/query_tags` 的长度由 `CLAWSQLITE_SEARCH_QUERY_TAG_MIN/MAX` 控制
-- 向量检索会分别对 `query_refine` 和 `query_tags` 做 embedding：
-  - `query_refine` 对比 `articles_vec`（内容语义通道）
-  - `query_tags` 对比 `articles_tag_vec`（标签语义通道）
-
-### 4.3 向量检索与打分（Embedding + 评分逻辑）
-
-当你需要向量检索（`articles_vec`）时，需要配置 Embedding 服务：
-
-当你需要向量检索（`articles_vec`）时，需要配置 Embedding 服务：
-
-必需环境变量：
-
-- `EMBEDDING_MODEL`：服务端模型名
-- `EMBEDDING_BASE_URL`：基础 URL，例如 `https://embed.example.com/v1`
-- `EMBEDDING_API_KEY`：访问令牌
-- `CLAWSQLITE_VEC_DIM`：Embedding 维度（如 BAAI/bge-m3 为 1024）
-
-知识库应用会：
-
-- 在 `clawsqlite_knowledge.embed.get_embedding()` 中调用上述 HTTP 接口获取向量；
-- 使用 `CLAWSQLITE_VEC_DIM` 创建
-  `articles_vec` 表的 `embedding float[DIM]` 列；
-- 对摘要和标签分别计算向量：
-  - 摘要向量写入 `articles_vec`；
-  - 标签向量写入 `articles_tag_vec`（同一维度）；
-- **入库与查询都会做 L2 normalize**（把向量归一化到长度为 1），再用 **cosine similarity**
-  计算语义相似度，并映射到 0~1 区间作为语义分；（对旧数据/缺失 vec 行会保留距离打分兜底）
-- 在打分阶段，标签通道会拆成：
-  - 标签语义得分（tag vector）；
-  - 两者线性混合：`tag_score = frac * tag_vec + (1-frac) * tag_lex`，其中 `frac` 由 `CLAWSQLITE_TAG_VEC_FRACTION` 控制（默认 0.7）；
-  - 标签字面匹配得分（tag lexical），并可通过
-    `CLAWSQLITE_TAG_FTS_LOG_ALPHA` 对标签字面分做 `ln(1+αx)/ln(1+α)` 的 log 压缩
-    （默认 α=5.0，α<=0 时关闭压缩）；
-- 在 `embedding_enabled()` 为假或 vec 表不存在时自动降级为纯 FTS 模式。
-
-如果上述任一变量缺失：
-
-- `embedding_enabled()` 返回 `False`；
-- `ingest` 不会请求 Embedding，也不会写 `articles_vec` / `articles_tag_vec`；
-- `search` 的 `mode=hybrid` 会自动退化为 FTS，并输出 NEXT 提示。
-
-### 4.4 小模型（Small LLM）配置
-
-如果希望用小模型生成/优化标签，可以配置：
-
-```env
-SMALL_LLM_BASE_URL=https://llm.example.com/v1
-SMALL_LLM_MODEL=your-small-llm
-SMALL_LLM_API_KEY=sk-your-small-llm-key
-```
-
----
-
-### 4.5 兴趣簇（interest clusters）配置与调试
-
-在知识库积累到一定规模后，可以基于摘要向量与标签向量构建兴趣簇。
-新版本支持两种后端：
-
-- `kmeans++`
-- `hierarchical`
-
-示例（kmeans++）：
-
-```bash
-clawsqlite knowledge build-interest-clusters \
-  --db /path/to/clawkb.sqlite3 \
-  --algo kmeans++ \
-  --use-pca \
-  --pca-explained-variance-threshold 0.95 \
-  --min-cluster-size 8 \
-  --max-clusters 50
-```
-
-示例（hierarchical）：
-
-```bash
-clawsqlite knowledge build-interest-clusters \
-  --db /path/to/clawkb.sqlite3 \
-  --algo hierarchical \
-  --hierarchical-linkage average \
-  --hierarchical-distance-threshold 0.20
-```
-
-兴趣向量构造规则（关键）：
-
-1. 同时有 `summary_vec` 与 `tag_vec`：
-   - 先分别做 L2 归一化；
-   - 再按权重混合：
-     `mixed = (1-tag_weight)*summary + tag_weight*tag`；
-   - 对 `mixed` 再做一次 L2 归一化，得到最终 `interest_vec_1024`。
-2. 仅有一条支路时：
-   - 对该向量做 L2 归一化后直接使用。
-
-其中 `tag_weight` 由 `CLAWSQLITE_INTEREST_TAG_WEIGHT` 控制（默认 `0.75`）。
-
-PCA 与落库约束：
-
-- 可选启用 PCA（`CLAWSQLITE_INTEREST_USE_PCA`）。
-- PCA 维度按累计解释方差阈值自动选择
-  （`CLAWSQLITE_INTEREST_PCA_EXPLAINED_VARIANCE_THRESHOLD`）。
-- 聚类可在 PCA 空间执行，但**最终写库质心一定在原始 1024 维空间重算并归一化**。
-
-统一后处理：
-
-1. 小簇重分配（`size < min_cluster_size`）；
-2. 最近大簇判断在原始 1024 维空间进行；
-3. `kmeans++` 路径可选 post-merge（`enable_post_merge` + 距离阈值）；
-4. 最终簇按“簇大小降序 + 最小 article_id 升序”稳定重编号；
-5. 写入：
-   - `interest_clusters`
-   - `interest_cluster_members`（`membership=1.0`）
-   - `interest_meta`（构建时间、算法、PCA 参数、tag_weight 等元信息）
-
-说明：`hierarchical` 在有 `scipy` 时走 scipy 路径；无 `scipy` 时会自动回退为纯 Python 实现（大数据量下会更慢）。
-
-主要配置项（CLI > .env > 默认值）：
-
-- `CLAWSQLITE_INTEREST_CLUSTER_ALGO`
-- `CLAWSQLITE_INTEREST_TAG_WEIGHT`
-- `CLAWSQLITE_INTEREST_USE_PCA`
-- `CLAWSQLITE_INTEREST_PCA_EXPLAINED_VARIANCE_THRESHOLD`
-- `CLAWSQLITE_INTEREST_MIN_SIZE`
-- `CLAWSQLITE_INTEREST_MAX_CLUSTERS`
-- `CLAWSQLITE_INTEREST_KMEANS_RANDOM_STATE`
-- `CLAWSQLITE_INTEREST_KMEANS_N_INIT`
-- `CLAWSQLITE_INTEREST_KMEANS_MAX_ITER`
-- `CLAWSQLITE_INTEREST_ENABLE_POST_MERGE`
-- `CLAWSQLITE_INTEREST_MERGE_DISTANCE`
-- `CLAWSQLITE_INTEREST_HIERARCHICAL_LINKAGE`
-- `CLAWSQLITE_INTEREST_HIERARCHICAL_DISTANCE_THRESHOLD`
-
-调试与可视化：
-
-```bash
-clawsqlite knowledge inspect-interest-clusters \
-  --db /path/to/clawkb.sqlite3 \
-  --vec-dim 1024
-```
-
-提示：该命令依赖 `numpy`；如需生成 PNG 图，还需要 `matplotlib`。
-
-- 仅统计：`pip install 'clawsqlite[analysis]'`
-- 统计 + 绘图：`pip install 'clawsqlite[analysis,plot]'`
-
-- 打印每簇：`size / n_members / mean_radius / max_radius`；
-- 打印簇心两两 `1 - cos` 距离的 `min / max / median`；
-- 若安装了 matplotlib，则生成一张 PCA 2D 散点图：
-  - 点位置：簇心的 (PC1,PC2) 坐标；
-  - 点大小：与簇大小成比例（开根号缩放）；
-  - 点颜色：映射 `mean_radius`，色条标签为 `mean_radius (1 - cos)`；
-  - PNG 默认输出为：`./interest_clusters_pca.png`。
-
-可以加 `--no-plot` 只看数值不画图。
-
-实际建议的调参流程：
-
-1. 先用当前 env/参数跑一轮 `build-interest-clusters`；
-2. 使用 `inspect-interest-clusters` 观察簇大小分布、簇内半径和簇间距离；
-3. 使用 `tests/test_interest_merge_suggest.py` 或类似逻辑（按
-   `alpha * median(mean_radius)`）估算一个合适的 merge 阈值；
-4. 更新 `.env` 中的 `CLAWSQLITE_INTEREST_*` 参数，重新构建并观察结构变化。
-
----
-
-然后在入库或更新时使用：
-
-```bash
---gen-provider llm
-```
-
-clawsqlite knowledge 的 `gen-provider=llm` 会使用启发式生成 title/summary，并通过 OpenAI-compatible chat completions API（SMALL_LLM_*）调用小模型生成 `tags`（要求只输出严格 JSON：`{"tags": [...]}`）。
-
-如果未配置 SMALL_LLM，则：
-
-- `gen-provider=openclaw` 会使用纯启发式；
-- `gen-provider=llm` 未配置 SMALL_LLM 时会自动降级为 jieba 标签提取，并输出 NEXT 提示。
-
-### 4.5 抓取脚本（Scraper）配置
-
-知识库应用本身不负责网页抓取；对于 `--url` 模式，会调用你提供的脚本。
-
-配置方式：
-
-- CLI：`--scrape-cmd`
-- 环境变量：`CLAWSQLITE_SCRAPE_CMD`
 
 示例：
 
-```env
-CLAWSQLITE_SCRAPE_CMD="node /path/to/scrape.js --some-flag"
+```toml
+[knowledge]
+root = "./knowledge_data"
+db = "knowledge.sqlite3"
+articles_dir = "articles"
+
+[ingest]
+require_llm = true
+require_embedding = true
+summary_mode = "llm"
+summary_target_chars = 800
+tags_mode = "llm"
+fallback = "fail"
+
+[llm]
+base_url = "https://llm.example.com/v1"
+model = "your-small-llm"
+api_key_env = "SMALL_LLM_API_KEY"
+timeout_seconds = 90
+context_window_chars = 24000
+prompt_reserved_chars = 4000
+chunk_overlap_chars = 500
+
+[embedding]
+base_url = "https://embed.example.com/v1"
+model = "your-embedding-model"
+api_key_env = "EMBEDDING_API_KEY"
+dim = 1024
+timeout_seconds = 300
+content = "summary"
+
+[scraper]
+# cmd = "node /path/to/scrape.js"
 ```
 
-行为说明：
+说明：
 
-- `.env` 中的值支持加引号，clawsqlite knowledge 会在载入时去掉外层引号；
-- 使用 `shlex.split()` 构造 argv，默认不使用 `shell=True`；
-- 如果命令中包含 `{url}`，会用实际 URL 替换该占位符；
-- 否则会把 URL 追加为 argv 的最后一个参数。
-
-抓取脚本输出支持两种格式：
-
-1. **推荐：结构化文本**
-
-   ```text
-   --- METADATA ---
-   Title: 文章标题
-   Author: 作者
-   ...
-
-   --- MARKDOWN ---
-   # 一级标题
-   正文……
-   ```
-
-2. **简化格式**
-
-   ```text
-   Title: 文章标题
-   # 一级标题
-   正文……
-   ```
-
-知识库应用会从这两种格式中解析出标题和 Markdown 正文。
+- `root` 相对路径按配置文件所在目录解析。
+- `db` 和 `articles_dir` 相对路径按 `root` 解析。
+- `--root` / `--db` / `--articles-dir` 仍保留为调试覆盖参数，但正常 Agent 使用应优先依赖 `clawsqlite.toml`。
+- `.env` 仍会自动读取，但主要用于 API key、扩展路径、搜索权重等环境变量，不再是知识库路径的主配置入口。
 
 ---
 
-## 5. 快速上手
+## 3. 严格入库是默认行为
 
-### 5.1 最小配置
+默认模板是严格模式：
 
-1. 克隆仓库并进入目录：
+```toml
+[ingest]
+require_llm = true
+require_embedding = true
+fallback = "fail"
+```
+
+严格模式下：
+
+- LLM 生成字段失败，命令失败；
+- embedding 配置缺失或 vec 同步失败，命令失败；
+- Agent 不应该自己编标签，也不应该无声退回 TextRank / jieba 标签。
+
+如果你明确想要降级入库，必须在命令上写出来：
+
+```bash
+clawsqlite knowledge ingest ... --allow-heuristic
+clawsqlite knowledge ingest ... --allow-missing-embedding
+```
+
+这两个参数的含义是“我主动接受质量降低”，适合无网络测试或用户明确要求的场景。
+
+---
+
+## 4. LLM 摘要与分块
+
+LLM 入库会从全文生成结构化字段：
+
+- `title`
+- `summary`
+- `tags`
+- `key_claims`
+- `entities`
+- `content_type`
+
+`summary` 是后续 embedding 的默认文本来源。摘要目标长度由配置控制：
+
+```toml
+[ingest]
+summary_target_chars = 800
+```
+
+这个值不是写死在代码里的，后续可以按模型和知识库风格调整。
+
+长文处理使用配置里的上下文预算：
+
+```toml
+[llm]
+context_window_chars = 24000
+prompt_reserved_chars = 4000
+chunk_overlap_chars = 500
+```
+
+逻辑是：
+
+1. 如果全文长度小于 `context_window_chars - prompt_reserved_chars`，直接一次发给 LLM；
+2. 如果超过，就按预算切块；
+3. 先总结每个 chunk；
+4. 再从 chunk summaries 合成最终摘要、标签、关键观点等字段。
+
+这比固定截断文章前 1200 字更适合“整篇文章入库后供未来语义检索”。
+
+---
+
+## 5. 快速开始
+
+1. 克隆并进入仓库：
 
    ```bash
    git clone git@github.com:ernestyu/clawsqlite.git
    cd clawsqlite
    ```
 
-2. （可选）在运行环境中配置好根目录和 Embedding/LLM 相关 env，或者
-   直接在运行命令时通过 `--root/--db/--articles-dir` 传入。这里不再
-   强制依赖项目内置的 `.env` 加载逻辑。
+2. 创建配置：
 
-3. 第一次入库（纯文本）：
+   ```bash
+   clawsqlite knowledge init-config --out clawsqlite.toml
+   ```
+
+3. 在配置里填写 `[knowledge]`、`[llm]`、`[embedding]`。真实 API key 放进环境变量或 `.env`：
+
+   ```env
+   SMALL_LLM_API_KEY=sk-your-small-llm-key
+   EMBEDDING_API_KEY=sk-your-embedding-key
+   ```
+
+4. 自检：
+
+   ```bash
+   clawsqlite knowledge doctor --json
+   ```
+
+5. 严格入库：
 
    ```bash
    clawsqlite knowledge ingest \
-     --text "你好，clawsqlite" \
-     --title "第一次笔记" \
-     --category test \
-     --tags demo \
-     --gen-provider off \
+     --text "这里是一段值得长期保存的想法。" \
+     --title "第一次想法记录" \
+     --category thought \
      --json
    ```
 
-   这一步会：
-
-   - 创建 `<root>/knowledge.sqlite3`；
-   - 在 `<root>/articles` 下生成 `000001__第一次笔记.md`（实际文件名取决于 slug）；
-   - 写入 FTS 索引（如果 Embedding 已配置且 vec 表可用，会一起写入向量索引）。
-
-4. 搜索刚才那条记录：
-
-   ```bash
-   clawsqlite knowledge search "clawsqlite" --mode fts --json
-   ```
-
-### 5.2 从 URL 入库
-
-假设 `.env` 中已经配置了抓取脚本：
+如果只是本地无网络测试，可以明确降级：
 
 ```bash
 clawsqlite knowledge ingest \
-  --url "https://example.com/article" \
-  --category web \
-  --tags example \
-  --gen-provider openclaw \
+  --text "你好，clawsqlite" \
+  --title "测试笔记" \
+  --category test \
+  --tags demo \
+  --gen-provider off \
+  --allow-heuristic \
+  --allow-missing-embedding \
   --json
 ```
-
-入库流程：
-
-- 调用抓取脚本获取网页内容；
-- 解析标题与 Markdown 正文；
-- （必要时）基于正文生成摘要和标签；
-- 写入数据库 + Markdown 文件；
-- 同步 FTS 与 vec 索引（如果向量功能已启用）。
-
-### 5.3 URL 重抓与刷新（`--update-existing`）
-
-当你知道某篇网页已经更新，希望在保持 URL/ID 不变的前提下刷新内容，可以：
-
-```bash
-clawsqlite knowledge ingest \
-  --url "https://example.com/article" \
-  --gen-provider openclaw \
-  --update-existing \
-  --json
-```
-
-语义：
-
-- 若数据库中存在同一 `source_url` 的记录（包括软删记录）：
-  - 复用原来的 `id`；
-  - 更新 `tags` / `category` / `priority`；
-  - 重新生成 Markdown 文件；
-  - 同步 FTS/vec 索引；
-  - 旧 Markdown 文件会重命名为 `.bak_<timestamp>` 作为备份。
-- 若不存在该 URL，则行为等同普通入库。
-- 若已存在该 URL 但没有显式传入 `--update-existing`，命令会返回清晰错误和
-  `NEXT` 提示，而不是依赖 SQLite 唯一约束报错。
-
-`source_url` 在非空且非 `Local` 时有唯一约束，保证一个 URL 最多只对应一条记录。
 
 ---
 
-## 6. CLI 子命令总览
+## 6. 常用命令
 
-所有子命令共用一组全局参数：
-
-- `--root`：根目录
-- `--db`：数据库路径
-- `--articles-dir`：Markdown 目录
-- `--tokenizer-ext`：tokenizer 扩展路径
-- `--vec-ext`：vec0 扩展路径
-- `--json`：输出 JSON
-- `--verbose`：输出更详细日志
-
-可以使用：
+### 入库
 
 ```bash
-clawsqlite knowledge <command> --help
-```
-
-查看详细说明。
-
-### 6.1 ingest
-
-```bash
-clawsqlite knowledge ingest --url URL [选项]
-clawsqlite knowledge ingest --text TEXT [选项]
+clawsqlite knowledge ingest --url "https://example.com/article" --category web --json
+clawsqlite knowledge ingest --text "一段想法" --category thought --json
 ```
 
 常用参数：
 
+- `--config`：显式指定 `clawsqlite.toml`
 - `--url` / `--text`：二选一
 - `--title` / `--summary` / `--tags` / `--category` / `--priority`
-- `--gen-provider {openclaw,llm,off}`：字段生成方式
-- `--max-summary-chars`：摘要最大长度
-- `--scrape-cmd`：抓取命令（或用 `CLAWSQLITE_SCRAPE_CMD`）
-- `--update-existing`：URL 已存在时更新同一条记录
+- `--gen-provider {openclaw,llm,off}`：默认来自配置
+- `--max-summary-chars`：覆盖配置里的 `summary_target_chars`
+- `--scrape-cmd`：覆盖配置里的抓取命令
+- `--update-existing`：URL 已存在时刷新同一条记录
+- `--allow-heuristic` / `--allow-missing-embedding`：显式降级
 
-### 6.2 search
+### 搜索
 
 ```bash
-clawsqlite knowledge search "查询词" --mode hybrid --topk 20 --json
+clawsqlite knowledge search "我之前关于 SQLite Agent 的想法" --mode hybrid --json
 ```
 
 模式：
 
-- `hybrid`：默认，FTS + vec 混合
-- `fts`：只用 FTS
-- `vec`：只用向量（需要 Embedding 和 vec 表可用）
+- `hybrid`：FTS + 向量混合，embedding 不可用时提示并退到 FTS；
+- `fts`：只用全文检索；
+- `vec`：只用向量，embedding 不可用时直接失败。
 
-常用参数：
-
-- `--topk`：返回结果条数
-- `--candidates`：初始候选集大小
-- `--llm-keywords {auto,on,off}`：是否使用小模型构造 `query_refine/query_tags`（`off` 强制关闭）
-- `--gen-provider`：设为 `llm` 时启用小模型（需要配置 `SMALL_LLM_*`）
-- 过滤：`--category` / `--tag` / `--since` / `--priority` / `--include-deleted`
-
-### 6.3 show / export
-
-- `show`：查看单条记录，`--full` 时附带 Markdown 正文
-- `export`：导出为 `.md` 或 `.json` 文件
-
-示例：
+### 查看与导出
 
 ```bash
 clawsqlite knowledge show --id 12 --full --json
 clawsqlite knowledge export --id 12 --format md --out /tmp/article.md
 ```
 
-### 6.4 update
+### 更新
 
 ```bash
-clawsqlite knowledge update --id ID [补丁参数] [--regen ...]
+clawsqlite knowledge update --id 12 --tags "sqlite,agent,knowledge" --json
+clawsqlite knowledge update --id 12 --regen all --json
 ```
 
-行为：
+严格配置下，`--regen` 默认也会走配置里的 LLM 生成路径。需要降级时必须显式加 `--allow-heuristic`。
 
-- `id` / `source_url` / `created_at` 视为只读字段，不会被修改；
-- 可更新：`tags` / `category` / `priority`；
-- `--regen {title,summary,tags,embedding,all}`：根据当前 Markdown 正文调用生成器重新计算部分字段；
-  - 当 Embedding 可用时，`update` 会在摘要或标签变化时自动同步向量（或使用 `--regen embedding/all` 强制重算）；
-  - 如需对全库批量重建摘要向量，可使用 `clawsqlite knowledge embed-from-summary`（标签向量会在后续 update/reindex 中补齐）。
-- 更新后自动同步 FTS/vec 索引。
-
-示例：
+### 重建低质量旧记录
 
 ```bash
-# 手工修 tags
-clawsqlite knowledge update --id 3 --tags "rag,sqlite,openclaw"
-
-# 用启发式重新生成摘要
-clawsqlite knowledge update --id 3 --regen summary --gen-provider openclaw
-
-# 用小模型生成/重刷标签
-clawsqlite knowledge update --id 3 --regen all --gen-provider llm
+clawsqlite knowledge rebuild-quality --dry-run --json
+clawsqlite knowledge rebuild-quality --json
 ```
 
-### 6.5 delete
+这个命令用于把旧的启发式记录升级为 LLM 质量记录：重生成 summary/tags/key_claims/entities，重写 Markdown metadata，并刷新 FTS / embedding。
+
+### 维护
 
 ```bash
-clawsqlite knowledge delete --id ID [--hard] [--remove-file]
-```
-
-语义：
-
-- 默认：软删
-  - 标记 `deleted_at`；
-  - 从 FTS/vec 中移除索引；
-  - Markdown 文件会重命名为 `.bak_deleted_<timestamp>`，方便后悔恢复；
-- `--hard`：硬删
-  - 从 `articles` 表删除记录；
-  - 默认把正文文件改名为 `.bak_deleted_<timestamp>`；
-  - 若同时指定 `--remove-file`，则直接物理删除 Markdown 文件。
-
-配合 `maintenance prune` 可以在一段时间后批量清理这些备份文件。
-
-### 6.6 reindex
-
-```bash
-clawsqlite knowledge reindex --check
-clawsqlite knowledge reindex --fix-missing --gen-provider openclaw
-clawsqlite knowledge reindex --rebuild --fts
-clawsqlite knowledge reindex --rebuild --vec
-```
-
-用途：
-
-- `--check`：检查缺失字段和索引状态；
-- `--fix-missing`：利用当前生成器补齐缺失的摘要/标签/FTS/vec 行；
-- `--rebuild`：重建索引：
-  - `--fts`：通过 plumbing (`clawsqlite index rebuild`) 重建 FTS 索引；
-  - `--vec`：只“清空” vec 表（不重算 Embedding），后续需配合
-    `clawsqlite knowledge embed-from-summary` 等命令重新填充向量。
-
-### 6.7 maintenance
-
-```bash
+clawsqlite knowledge reindex --check --json
 clawsqlite knowledge maintenance prune --days 3 --dry-run
 ```
 
-主要功能：
-
-- 扫描 Markdown 目录，找出：
-  - 不再被 DB 引用的孤儿文件；
-  - 命名形式为 `.bak_*` 的备份文件；
-  - DB 中记录的 `local_file_path` 指向不存在文件的“断链记录”。
-- `--dry-run`：只输出报告，不做删除；
-- `--days`：备份保留天数（默认 3 天，`--days 0` 表示不保留）。
-
-这一套配合软删/硬删的备份策略，实现“删除先备份，过保留期后再真正清理”的两阶段删除。
-
-### 6.8 report-interest
-
-```bash
-clawsqlite knowledge report-interest --days 7 --lang zh --no-pdf
-```
-
-这是可选的分析/报告能力，会按需加载 `numpy` 等分析依赖。缺少这些依赖时，
-`ingest` / `search` / `show` 等核心命令不会被影响；需要报告功能时可安装：
-
-```bash
-pip install 'clawsqlite[analysis]'
-```
+`reindex --fix-missing` 会按配置里的生成器补缺失字段；严格配置下同样要求 LLM，除非显式加 `--allow-heuristic`。
 
 ---
 
-## 7. 文件命名与中文标题
+## 7. Agent 使用契约
 
-Markdown 文件命名形式：
+面向 Agent 的更短说明见 [AGENT_USAGE.md](AGENT_USAGE.md)。核心规则：
+
+- 先运行 Knowledge 命令，让它读取 `clawsqlite.toml`；
+- 不要自己猜 DB 文件名；
+- 遇到 `ERROR_KIND: config_required` / `llm_required` / `embedding_required` 时，把错误报告给用户；
+- 不要无声降级生成标签；
+- 只有用户明确允许时才加 `--allow-heuristic` 或 `--allow-missing-embedding`。
+
+---
+
+## 8. 兴趣簇
+
+`build-interest-clusters` 仍然保留，用于基于 `articles_vec` 与 `articles_tag_vec` 构建兴趣簇：
+
+```bash
+clawsqlite knowledge build-interest-clusters --algo kmeans++ --json
+clawsqlite knowledge inspect-interest-clusters --vec-dim 1024
+```
+
+当前兴趣簇更适合作为分析辅助，不应被理解为稳定的长期兴趣分类体系。建议先把入库质量、摘要质量、标签质量做好，再逐步优化兴趣系统。
+
+---
+
+## 9. 文件命名
+
+Markdown 文件命名：
 
 ```text
 <id>__<slug>.md
 ```
 
-- `id` 来自数据库自增主键；
-- `slug` 由标题生成，规则：
-  - 使用 Unicode 规范化（NFKC）；
-  - 若安装了 `pypinyin`，中文片段会转为拼音；
-  - 保留 ASCII 字母/数字，其他符号统一替换为 `-`；
-  - 连续多个 `-` 合并，去掉首尾 `-`；
-  - 为空时回退为 `untitled`。
-
-因此对于中文标题，通常会得到拼音 slug；如果未安装 `pypinyin`，可能回退为
-`untitled`。例如：
-
-> 标题：`深入理解 OpenClaw 多 Agent 架构`
->
-> 文件名示例：`<id>__shen-ru-li-jie-openclaw-duo-agent-jia-gou.md`
-
----
-
-## 8. 备注
-
-- 当前版本主要面向“新建知识库”的使用场景，不负责自动迁移旧版 schema；
-- 对 URL 和 ID 的约束比较严格：
-  - `source_url` 对外部 URL 唯一；
-  - `ingest` 默认拒绝重复 URL，只有在显式 `--update-existing` 时才允许刷新；
-- 删除逻辑采用“先备份后清理”的两阶段方案；
-- 针对中文内容：
-  - 在有 `jieba` 依赖的环境下，标签生成优先使用 `jieba.analyse.textrank`；
-  - 在启发式路径中，对“字数/阅读时间”等常见噪音有额外过滤；
-  - 在生成 summary/tags 前，会尝试剥离 Markdown 的 metadata 区块和公众号式阅读统计。
-
-如果你有新的使用场景或改进建议，欢迎在 GitHub 仓库
-（`ernestyu/clawsqlite`）中提交 issue 或 PR。
+标题和正文仍以 DB 和 Markdown 内容为准，文件名只是方便浏览和维护。
 
 ---
 

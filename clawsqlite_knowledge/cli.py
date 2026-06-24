@@ -19,7 +19,8 @@ import datetime as _dt
 from typing import Any, Dict, List, Optional
 
 from . import db as dbmod
-from .utils import now_iso_z, truncate_text, comma_join_tags, resolve_root_paths, resolve_interest_params, load_project_env
+from .utils import now_iso_z, truncate_text, comma_join_tags, resolve_interest_params, load_project_env
+from .config import ConfigError, KnowledgeConfig, apply_config_env, load_knowledge_config
 from .storage import (
     ensure_dir,
     article_abspath,
@@ -40,24 +41,70 @@ try:
 except Exception:  # pragma: no cover
     _db_plumbing_cli = None
 
-DEFAULT_ROOT = os.environ.get("CLAWSQLITE_ROOT_DEFAULT", "")
 _WARNED_FTS_FALLBACK = False
 
 
-def _resolve_paths(args) -> Dict[str, str]:
-    """Resolve root/db/articles-dir with clear priority: CLI > env > defaults.
+CONFIG_TEMPLATE = """# clawsqlite knowledge configuration.
+# This file is owned by the knowledge app. Plumbing commands do not read it.
 
-    DEFAULT_ROOT is intentionally kept lightweight; the actual fallback
-    logic lives in utils.resolve_root_paths so it can be reused by other
-    entrypoints if needed.
-    """
+[knowledge]
+root = "{root}"
+db = "knowledge.sqlite3"
+articles_dir = "articles"
 
-    return resolve_root_paths(
+[ingest]
+require_llm = true
+require_embedding = true
+summary_mode = "llm"
+summary_target_chars = 800
+tags_mode = "llm"
+fallback = "fail"
+
+[llm]
+base_url = "https://llm.example.com/v1"
+model = "your-small-llm"
+api_key_env = "SMALL_LLM_API_KEY"
+timeout_seconds = 90
+# Character-budget approximation for the model context. The generator
+# subtracts prompt_reserved_chars before deciding whether to chunk.
+context_window_chars = 24000
+prompt_reserved_chars = 4000
+chunk_overlap_chars = 500
+
+[embedding]
+base_url = "https://embed.example.com/v1"
+model = "your-embedding-model"
+api_key_env = "EMBEDDING_API_KEY"
+dim = 1024
+timeout_seconds = 300
+content = "summary"
+
+[scraper]
+# cmd = "node /path/to/scrape.js"
+"""
+
+
+def _get_config(args, *, require: bool = True) -> KnowledgeConfig:
+    cfg = getattr(args, "_knowledge_config", None)
+    if cfg is not None:
+        return cfg
+    cfg = load_knowledge_config(
+        cli_config=getattr(args, "config", None),
         cli_root=getattr(args, "root", None),
         cli_db=getattr(args, "db", None),
         cli_articles_dir=getattr(args, "articles_dir", None),
-        default_root=DEFAULT_ROOT or None,
+        require=require,
     )
+    apply_config_env(cfg)
+    setattr(args, "_knowledge_config", cfg)
+    return cfg
+
+
+def _resolve_paths(args) -> Dict[str, str]:
+    """Resolve paths from the knowledge config plus explicit CLI overrides."""
+
+    cfg = _get_config(args)
+    return {"root": cfg.root, "db": cfg.db, "articles_dir": cfg.articles_dir}
 
 def _print(obj: Any, as_json: bool) -> None:
     if as_json:
@@ -141,21 +188,47 @@ def cmd_embed_from_summary(args) -> int:
     return int(code)
 
 
+def cmd_init_config(args) -> int:
+    out = getattr(args, "out", None) or getattr(args, "config", None) or "clawsqlite.toml"
+    path = os.path.abspath(os.path.expanduser(out))
+    if os.path.exists(path) and not getattr(args, "force", False):
+        sys.stderr.write(f"ERROR: config already exists at {path}\n")
+        sys.stderr.write("NEXT: pass --force to overwrite, or choose --out /path/to/clawsqlite.toml.\n")
+        return 2
+    root = getattr(args, "root", None) or "./knowledge_data"
+    ensure_dir(os.path.dirname(path) or ".")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(CONFIG_TEMPLATE.format(root=root))
+    _print({"ok": True, "config_path": path}, bool(getattr(args, "json", False)))
+    return 0
+
+
 def cmd_ingest(args) -> int:
+    cfg = _get_config(args)
+    policy = cfg.ingest
     paths = _resolve_paths(args)
     ensure_dir(paths["articles_dir"])
 
     source_url = args.url or "Local"
     category = args.category or ""
     priority = int(args.priority or 0)
-    gen_provider = (args.gen_provider or "openclaw").lower()
+    gen_provider = (args.gen_provider or ("llm" if policy.summary_mode == "llm" or policy.tags_mode == "llm" else "openclaw")).lower()
+    allow_heuristic = bool(getattr(args, "allow_heuristic", False))
+    allow_missing_embedding = bool(getattr(args, "allow_missing_embedding", False))
+    max_summary_chars = int(args.max_summary_chars or policy.summary_target_chars)
+
+    if policy.require_llm and gen_provider != "llm" and not allow_heuristic:
+        sys.stderr.write("ERROR: LLM generation is required by clawsqlite.toml.\n")
+        sys.stderr.write("ERROR_KIND: llm_required\n")
+        sys.stderr.write("NEXT: use the default LLM path, or explicitly pass --allow-heuristic for degraded ingest.\n")
+        return 2
 
     # 1) Fetch content
     hint_title = args.title
     body_md = ""
     if args.url:
         try:
-            t, md = scrape_url(args.url, scrape_cmd=args.scrape_cmd)
+            t, md = scrape_url(args.url, scrape_cmd=args.scrape_cmd or cfg.scraper.cmd or None)
             if t and not hint_title:
                 hint_title = t
             body_md = md
@@ -175,39 +248,75 @@ def cmd_ingest(args) -> int:
     summary_generated = False
     title = hint_title or ""
 
+    generation_provider = gen_provider
+    generation_quality = "manual" if gen_provider == "off" else ""
+    summary_model = ""
+    tags_model = ""
+    content_type = "note" if args.text else "web_article"
+    key_claims_json = "[]"
+    entities_json = "[]"
+
     if gen_provider != "off":
-        need_gen = (not title) or (not summary) or (not tags and not args.tags)
+        need_gen = bool(policy.require_llm) or (not title) or (not summary) or (not tags and not args.tags)
         if need_gen:
             try:
-                # generate_fields itself will strip obvious metadata/header
-                # noise (e.g. our own --- METADATA ---/--- MARKDOWN ---
-                # blocks and WeChat-style reading stats) before applying
-                # heuristics or calling the small LLM.
                 gen = generate_fields(
                     body_md,
                     hint_title=title or None,
                     provider=gen_provider,
-                    max_summary_chars=args.max_summary_chars,
+                    max_summary_chars=max_summary_chars,
+                    allow_heuristic=allow_heuristic or not policy.require_llm,
+                    llm_context_window_chars=cfg.llm.context_window_chars,
+                    llm_prompt_reserved_chars=cfg.llm.prompt_reserved_chars,
+                    llm_chunk_overlap_chars=cfg.llm.chunk_overlap_chars,
+                    llm_timeout_seconds=cfg.llm.timeout_seconds,
                 )
                 if not title:
                     title = (gen.get("title") or "").strip()
-                if not summary:
+                if policy.require_llm or not summary:
                     summary = (gen.get("summary") or "").strip()
                     summary_generated = True
-                if not tags and not args.tags:
+                if policy.require_llm or (not tags and not args.tags):
                     tags = comma_join_tags(gen.get("tags"))
+                generation_quality = str(gen.get("generation_quality") or ("llm" if gen_provider == "llm" else "heuristic"))
+                if generation_quality == "llm":
+                    summary_model = cfg.llm.model
+                    tags_model = cfg.llm.model
+                content_type = str(gen.get("content_type") or content_type)
+                key_claims_json = json.dumps(gen.get("key_claims") or [], ensure_ascii=False)
+                entities_json = json.dumps(gen.get("entities") or [], ensure_ascii=False)
             except Exception as e:
+                if policy.require_llm and not allow_heuristic:
+                    sys.stderr.write(f"ERROR: LLM field generation failed: {e}\n")
+                    sys.stderr.write("ERROR_KIND: llm_generation_failed\n")
+                    sys.stderr.write("NEXT: fix [llm] config/API output, or explicitly pass --allow-heuristic for degraded ingest.\n")
+                    return 4
                 sys.stderr.write(f"WARNING: generate_fields failed: {e}\n")
 
     title = title.strip() or "untitled"
     if summary_generated:
         summary = summary.strip()
     else:
-        summary = truncate_text(summary, max_chars=args.max_summary_chars)
+        summary = truncate_text(summary, max_chars=max_summary_chars)
     tags = comma_join_tags(tags)
+
+    if policy.require_llm and generation_quality != "llm" and not allow_heuristic:
+        sys.stderr.write("ERROR: strict ingest requires LLM-generated summary and tags.\n")
+        sys.stderr.write("ERROR_KIND: llm_required\n")
+        sys.stderr.write("NEXT: configure [llm] in clawsqlite.toml and set the API key env, or pass --allow-heuristic.\n")
+        return 2
+
+    if policy.require_embedding and not allow_missing_embedding and not embedding_enabled():
+        missing = ", ".join(_embedding_missing_keys())
+        sys.stderr.write(f"ERROR: embedding is required by clawsqlite.toml; missing {missing}.\n")
+        sys.stderr.write("ERROR_KIND: embedding_required\n")
+        sys.stderr.write("NEXT: configure [embedding] in clawsqlite.toml and set the API key env, or pass --allow-missing-embedding.\n")
+        return 2
 
     created_at = now_iso_z()
     created_at_for_md = created_at
+    embedding_model = cfg.embedding.model if embedding_enabled() else ""
+    embedding_dim: Optional[int] = cfg.embedding.dim if cfg.embedding.dim > 0 else None
 
     conn = None
     old_path: Optional[str] = None
@@ -245,6 +354,18 @@ def cmd_ingest(args) -> int:
                 tags=tags,
                 category=category,
                 priority=priority,
+                generation_provider=generation_provider,
+                generation_quality=generation_quality,
+                summary_model=summary_model,
+                tags_model=tags_model,
+                embedding_model=embedding_model,
+                embedding_dim=embedding_dim,
+                ingest_status="ok",
+                ingest_error="",
+                content_type=content_type,
+                key_claims=key_claims_json,
+                entities=entities_json,
+                config_path=cfg.config_path,
             )
             new_id = existing_id
         else:
@@ -258,6 +379,18 @@ def cmd_ingest(args) -> int:
                 local_file_path="",
                 priority=priority,
                 created_at=created_at,
+                generation_provider=generation_provider,
+                generation_quality=generation_quality,
+                summary_model=summary_model,
+                tags_model=tags_model,
+                embedding_model=embedding_model,
+                embedding_dim=embedding_dim,
+                ingest_status="ok",
+                ingest_error="",
+                content_type=content_type,
+                key_claims=key_claims_json,
+                entities=entities_json,
+                config_path=cfg.config_path,
             )
 
         md_path = article_abspath(paths["articles_dir"], new_id, title)
@@ -270,6 +403,13 @@ def cmd_ingest(args) -> int:
             tags=tags,
             priority=priority,
             body_markdown=body_md,
+            summary=summary,
+            generation_quality=generation_quality,
+            summary_model=summary_model,
+            tags_model=tags_model,
+            embedding_model=embedding_model,
+            content_type=content_type,
+            key_claims=key_claims_json,
         )
         write_markdown(md_path, md_content)
 
@@ -300,23 +440,31 @@ def cmd_ingest(args) -> int:
                 if dbmod.vec_table_exists(conn):
                     try:
                         if summary:
-                            emb = l2_normalize(get_embedding(summary))
+                            emb = l2_normalize(get_embedding(summary, timeout=cfg.embedding.timeout_seconds))
                             blob = floats_to_f32_blob(emb)
                             dbmod.upsert_vec(conn, new_id, blob)
                         else:
                             dbmod.delete_vec(conn, new_id)
                         if tags:
-                            emb_tag = l2_normalize(get_embedding(tags))
+                            emb_tag = l2_normalize(get_embedding(tags, timeout=cfg.embedding.timeout_seconds))
                             blob_tag = floats_to_f32_blob(emb_tag)
                             dbmod.upsert_tag_vec(conn, new_id, blob_tag)
                         else:
                             dbmod.delete_tag_vec(conn, new_id)
                     except Exception as e:
+                        if policy.require_embedding and not allow_missing_embedding:
+                            raise
                         sys.stderr.write(f"WARNING: vec/tag_vec upsert failed: {e}\n")
                 else:
+                    if policy.require_embedding and not allow_missing_embedding:
+                        raise RuntimeError("vec index not available (vec0 extension not loaded)")
                     embed_on = False
-            except Exception:
+            except Exception as e:
+                if policy.require_embedding and not allow_missing_embedding:
+                    raise RuntimeError(f"embedding/vec sync failed: {e}")
                 embed_on = False
+        elif policy.require_embedding and not allow_missing_embedding:
+            raise RuntimeError("embedding is required but summary/tags are empty or embedding is disabled")
 
         conn.commit()
 
@@ -350,8 +498,8 @@ def cmd_show(args) -> int:
     paths = _resolve_paths(args)
     db_path = paths["db"]
     if not os.path.exists(db_path):
-        sys.stderr.write(f"ERROR: db not found at {db_path}. Check --root/--db or .env configuration.\n")
-        sys.stderr.write("NEXT: set --root/--db (or CLAWSQLITE_ROOT/CLAWSQLITE_DB) to an existing knowledge_data directory, "
+        sys.stderr.write(f"ERROR: db not found at {db_path}. Check --config/clawsqlite.toml.\n")
+        sys.stderr.write("NEXT: set [knowledge].root/[knowledge].db in clawsqlite.toml, pass --config, "
                          "or run an ingest command first to initialize the DB.\n")
         return 2
     conn = None
@@ -422,7 +570,7 @@ def cmd_export(args) -> int:
     try:
         db_path = paths["db"]
         if not os.path.exists(db_path):
-            sys.stderr.write(f"ERROR: db not found at {db_path}. Check --root/--db or .env configuration.\n")
+            sys.stderr.write(f"ERROR: db not found at {db_path}. Check --config/clawsqlite.toml.\n")
             return 2
         conn = _open_for_command(db_path, need_fts=False, need_vec=False, args=args)
         row = dbmod.get_article(conn, int(args.id))
@@ -482,7 +630,11 @@ def cmd_export(args) -> int:
 def cmd_doctor(args) -> int:
     from .doctor import run_doctor
 
-    return run_doctor()
+    return run_doctor(
+        config=getattr(args, "_knowledge_config", None),
+        check_embedding=bool(getattr(args, "check_embedding", False)),
+        check_llm=bool(getattr(args, "check_llm", False)),
+    )
 
 
 def _format_search_results(results: List[Dict[str, Any]], *, explain: bool) -> List[Dict[str, Any]]:
@@ -599,14 +751,15 @@ def cmd_search(args) -> int:
             conn.close()
 
 def cmd_update(args) -> int:
+    cfg = _get_config(args)
     paths = _resolve_paths(args)
     aid = int(args.id)
     conn = None
     try:
         db_path = paths["db"]
         if not os.path.exists(db_path):
-            sys.stderr.write(f"ERROR: db not found at {db_path}. Check --root/--db or .env configuration.\n")
-            sys.stderr.write("NEXT: set --root/--db (or CLAWSQLITE_ROOT/CLAWSQLITE_DB) to an existing knowledge_data directory, "
+            sys.stderr.write(f"ERROR: db not found at {db_path}. Check --config/clawsqlite.toml.\n")
+            sys.stderr.write("NEXT: set [knowledge].root/[knowledge].db in clawsqlite.toml, pass --config, "
                              "or run an ingest command first to initialize the DB.\n")
             return 2
         conn = _open_for_command(db_path, need_fts=True, need_vec=True, args=args)
@@ -617,7 +770,14 @@ def cmd_update(args) -> int:
             return 2
 
         embed_on = embedding_enabled()
-        gen_provider = (args.gen_provider or "openclaw").lower()
+        gen_provider = (args.gen_provider or ("llm" if cfg.ingest.summary_mode == "llm" or cfg.ingest.tags_mode == "llm" else "openclaw")).lower()
+        allow_heuristic = bool(getattr(args, "allow_heuristic", False))
+        if args.regen and cfg.ingest.require_llm and gen_provider != "llm" and not allow_heuristic:
+            sys.stderr.write("ERROR: LLM generation is required by clawsqlite.toml.\n")
+            sys.stderr.write("ERROR_KIND: llm_required\n")
+            sys.stderr.write("NEXT: use the default LLM path, or explicitly pass --allow-heuristic for degraded update.\n")
+            return 2
+        max_summary_chars = int(args.max_summary_chars or cfg.ingest.summary_target_chars)
 
         # URL / ID / created_at are read-only by design. We only allow updating
         # title/summary/tags/category/priority (and modified_at implicitly).
@@ -633,7 +793,7 @@ def cmd_update(args) -> int:
         if args.title is not None:
             title = args.title
         if args.summary is not None:
-            summary = truncate_text(args.summary, max_chars=args.max_summary_chars)
+            summary = truncate_text(args.summary, max_chars=max_summary_chars)
         if args.tags is not None:
             tags = comma_join_tags(args.tags)
         if args.category is not None:
@@ -659,7 +819,12 @@ def cmd_update(args) -> int:
                         content,
                         hint_title=title or None,
                         provider=gen_provider,
-                        max_summary_chars=args.max_summary_chars,
+                        max_summary_chars=max_summary_chars,
+                        allow_heuristic=allow_heuristic or not cfg.ingest.require_llm,
+                        llm_context_window_chars=cfg.llm.context_window_chars,
+                        llm_prompt_reserved_chars=cfg.llm.prompt_reserved_chars,
+                        llm_chunk_overlap_chars=cfg.llm.chunk_overlap_chars,
+                        llm_timeout_seconds=cfg.llm.timeout_seconds,
                     )
                 return gen_cache
 
@@ -992,6 +1157,7 @@ def cmd_maintenance(args) -> int:
 
 
 def cmd_reindex(args) -> int:
+    cfg = _get_config(args)
     paths = _resolve_paths(args)
     embed_on = embedding_enabled()
     conn = None
@@ -1004,7 +1170,25 @@ def cmd_reindex(args) -> int:
             return 0
 
         if args.fix_missing:
-            out = reindex_mod.fix_missing(conn, gen_provider=args.gen_provider, embed_on=embed_on, verbose=bool(args.verbose))
+            gen_provider = (args.gen_provider or ("llm" if cfg.ingest.summary_mode == "llm" or cfg.ingest.tags_mode == "llm" else "openclaw")).lower()
+            allow_heuristic = bool(getattr(args, "allow_heuristic", False))
+            if cfg.ingest.require_llm and gen_provider != "llm" and not allow_heuristic:
+                sys.stderr.write("ERROR: LLM generation is required by clawsqlite.toml.\n")
+                sys.stderr.write("ERROR_KIND: llm_required\n")
+                sys.stderr.write("NEXT: use the default LLM path, or explicitly pass --allow-heuristic for degraded reindex.\n")
+                return 2
+            out = reindex_mod.fix_missing(
+                conn,
+                gen_provider=gen_provider,
+                embed_on=embed_on,
+                max_summary_chars=cfg.ingest.summary_target_chars,
+                allow_heuristic=allow_heuristic or not cfg.ingest.require_llm,
+                llm_context_window_chars=cfg.llm.context_window_chars,
+                llm_prompt_reserved_chars=cfg.llm.prompt_reserved_chars,
+                llm_chunk_overlap_chars=cfg.llm.chunk_overlap_chars,
+                llm_timeout_seconds=cfg.llm.timeout_seconds,
+                verbose=bool(args.verbose),
+            )
             _print(out, bool(args.json))
             return 0
 
@@ -1037,13 +1221,159 @@ def cmd_reindex(args) -> int:
         if conn is not None:
             conn.close()
 
+
+def cmd_rebuild_quality(args) -> int:
+    cfg = _get_config(args)
+    paths = _resolve_paths(args)
+    db_path = paths["db"]
+    if not os.path.exists(db_path):
+        sys.stderr.write(f"ERROR: db not found at {db_path}. Check --config/clawsqlite.toml.\n")
+        return 2
+    if cfg.ingest.require_llm and not (os.environ.get("SMALL_LLM_BASE_URL") and os.environ.get("SMALL_LLM_MODEL") and os.environ.get("SMALL_LLM_API_KEY")):
+        sys.stderr.write("ERROR: rebuild-quality requires configured LLM.\n")
+        sys.stderr.write("ERROR_KIND: llm_required\n")
+        sys.stderr.write("NEXT: configure [llm] in clawsqlite.toml and set the API key env.\n")
+        return 2
+    if cfg.ingest.require_embedding and not getattr(args, "allow_missing_embedding", False) and not embedding_enabled():
+        sys.stderr.write("ERROR: rebuild-quality requires configured embedding.\n")
+        sys.stderr.write("ERROR_KIND: embedding_required\n")
+        sys.stderr.write("NEXT: configure [embedding] in clawsqlite.toml, or pass --allow-missing-embedding.\n")
+        return 2
+
+    conn = None
+    try:
+        conn = _open_for_command(db_path, need_fts=True, need_vec=True, args=args)
+        clauses = ["deleted_at IS NULL"]
+        params: List[Any] = []
+        if getattr(args, "id", None):
+            clauses.append("id=?")
+            params.append(int(args.id))
+        else:
+            clauses.append("(coalesce(generation_quality,'') != 'llm' OR coalesce(summary_model,'') = '' OR coalesce(tags_model,'') = '')")
+        if getattr(args, "since", None):
+            clauses.append("created_at >= ?")
+            params.append(args.since)
+        sql = "SELECT * FROM articles WHERE " + " AND ".join(clauses) + " ORDER BY id ASC"
+        if getattr(args, "limit", None):
+            sql += " LIMIT ?"
+            params.append(int(args.limit))
+        rows = conn.execute(sql, params).fetchall()
+        ids = [int(r["id"]) for r in rows]
+        if getattr(args, "dry_run", False):
+            _print({"ok": True, "dry_run": True, "ids": ids, "count": len(ids)}, bool(args.json))
+            return 0
+
+        updated: List[int] = []
+        errors: List[str] = []
+        for r in rows:
+            aid = int(r["id"])
+            try:
+                path = (r["local_file_path"] or "").strip()
+                body_md = read_markdown(path) if path and os.path.exists(path) else (r["summary"] or r["title"] or "")
+                body_md = _extract_markdown_body(body_md)
+                gen = generate_fields(
+                    body_md,
+                    hint_title=(r["title"] or "") or None,
+                    provider="llm",
+                    max_summary_chars=cfg.ingest.summary_target_chars,
+                    allow_heuristic=False,
+                    llm_context_window_chars=cfg.llm.context_window_chars,
+                    llm_prompt_reserved_chars=cfg.llm.prompt_reserved_chars,
+                    llm_chunk_overlap_chars=cfg.llm.chunk_overlap_chars,
+                    llm_timeout_seconds=cfg.llm.timeout_seconds,
+                )
+                title = (gen.get("title") or r["title"] or "").strip() or "untitled"
+                summary = (gen.get("summary") or "").strip()
+                tags = comma_join_tags(gen.get("tags"))
+                key_claims_json = json.dumps(gen.get("key_claims") or [], ensure_ascii=False)
+                entities_json = json.dumps(gen.get("entities") or [], ensure_ascii=False)
+                content_type = str(gen.get("content_type") or r["content_type"] or "web_article")
+
+                embedding_model = cfg.embedding.model if embedding_enabled() else ""
+                embedding_dim: Optional[int] = cfg.embedding.dim if cfg.embedding.dim > 0 else None
+                if embedding_enabled():
+                    if not dbmod.vec_table_exists(conn) and cfg.ingest.require_embedding and not getattr(args, "allow_missing_embedding", False):
+                        raise RuntimeError("vec index not available (vec0 extension not loaded)")
+                    if dbmod.vec_table_exists(conn):
+                        dbmod.upsert_vec(conn, aid, floats_to_f32_blob(l2_normalize(get_embedding(summary, timeout=cfg.embedding.timeout_seconds))))
+                        dbmod.upsert_tag_vec(conn, aid, floats_to_f32_blob(l2_normalize(get_embedding(tags, timeout=cfg.embedding.timeout_seconds))))
+                elif cfg.ingest.require_embedding and not getattr(args, "allow_missing_embedding", False):
+                    raise RuntimeError("embedding is required but not configured")
+
+                new_path = article_abspath(paths["articles_dir"], aid, title)
+                md_content = format_markdown_with_metadata(
+                    article_id=aid,
+                    title=title,
+                    source_url=(r["source_url"] or "").strip() or "Local",
+                    created_at=(r["created_at"] or "").strip() or now_iso_z(),
+                    category=r["category"] or "",
+                    tags=tags,
+                    priority=int(r["priority"] or 0),
+                    body_markdown=body_md,
+                    summary=summary,
+                    generation_quality="llm",
+                    summary_model=cfg.llm.model,
+                    tags_model=cfg.llm.model,
+                    embedding_model=embedding_model,
+                    content_type=content_type,
+                    key_claims=key_claims_json,
+                )
+                write_markdown(new_path, md_content)
+                dbmod.update_article_fields(
+                    conn,
+                    aid,
+                    title=title,
+                    summary=summary,
+                    tags=tags,
+                    local_file_path=new_path,
+                    generation_provider="llm",
+                    generation_quality="llm",
+                    summary_model=cfg.llm.model,
+                    tags_model=cfg.llm.model,
+                    embedding_model=embedding_model,
+                    embedding_dim=embedding_dim,
+                    ingest_status="ok",
+                    ingest_error="",
+                    content_type=content_type,
+                    key_claims=key_claims_json,
+                    entities=entities_json,
+                    config_path=cfg.config_path,
+                )
+                dbmod.upsert_fts(conn, aid, title, tags, summary, body_md)
+                updated.append(aid)
+            except Exception as e:
+                errors.append(f"id={aid}: {e}")
+                try:
+                    dbmod.update_article_fields(conn, aid, ingest_status="failed", ingest_error=str(e))
+                except Exception:
+                    pass
+        conn.commit()
+        out = {"ok": not errors, "updated": updated, "errors": errors}
+        _print(out, bool(args.json))
+        return 0 if not errors else 4
+    except Exception as e:
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        sys.stderr.write(f"ERROR: rebuild-quality failed: {e}\n")
+        return 4
+    finally:
+        if conn is not None:
+            conn.close()
+
 def _add_common_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="Knowledge config path. Priority: CLI --config > $CLAWSQLITE_CONFIG > nearest clawsqlite.toml.",
+    )
     parser.add_argument(
         "--root",
         default=None,
         help=(
-            "Root dir. Priority: CLI --root > $CLAWSQLITE_ROOT > "
-            "$CLAWSQLITE_ROOT_DEFAULT > <cwd>/knowledge_data."
+            "Debug override for knowledge root. Normal usage should configure [knowledge].root in clawsqlite.toml."
         ),
     )
     parser.add_argument(
@@ -1074,9 +1404,9 @@ def cmd_build_interest_clusters(args) -> int:
     paths = _resolve_paths(args)
     db_path = paths["db"]
     if not os.path.exists(db_path):
-        sys.stderr.write(f"ERROR: db not found at {db_path}. Check --root/--db or .env configuration.\n")
+        sys.stderr.write(f"ERROR: db not found at {db_path}. Check --config/clawsqlite.toml.\n")
         sys.stderr.write(
-            "NEXT: set --root/--db (or CLAWSQLITE_ROOT/CLAWSQLITE_DB) to an existing knowledge_data directory, "
+            "NEXT: set [knowledge].root/[knowledge].db in clawsqlite.toml, pass --config, "
             "or run an ingest command first to initialize the DB.\n"
         )
         return 2
@@ -1128,7 +1458,7 @@ def cmd_inspect_interest_clusters(args) -> int:
     paths = _resolve_paths(args)
     db_path = paths["db"]
     if not os.path.exists(db_path):
-        sys.stderr.write(f"ERROR: db not found at {db_path}. Check --root/--db or .env configuration.\n")
+        sys.stderr.write(f"ERROR: db not found at {db_path}. Check --config/clawsqlite.toml.\n")
         return 2
     try:
         try:
@@ -1159,7 +1489,7 @@ def cmd_report_interest(args) -> int:
     paths = _resolve_paths(args)
     db_path = paths["db"]
     if not os.path.exists(db_path):
-        sys.stderr.write(f"ERROR: db not found at {db_path}. Check --root/--db or .env configuration.\n")
+        sys.stderr.write(f"ERROR: db not found at {db_path}. Check --config/clawsqlite.toml.\n")
         return 2
     try:
         try:
@@ -1195,6 +1525,13 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_flags(p)
 
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    # init-config
+    sp = sub.add_parser("init-config", help="Create a clawsqlite.toml template for the knowledge app")
+    _add_common_flags(sp)
+    sp.add_argument("--out", default=None, help="Output config path (default: ./clawsqlite.toml)")
+    sp.add_argument("--force", action="store_true", help="Overwrite an existing config file")
+    sp.set_defaults(func=cmd_init_config)
 
     # build-interest-clusters
     sp = sub.add_parser("build-interest-clusters", help="Build interest clusters from existing article embeddings")
@@ -1232,15 +1569,20 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--tags", default=None, help="Tags override (comma-separated)")
     sp.add_argument("--category", default="", help="Category, e.g. web/github/story")
     sp.add_argument("--priority", default=0, type=int, help="Priority (0 default)")
-    sp.add_argument("--gen-provider", default="openclaw", choices=["openclaw", "llm", "off"], help="Generator provider (llm affects tags only)")
-    sp.add_argument("--max-summary-chars", default=1200, type=int, help="Hard limit for summary length (chars)")
+    sp.add_argument("--gen-provider", default=None, choices=["openclaw", "llm", "off"], help="Generator provider override (default from clawsqlite.toml)")
+    sp.add_argument("--max-summary-chars", default=None, type=int, help="Summary target/limit override (default from clawsqlite.toml)")
     sp.add_argument("--scrape-cmd", default=None, help="Scraper command for URL ingest. Or env CLAWSQLITE_SCRAPE_CMD")
     sp.add_argument("--update-existing", action="store_true", help="If URL exists, refresh that record instead of inserting a new one")
+    sp.add_argument("--allow-heuristic", action="store_true", help="Explicitly allow heuristic generation when LLM generation is unavailable")
+    sp.add_argument("--allow-missing-embedding", action="store_true", help="Explicitly allow ingest without vector embeddings")
     sp.set_defaults(func=cmd_ingest)
 
     # doctor
     sp = sub.add_parser("doctor", help="Self-check knowledge DB/env, output JSON report")
     _add_common_flags(sp)
+    sp.add_argument("--allow-missing-config", action="store_true", help="Run doctor even when clawsqlite.toml is missing")
+    sp.add_argument("--check-llm", action="store_true", help="Reserved for LLM roundtrip checks")
+    sp.add_argument("--check-embedding", action="store_true", help="Run embedding roundtrip check")
     sp.set_defaults(func=cmd_doctor)
 
     # search
@@ -1291,8 +1633,9 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["title", "summary", "tags", "embedding", "all"],
         help="Regenerate fields (embedding=refresh vec from summary)",
     )
-    sp.add_argument("--gen-provider", default="openclaw", choices=["openclaw", "llm", "off"], help="Generator provider for regen (llm affects tags only)")
-    sp.add_argument("--max-summary-chars", default=1200, type=int, help="Hard limit for summary length (chars)")
+    sp.add_argument("--gen-provider", default=None, choices=["openclaw", "llm", "off"], help="Generator provider for regen (default from clawsqlite.toml)")
+    sp.add_argument("--max-summary-chars", default=None, type=int, help="Summary target/limit override (default from clawsqlite.toml)")
+    sp.add_argument("--allow-heuristic", action="store_true", help="Explicitly allow heuristic generation when LLM generation is unavailable")
     sp.set_defaults(func=cmd_update)
 
     # delete
@@ -1311,8 +1654,19 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--rebuild", action="store_true", help="Rebuild indexes")
     sp.add_argument("--fts", action="store_true", help="With --rebuild: rebuild FTS index")
     sp.add_argument("--vec", action="store_true", help="With --rebuild: clear vec index (no embedding)")
-    sp.add_argument("--gen-provider", default="openclaw", choices=["openclaw", "llm", "off"], help="Generator provider for fix-missing (llm affects tags only)")
+    sp.add_argument("--gen-provider", default=None, choices=["openclaw", "llm", "off"], help="Generator provider for fix-missing (default from clawsqlite.toml)")
+    sp.add_argument("--allow-heuristic", action="store_true", help="Explicitly allow heuristic generation when LLM generation is unavailable")
     sp.set_defaults(func=cmd_reindex)
+
+    # rebuild-quality
+    sp = sub.add_parser("rebuild-quality", help="Regenerate low-quality records with strict LLM generation")
+    _add_common_flags(sp)
+    sp.add_argument("--id", default=None, help="Rebuild one article id")
+    sp.add_argument("--since", default=None, help="Only rebuild records created_at >= since")
+    sp.add_argument("--limit", type=int, default=None, help="Maximum records to rebuild")
+    sp.add_argument("--dry-run", action="store_true", help="Only list records that would be rebuilt")
+    sp.add_argument("--allow-missing-embedding", action="store_true", help="Allow rebuild without vector embeddings")
+    sp.set_defaults(func=cmd_rebuild_quality)
 
     # inspect-interest-clusters (analysis helper)
     sp = sub.add_parser("inspect-interest-clusters", help="Inspect interest cluster radius + PCA scatter plot (requires numpy)")
@@ -1353,8 +1707,8 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 def main(argv: Optional[List[str]] = None) -> int:
-    # Load project-level .env from repo root early so that config
-    # resolution follows CLI > .env > system env.
+    # Load project-level .env first for secret env vars referenced by
+    # clawsqlite.toml (for example SMALL_LLM_API_KEY).
     try:
         load_project_env()
     except Exception:
@@ -1362,6 +1716,22 @@ def main(argv: Optional[List[str]] = None) -> int:
         pass
     parser = build_parser()
     args = parser.parse_args(argv)
+    require_config = True
+    if args.cmd == "init-config":
+        require_config = False
+    if args.cmd == "doctor" and getattr(args, "allow_missing_config", False):
+        require_config = False
+    try:
+        if args.cmd != "init-config":
+            _get_config(args, require=require_config)
+    except ConfigError as e:
+        sys.stderr.write(f"ERROR: {e}\n")
+        sys.stderr.write("ERROR_KIND: config_required\n")
+        sys.stderr.write(
+            "NEXT: create clawsqlite.toml with 'clawsqlite knowledge init-config', "
+            "pass --config, or set CLAWSQLITE_CONFIG.\n"
+        )
+        return 2
     return int(args.func(args))
 
 if __name__ == "__main__":

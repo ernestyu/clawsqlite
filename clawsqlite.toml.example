@@ -1,0 +1,40 @@
+# clawsqlite knowledge configuration.
+# This file is owned by the knowledge app. Plumbing commands do not read it.
+
+[knowledge]
+root = "./knowledge_data"
+db = "knowledge.sqlite3"
+articles_dir = "articles"
+
+[ingest]
+# Default policy is strict: if LLM fields or embeddings are required but not
+# available, ingest fails and tells the Agent what to fix.
+require_llm = true
+require_embedding = true
+summary_mode = "llm"
+summary_target_chars = 800
+tags_mode = "llm"
+fallback = "fail"
+
+[llm]
+base_url = "https://llm.example.com/v1"
+model = "your-small-llm"
+api_key_env = "SMALL_LLM_API_KEY"
+timeout_seconds = 90
+
+# Character-budget approximation for the model context. The generator subtracts
+# prompt_reserved_chars before deciding whether the article must be chunked.
+context_window_chars = 24000
+prompt_reserved_chars = 4000
+chunk_overlap_chars = 500
+
+[embedding]
+base_url = "https://embed.example.com/v1"
+model = "your-embedding-model"
+api_key_env = "EMBEDDING_API_KEY"
+dim = 1024
+timeout_seconds = 300
+content = "summary"
+
+[scraper]
+# cmd = "node /path/to/scrape.js"

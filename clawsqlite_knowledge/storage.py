@@ -38,6 +38,13 @@ def format_markdown_with_metadata(
     tags: str,
     priority: int,
     body_markdown: str,
+    summary: str = "",
+    generation_quality: str = "",
+    summary_model: str = "",
+    tags_model: str = "",
+    embedding_model: str = "",
+    content_type: str = "",
+    key_claims: str = "",
 ) -> str:
     header = (
         "--- METADATA ---\n"
@@ -48,6 +55,15 @@ def format_markdown_with_metadata(
         f"category: {category}\n"
         f"tags: {tags}\n"
         f"priority: {priority}\n"
+        f"generation_quality: {generation_quality}\n"
+        f"summary_model: {summary_model}\n"
+        f"tags_model: {tags_model}\n"
+        f"embedding_model: {embedding_model}\n"
+        f"content_type: {content_type}\n"
+        "--- SUMMARY ---\n"
+        f"{summary}\n"
+        "--- KEY CLAIMS ---\n"
+        f"{key_claims}\n"
         "--- MARKDOWN ---\n"
     )
     body = body_markdown if body_markdown.endswith("\n") else body_markdown + "\n"

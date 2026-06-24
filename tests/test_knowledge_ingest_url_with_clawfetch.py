@@ -28,6 +28,8 @@ import unittest
 import uuid
 from pathlib import Path
 
+from tests.helpers import write_knowledge_config
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BASE_TMP = Path(os.environ.get("CLAWSQLITE_TEST_TMP", str(REPO_ROOT / ".tmp_tests")))
 BASE_TMP.mkdir(parents=True, exist_ok=True)
@@ -107,6 +109,7 @@ class KnowledgeIngestURLWithClawfetchTests(unittest.TestCase):
         with _tempdir() as tmpdir:
             root = Path(tmpdir) / "kb_root"
             root.mkdir(parents=True, exist_ok=True)
+            config_path = write_knowledge_config(root)
 
             ingest_cmd = [
                 PYTHON_BIN,
@@ -124,9 +127,11 @@ class KnowledgeIngestURLWithClawfetchTests(unittest.TestCase):
                 "wechat,ground-station",
                 "--gen-provider",
                 "off",
+                "--allow-heuristic",
+                "--allow-missing-embedding",
                 "--json",
-                "--root",
-                str(root),
+                "--config",
+                str(config_path),
             ]
             p_ing = self._run(ingest_cmd, cwd=REPO_ROOT)
             row = json.loads(p_ing.stdout)
@@ -144,8 +149,8 @@ class KnowledgeIngestURLWithClawfetchTests(unittest.TestCase):
                 "1",
                 "--full",
                 "--json",
-                "--root",
-                str(root),
+                "--config",
+                str(config_path),
             ]
             p_show = self._run(show_cmd, cwd=REPO_ROOT)
             rec = json.loads(p_show.stdout)
@@ -166,8 +171,8 @@ class KnowledgeIngestURLWithClawfetchTests(unittest.TestCase):
                 "md",
                 "--out",
                 str(export_path),
-                "--root",
-                str(root),
+                "--config",
+                str(config_path),
                 "--json",
             ]
             p_exp = self._run(export_cmd, cwd=REPO_ROOT)

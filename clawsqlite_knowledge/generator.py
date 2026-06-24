@@ -277,20 +277,199 @@ def _normalize_tags(tags: Any, *, max_tags: int) -> List[str]:
     return out
 
 
-def _llm_tags_from_summary(summary: str, *, max_tags: int = 12) -> List[str]:
+_CONTENT_TYPES = {
+    "web_article",
+    "note",
+    "thought",
+    "discussion_summary",
+}
+
+
+def _chunk_text(text: str, *, chunk_chars: int, overlap_chars: int) -> List[str]:
+    text = (text or "").strip()
+    if not text:
+        return []
+    chunk_chars = max(1000, int(chunk_chars or 1000))
+    overlap_chars = max(0, min(int(overlap_chars or 0), chunk_chars // 3))
+    chunks: List[str] = []
+    start = 0
+    n = len(text)
+    while start < n:
+        end = min(n, start + chunk_chars)
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end >= n:
+            break
+        start = max(0, end - overlap_chars)
+    return chunks
+
+
+def _normalize_string_list(value: Any, *, max_items: int) -> List[str]:
+    if not isinstance(value, list):
+        return []
+    out: List[str] = []
+    seen = set()
+    for item in value:
+        s = str(item or "").strip()
+        if not s:
+            continue
+        low = s.lower()
+        if low in seen:
+            continue
+        seen.add(low)
+        out.append(s)
+        if len(out) >= max_items:
+            break
+    return out
+
+
+def _validate_llm_fields(obj: Dict[str, Any], *, fallback_title: str, min_tags: int = 5) -> Dict[str, Any]:
+    title = str(obj.get("title") or fallback_title or "").strip()
+    summary = str(obj.get("summary") or "").strip()
+    tags = _normalize_tags(obj.get("tags", []), max_tags=12)
+    key_claims = _normalize_string_list(obj.get("key_claims", []), max_items=12)
+    entities = _normalize_string_list(obj.get("entities", []), max_items=20)
+    content_type = str(obj.get("content_type") or "web_article").strip().lower()
+    if content_type not in _CONTENT_TYPES:
+        content_type = "web_article"
+
+    if not title:
+        raise RuntimeError("LLM generation failed validation: title is empty")
+    if not summary:
+        raise RuntimeError("LLM generation failed validation: summary is empty")
+    if len(tags) < min_tags:
+        raise RuntimeError("LLM generation failed validation: too few tags")
+
+    return {
+        "title": title,
+        "summary": summary,
+        "tags": tags,
+        "key_claims": key_claims,
+        "entities": entities,
+        "content_type": content_type,
+    }
+
+
+def _llm_fields_once(
+    content: str,
+    *,
+    hint_title: Optional[str],
+    summary_target_chars: int,
+    timeout: int,
+    source_is_chunk_summaries: bool = False,
+) -> Dict[str, Any]:
+    title_hint = (hint_title or "").strip()
+    source_label = "chunk summaries" if source_is_chunk_summaries else "full content"
     prompt = (
-        "Generate tags for a knowledge base from the long summary below.\n"
+        "Extract structured metadata for a long-term personal knowledge base.\n"
+        "Use the provided content only; do not invent facts.\n"
+        "The summary will be embedded for semantic search, so it must capture the whole piece, not only the beginning.\n"
         "Constraints:\n"
-        "- Output STRICT JSON with key: tags (array of strings)\n"
-        "- tags should be 5 to 12 short items\n"
-        "- Order tags by importance descending (most important first)\n"
-        "- Do NOT add any extra keys\n\n"
-        "Long summary:\n"
-        f"{summary}\n"
+        "- Output STRICT JSON only.\n"
+        "- Keys: title, summary, tags, key_claims, entities, content_type.\n"
+        f"- summary target length: about {summary_target_chars} characters; concise but information-dense.\n"
+        "- tags: 5 to 12 short tags, sorted by importance descending.\n"
+        "- key_claims: 3 to 8 short claims or takeaways.\n"
+        "- entities: important people/projects/products/orgs/concepts.\n"
+        "- content_type must be one of: web_article, note, thought, discussion_summary.\n"
+        "- Do not add extra keys.\n\n"
+        f"Title hint: {title_hint}\n"
+        f"Input type: {source_label}\n\n"
+        "Content:\n"
+        f"{content}\n"
     )
-    obj = _call_small_llm_json(prompt)
-    tags = obj.get("tags", [])
-    return _normalize_tags(tags, max_tags=max_tags)
+    obj = _call_small_llm_json(prompt, timeout=timeout)
+    return _validate_llm_fields(obj, fallback_title=title_hint)
+
+
+def _llm_chunk_summary(chunk: str, *, index: int, total: int, timeout: int, target_chars: int) -> str:
+    prompt = (
+        "Summarize one chunk from a longer document for later synthesis.\n"
+        "Use only this chunk. Output STRICT JSON only with key: summary.\n"
+        f"Target summary length: about {target_chars} characters.\n"
+        f"Chunk {index} of {total}:\n{chunk}\n"
+    )
+    obj = _call_small_llm_json(prompt, timeout=timeout)
+    summary = str(obj.get("summary") or "").strip()
+    if not summary:
+        raise RuntimeError(f"LLM chunk summary failed validation: chunk {index}")
+    return summary
+
+
+def _llm_fields_from_content(
+    content: str,
+    *,
+    hint_title: Optional[str],
+    summary_target_chars: int,
+    context_window_chars: int,
+    prompt_reserved_chars: int,
+    chunk_overlap_chars: int,
+    timeout: int,
+) -> Dict[str, Any]:
+    budget = max(1000, int(context_window_chars) - int(prompt_reserved_chars))
+    text = (content or "").strip()
+    if len(text) <= budget:
+        return _llm_fields_once(
+            text,
+            hint_title=hint_title,
+            summary_target_chars=summary_target_chars,
+            timeout=timeout,
+        )
+
+    chunks = _chunk_text(text, chunk_chars=budget, overlap_chars=chunk_overlap_chars)
+    if not chunks:
+        raise RuntimeError("LLM generation failed: no chunks produced")
+    chunk_target = max(300, min(1200, summary_target_chars // 2))
+    summaries: List[str] = []
+    total = len(chunks)
+    for i, chunk in enumerate(chunks, start=1):
+        summaries.append(
+            _llm_chunk_summary(
+                chunk,
+                index=i,
+                total=total,
+                timeout=timeout,
+                target_chars=chunk_target,
+            )
+        )
+
+    # Very long documents can still produce too many chunk summaries for the
+    # final synthesis prompt. Keep compressing the summary list until the same
+    # context-budget rule is true for the synthesis call as well.
+    for _ in range(8):
+        if len(summaries) <= 1:
+            break
+        synthesis_preview = "\n\n".join(
+            f"Chunk {i} summary:\n{s}" for i, s in enumerate(summaries, start=1)
+        )
+        if len(synthesis_preview) <= budget:
+            break
+        grouped = _chunk_text(synthesis_preview, chunk_chars=budget, overlap_chars=0)
+        next_summaries: List[str] = []
+        group_total = len(grouped)
+        for i, group in enumerate(grouped, start=1):
+            next_summaries.append(
+                _llm_chunk_summary(
+                    group,
+                    index=i,
+                    total=group_total,
+                    timeout=timeout,
+                    target_chars=chunk_target,
+                )
+            )
+        summaries = next_summaries
+
+    synthesis_input = "\n\n".join(
+        f"Chunk {i} summary:\n{s}" for i, s in enumerate(summaries, start=1)
+    )
+    return _llm_fields_once(
+        synthesis_input,
+        hint_title=hint_title,
+        summary_target_chars=summary_target_chars,
+        timeout=timeout,
+        source_is_chunk_summaries=True,
+    )
 
 
 def _warn_llm_tags_fallback(reason: str) -> None:
@@ -299,12 +478,12 @@ def _warn_llm_tags_fallback(reason: str) -> None:
         return
     _LLM_TAGS_WARNED = True
     sys.stderr.write(
-        "WARNING: LLM tag generation is not available; falling back to jieba.\n"
+        "WARNING: LLM field generation is not available; falling back to heuristics.\n"
     )
     if reason:
         sys.stderr.write(f"WARNING: reason: {reason}\n")
     sys.stderr.write(
-        "NEXT: set SMALL_LLM_BASE_URL/SMALL_LLM_MODEL/SMALL_LLM_API_KEY to enable LLM tag generation.\n"
+        "NEXT: set SMALL_LLM_BASE_URL/SMALL_LLM_MODEL/SMALL_LLM_API_KEY to enable LLM field generation.\n"
     )
 
 
@@ -405,6 +584,11 @@ def generate_fields(
     hint_title: Optional[str],
     provider: str,
     max_summary_chars: int = 1200,
+    allow_heuristic: bool = True,
+    llm_context_window_chars: int = 24000,
+    llm_prompt_reserved_chars: int = 4000,
+    llm_chunk_overlap_chars: int = 500,
+    llm_timeout_seconds: int = 60,
 ) -> Dict[str, Any]:
     """
     Return dict with keys: title, summary, tags(list).
@@ -412,7 +596,15 @@ def generate_fields(
     provider = (provider or "openclaw").strip().lower()
 
     if provider == "off":
-        return {"title": hint_title or "", "summary": "", "tags": []}
+        return {
+            "title": hint_title or "",
+            "summary": "",
+            "tags": [],
+            "generation_quality": "manual",
+            "content_type": "note",
+            "key_claims": [],
+            "entities": [],
+        }
 
     # Strip obvious metadata/header noise before heuristics.
     clean = _strip_metadata_for_generation(content)
@@ -421,22 +613,48 @@ def generate_fields(
 
     if provider == "openclaw":
         tags = _heuristic_tags(summary)
-        return {"title": title, "summary": summary, "tags": tags}
+        return {
+            "title": title,
+            "summary": summary,
+            "tags": tags,
+            "generation_quality": "heuristic",
+            "content_type": "web_article",
+            "key_claims": [],
+            "entities": [],
+        }
 
     if provider == "llm":
-        tags: List[str] = []
         if _small_llm_enabled():
             try:
-                tags = _llm_tags_from_summary(summary, max_tags=12)
+                fields = _llm_fields_from_content(
+                    clean,
+                    hint_title=title or hint_title,
+                    summary_target_chars=max_summary_chars,
+                    context_window_chars=llm_context_window_chars,
+                    prompt_reserved_chars=llm_prompt_reserved_chars,
+                    chunk_overlap_chars=llm_chunk_overlap_chars,
+                    timeout=llm_timeout_seconds,
+                )
+                fields["generation_quality"] = "llm"
+                return fields
             except Exception as e:
+                if not allow_heuristic:
+                    raise
                 _warn_llm_tags_fallback(str(e))
-                tags = _heuristic_tags(summary)
         else:
+            if not allow_heuristic:
+                raise RuntimeError("Small LLM is required but SMALL_LLM_* is incomplete")
             _warn_llm_tags_fallback("missing SMALL_LLM_*")
-            tags = _heuristic_tags(summary)
-        if not tags and summary:
-            tags = _heuristic_tags(summary)
-        return {"title": title, "summary": summary, "tags": tags}
+        tags = _heuristic_tags(summary)
+        return {
+            "title": title,
+            "summary": summary,
+            "tags": tags,
+            "generation_quality": "heuristic",
+            "content_type": "web_article",
+            "key_claims": [],
+            "entities": [],
+        }
 
     raise RuntimeError(f"Unknown gen provider: {provider}")
 

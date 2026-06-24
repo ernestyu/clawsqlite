@@ -18,7 +18,7 @@ The knowledge app helps you:
 - Ingest URLs or raw text as Markdown files + SQLite records
 - Run fast full‑text search over your notes and scraped articles
 - Optionally enable vector search via an external embedding service
-- Regenerate titles/summaries via heuristics; optionally use a small LLM for tags
+- Generate titles/summaries/tags with a configured small LLM for reliable ingest
 - Keep the KB healthy with explicit maintenance commands (reindex/check/fix + maintenance prune/gc)
 
 > **Status**: already used in real OpenClaw setups. The schema and CLI are kept small and stable on purpose.
@@ -34,17 +34,17 @@ The knowledge app helps you:
 - **Markdown storage**
   - Each article is stored as `articles/<id>__<slug>.md`
   - Markdown files include a small METADATA header + MARKDOWN body section
-- **Configurable root**
+- **Project config**
   - All data lives under a single root directory
-  - DB and articles dir default to `<root>/knowledge.sqlite3` and `<root>/articles` (see env overrides below)
-- **Embeddings + LLM (optional)**
+  - Knowledge commands read `clawsqlite.toml` first; plumbing commands stay generic and do not read it
+  - DB and articles dir default to `<root>/knowledge.sqlite3` and `<root>/articles`
+- **Embeddings + LLM**
   - Embeddings: OpenAI‑compatible `/v1/embeddings` API
   - Small LLM: OpenAI‑compatible `/v1/chat/completions` API
+  - Ingest is strict by default when config requires LLM/embedding; degraded ingest needs explicit flags
 - **Tag generation & search ranking**
-  - Tags are generated from the long summary via a small LLM (when configured)
-    or a jieba-based heuristic extractor
-  - If the LLM is not configured, tag generation degrades to jieba and emits
-    a `NEXT` hint
+  - LLM ingest produces a whole-article summary, tags, key claims, entities, and content type
+  - Heuristic generation is still available for tests or explicit degraded runs via `--allow-heuristic`
   - Search ranking uses tag/query matching as an additional signal on top
     of FTS and vector similarity. Internally, the scorer:
     - embeds both the article summary and the tag string into vec0 tables
@@ -101,7 +101,12 @@ In a fresh environment you typically need to:
     - SQLite built‑in tokenizer for FTS
     - If `jieba` is available, optionally pre-segment CJK text in Python for better
       Chinese recall (controlled by `CLAWSQLITE_FTS_JIEBA=auto|on|off`)
-    - FTS‑only mode when vec0 is unavailable.
+    - FTS‑only search when vec0 is unavailable.
+
+For ingest, `clawsqlite.toml` controls whether missing embeddings are fatal.
+The default template uses strict ingest (`require_embedding = true`), so a
+missing embedding service or vec index fails ingest unless you explicitly pass
+`--allow-missing-embedding`.
 
 ---
 
@@ -168,94 +173,138 @@ python3 -m clawsqlite_knowledge.cli doctor
 
 ## 4. Configuration
 
-### 4.1 Root & paths
+### 4.1 `clawsqlite.toml`
 
-The knowledge app determines its root + DB + articles directory via CLI
-flags + env + defaults.
+The knowledge app is configured by `clawsqlite.toml`. This is deliberate:
+Agents should run the Knowledge CLI and let it load the configured root, DB,
+LLM, and embedding settings instead of guessing file names.
 
-Priority for root:
+Config lookup order:
 
-1. CLI: `--root`
-2. Env: `CLAWSQLITE_ROOT`
-3. Default: `<current working dir>/knowledge_data`
+1. CLI: `--config /path/to/clawsqlite.toml`
+2. Env: `CLAWSQLITE_CONFIG`
+3. Nearest `clawsqlite.toml` found by walking upward from the current working directory
 
-DB path:
-
-- `--db` > `CLAWSQLITE_DB` > `<root>/knowledge.sqlite3`
-
-Articles dir:
-
-- `--articles-dir` > `CLAWSQLITE_ARTICLES_DIR` > `<root>/articles`
-
-### 4.2 Project `.env`
-
-A **project‑level `.env` file** is the primary configuration source. Start from the example:
+Create a template:
 
 ```bash
-cp ENV.example .env
-# then edit .env
+clawsqlite knowledge init-config --out clawsqlite.toml
+# or copy the checked-in example
+cp clawsqlite.toml.example clawsqlite.toml
 ```
 
-`ENV.example` contains fields like:
+Minimal shape:
+
+```toml
+[knowledge]
+root = "./knowledge_data"
+db = "knowledge.sqlite3"
+articles_dir = "articles"
+
+[ingest]
+require_llm = true
+require_embedding = true
+summary_mode = "llm"
+summary_target_chars = 800
+tags_mode = "llm"
+fallback = "fail"
+
+[llm]
+base_url = "https://llm.example.com/v1"
+model = "your-small-llm"
+api_key_env = "SMALL_LLM_API_KEY"
+context_window_chars = 24000
+prompt_reserved_chars = 4000
+chunk_overlap_chars = 500
+
+[embedding]
+base_url = "https://embed.example.com/v1"
+model = "your-embedding-model"
+api_key_env = "EMBEDDING_API_KEY"
+dim = 1024
+content = "summary"
+```
+
+Relative `root` is resolved relative to the config file. Relative `db` and
+`articles_dir` are resolved under `root`. `--root`, `--db`, and
+`--articles-dir` still exist as debug overrides, but normal Agent usage should
+prefer the config file.
+
+### 4.2 Project `.env` for secrets and advanced knobs
+
+The CLI still auto-loads a project-level `.env` from the current working
+directory, but `.env` is no longer the primary knowledge-path configuration.
+Use it for secrets referenced by `api_key_env`, extension paths, and search/
+interest tuning knobs:
 
 ```env
-# Embedding service (required for vector search)
-EMBEDDING_BASE_URL=https://embed.example.com/v1
-EMBEDDING_MODEL=your-embedding-model
-EMBEDDING_API_KEY=sk-your-embedding-key
-CLAWSQLITE_VEC_DIM=1024
-
-# Small LLM (optional)
-SMALL_LLM_BASE_URL=https://llm.example.com/v1
-SMALL_LLM_MODEL=your-small-llm
 SMALL_LLM_API_KEY=sk-your-small-llm-key
-
-# Root override (optional)
-# CLAWSQLITE_ROOT=/path/to/knowledge_root
-# CLAWSQLITE_DB=/path/to/knowledge.sqlite3
-# CLAWSQLITE_ARTICLES_DIR=/path/to/articles
+EMBEDDING_API_KEY=sk-your-embedding-key
+CLAWSQLITE_FTS_JIEBA=auto
 ```
 
-At runtime, `clawsqlite knowledge ...` (and `python3 -m clawsqlite_cli`) will
-auto‑load a project‑level `.env` from the current working directory.
-Existing environment variables are **not** overridden by default, so Agent/
-container-injected paths and secrets win over `.env`. If you explicitly want
-project `.env` values to override the process environment, set
-`CLAWSQLITE_ENV_OVERRIDE=1`.
+Existing process environment variables are **not** overridden by default. If
+you explicitly want project `.env` values to override the process environment,
+set `CLAWSQLITE_ENV_OVERRIDE=1`.
 
 ### 4.3 Embedding configuration
 
-Embeddings are used for vector search (`articles_vec`) and can be disabled if you only want FTS.
-
-Required env (typically via `.env`):
-
-- `EMBEDDING_MODEL` – model name used by your embedding endpoint
-- `EMBEDDING_BASE_URL` – base URL, e.g. `https://embed.example.com/v1`
-- `EMBEDDING_API_KEY` – bearer token
-- `CLAWSQLITE_VEC_DIM` – embedding dimension (e.g. `1024` for BAAI/bge-m3)
+Embeddings are used for vector search (`articles_vec`) and, by default, for
+strict ingest quality. The endpoint, model, dimension, and API-key env name are
+configured in `[embedding]`; the actual secret stays in the environment.
 
 The knowledge app will:
 
-- Use these env vars in `clawsqlite_knowledge.embed.get_embedding()` (via httpx POST to `/v1/embeddings`)
-- Use `CLAWSQLITE_VEC_DIM` to define `embedding float[DIM]` in `articles_vec`
+- Call an OpenAI-compatible `/v1/embeddings` endpoint through `clawsqlite_knowledge.embed.get_embedding()`
+- Use `embedding.dim` to define `embedding float[DIM]` in `articles_vec`
+- Embed the LLM-generated summary by default (`embedding.content = "summary"`)
 
-If any of these are missing, **vector features are treated as disabled**:
+If embedding config is incomplete:
 
 - `embedding_enabled()` returns `False`
-- `ingest` will not call the embedding API
+- strict `ingest` fails when `[ingest].require_embedding = true`
+- `ingest --allow-missing-embedding` explicitly permits a no-vector degraded write
 - `search` in `mode=hybrid` will auto‑downgrade to FTS‑only and print a `NEXT` hint
+  while `mode=vec` fails fast
 
-### 4.4 Tag generation (LLM + jieba fallback)
+### 4.4 LLM field generation
 
-By default the knowledge app builds a **long summary** from the first ~1200
-word‑units (ending at a paragraph boundary) plus the final paragraph. Tags
-are generated from this long summary.
+In strict ingest, the small LLM generates structured fields from the whole
+article:
 
-- If `SMALL_LLM_*` is configured and you use `--gen-provider llm`, tags are
-  generated by the small LLM.
-- Otherwise tags fall back to the jieba‑based v6 heuristic extractor (and
-  emit a `NEXT` hint). If `jieba` is missing, we fall back to a lightweight
-  keyword extractor.
+- `title`
+- `summary`
+- `tags`
+- `key_claims`
+- `entities`
+- `content_type`
+
+`summary_target_chars` in `clawsqlite.toml` controls the target length for the
+summary used later for embeddings. It is intentionally not hard-coded.
+
+Long article handling is based on the configured LLM context budget:
+
+```toml
+[llm]
+context_window_chars = 24000
+prompt_reserved_chars = 4000
+chunk_overlap_chars = 500
+```
+
+If the content fits `context_window_chars - prompt_reserved_chars`, it is sent
+in one request. If it does not fit, the generator chunks by that budget,
+summarizes chunks, and synthesizes final fields from the chunk summaries.
+
+Heuristic generation still exists, but it is an explicit degraded path:
+
+```bash
+clawsqlite knowledge ingest ... --allow-heuristic
+```
+
+Without that flag, strict ingest fails if LLM generation is unavailable or the
+LLM output does not pass validation.
+
+### 4.5 Search query planning and ranking
 
 Search ranking also uses tags as a small but important signal:
 
@@ -324,23 +373,7 @@ And you can tune the lexical tag compression via::
 
     CLAWSQLITE_TAG_FTS_LOG_ALPHA=5.0  # larger = stronger compression, 0 = disable
 
-### 4.4 Small LLM configuration (optional)
-
-For better tags (and optional keyword expansion) you can configure a small LLM endpoint:
-
-```env
-SMALL_LLM_BASE_URL=https://llm.example.com/v1
-SMALL_LLM_MODEL=your-small-llm
-SMALL_LLM_API_KEY=sk-your-small-llm-key
-```
-
-Then use `--gen-provider llm` when ingesting or updating records. The
-knowledge app will call an OpenAI‑compatible chat completions API to
-generate `tags` from the long summary.
-
-If these env vars are not set, `provider=openclaw` uses heuristics only (no network calls).
-
-### 4.5 Scraper configuration
+### 4.6 Scraper configuration
 
 The knowledge app does **not** implement web scraping itself. For `--url`
 ingest it runs an external scraper command, configured via:
@@ -398,19 +431,22 @@ The knowledge app will parse these into `title` and markdown body.
    cd clawsqlite
    ```
 
-2. （可选）在你的外层环境中配置好根目录和 Embedding/LLM 相关 env，或
-   直接在运行时通过 `--root/--db/--articles-dir` 传入。这里不再强依赖
-   项目内置 `.env` 加载逻辑。
+2. **Create and edit `clawsqlite.toml`**
 
-3. **First ingest (text)** – this also creates the DB and basic tables:
+   ```bash
+   clawsqlite knowledge init-config --out clawsqlite.toml
+   ```
+
+   Fill in `[knowledge].root`, `[llm]`, and `[embedding]`. Put real API keys in
+   your environment or `.env` according to `api_key_env`.
+
+3. **First strict ingest (text)** – this also creates the DB and basic tables:
 
    ```bash
    clawsqlite knowledge ingest \
-     --text "Hello clawsqlite" \
+     --text "Hello clawsqlite. This note should be summarized and embedded." \
      --title "First note" \
      --category dev \
-     --tags test \
-     --gen-provider off \
      --json
    ```
 
@@ -419,6 +455,20 @@ The knowledge app will parse these into `title` and markdown body.
    - Create `<root>/knowledge.sqlite3`
    - Create `<root>/articles/000001__first-note.md`
    - Index the record in FTS (and vec if embedding is configured)
+
+   For a no-network test run, make the degraded path explicit:
+
+   ```bash
+   clawsqlite knowledge ingest \
+     --text "Hello clawsqlite" \
+     --title "First note" \
+     --category dev \
+     --tags test \
+     --gen-provider off \
+     --allow-heuristic \
+     --allow-missing-embedding \
+     --json
+   ```
 
 4. **Search it back**:
 
@@ -436,8 +486,6 @@ Assuming you have a scraper command set in `.env`:
 clawsqlite knowledge ingest \
   --url "https://example.com/article" \
   --category web \
-  --tags example \
-  --gen-provider openclaw \
   --json
 ```
 
@@ -455,7 +503,6 @@ If you know a URL’s content has changed and you want to refresh the existing r
 ```bash
 clawsqlite knowledge ingest \
   --url "https://example.com/article" \
-  --gen-provider openclaw \
   --update-existing \
   --json
 ```
@@ -479,7 +526,9 @@ most one active record.
 
 ## 6. CLI Overview
 
-All commands share common flags (`--root`, `--db`, `--articles-dir`, `--json`, `--verbose`).
+All Knowledge commands read `clawsqlite.toml` before resolving paths. Common
+flags include `--config`, debug path overrides (`--root`, `--db`,
+`--articles-dir`), `--json`, and `--verbose`.
 Run `clawsqlite knowledge <command> --help` for full details.
 
 ### 6.1 ingest
@@ -493,9 +542,11 @@ Key options:
 
 - `--url` / `--text`
 - `--title`, `--summary`, `--tags`, `--category`, `--priority`
-- `--gen-provider {openclaw,llm,off}`
+- `--gen-provider {openclaw,llm,off}` (default from `clawsqlite.toml`)
+- `--max-summary-chars` (default from `summary_target_chars`)
 - `--scrape-cmd` (or env `CLAWSQLITE_SCRAPE_CMD`)
 - `--update-existing` (for URL mode)
+- `--allow-heuristic`, `--allow-missing-embedding` for explicit degraded ingest
 
 ### 6.2 search
 
@@ -523,22 +574,35 @@ Other flags:
 - `update` – patch fields or regenerate via generator (id/source_url/created_at are treated as read-only)
 - `delete` – soft delete by default (sets `deleted_at`); `--hard` for permanent removal
 
-All of these commands now **check that the DB file exists** before opening it:
+All read/update/delete style commands **check that the DB file exists** before opening it:
 
-- If `--root/--db` or `.env` point to a non‑existent DB path, they will report:
+- If `clawsqlite.toml` points to a non‑existent DB path, they report:
 
   ```text
-  ERROR: db not found at /path/to/db. Check --root/--db or .env configuration.
+  ERROR: db not found at /path/to/db. Check --config/clawsqlite.toml.
   ```
 
   instead of silently creating an empty DB and then failing with `id not found`.
 
-### 6.4 reindex
+### 6.4 rebuild-quality
+
+Use this after enabling strict LLM generation to repair older rows produced by
+heuristics:
+
+```bash
+clawsqlite knowledge rebuild-quality --json
+```
+
+It selects rows whose `generation_quality`/model metadata are not LLM-quality,
+regenerates fields with the configured LLM, rewrites Markdown metadata, and
+refreshes FTS/embedding rows. Use `--dry-run` first to inspect IDs.
+
+### 6.5 reindex
 
 Maintenance operations:
 
 - `reindex --check` – report missing fields/indexes
-- `reindex --fix-missing` – regen fields/indexes using current generator
+- `reindex --fix-missing` – regen missing fields/indexes using the configured generator; strict config requires LLM unless `--allow-heuristic` is explicit
 - `reindex --rebuild --fts` – rebuild FTS index (via `clawsqlite index rebuild`)
 - `reindex --rebuild --vec` – clear vec index **only** (no embedding); use
   `clawsqlite knowledge embed-from-summary` to refill embeddings.
@@ -548,7 +612,7 @@ understand whether vec features are actually usable for the current DB.
 
 ---
 
-### 6.5 `report-interest`
+### 6.6 `report-interest`
 
 ```bash
 clawsqlite knowledge report-interest --days 7 --lang zh --no-pdf
@@ -559,16 +623,15 @@ analysis dependencies, so missing `numpy` will not prevent core commands like
 `ingest`, `search`, or `show` from starting. Install with
 `pip install 'clawsqlite[analysis]'` when you need this report.
 
-### 6.6 interest clustering (topics)
+### 6.7 interest clustering (topics)
 
 `clawsqlite` can build topic-like clusters from existing `articles_vec` +
 `articles_tag_vec`.
 
-#### 6.5.1 Build command
+#### 6.7.1 Build command
 
 ```bash
 clawsqlite knowledge build-interest-clusters \
-  --db /path/to/clawkb.sqlite3 \
   --algo kmeans++ \
   --use-pca \
   --pca-explained-variance-threshold 0.95 \
@@ -580,13 +643,12 @@ You can switch backend:
 
 ```bash
 clawsqlite knowledge build-interest-clusters \
-  --db /path/to/clawkb.sqlite3 \
   --algo hierarchical \
   --hierarchical-linkage average \
   --hierarchical-distance-threshold 0.20
 ```
 
-#### 6.5.2 Vector pipeline (important)
+#### 6.7.2 Vector pipeline (important)
 
 For each eligible article (undeleted, non-empty summary, at least one vec):
 
@@ -600,7 +662,7 @@ For each eligible article (undeleted, non-empty summary, at least one vec):
 
 `tag_weight` is controlled by `CLAWSQLITE_INTEREST_TAG_WEIGHT` (default `0.75`).
 
-#### 6.5.3 PCA + clustering backends
+#### 6.7.3 PCA + clustering backends
 
 - PCA is optional (`CLAWSQLITE_INTEREST_USE_PCA=true/false`).
 - PCA dimension is auto-selected by cumulative explained variance threshold:
@@ -619,7 +681,7 @@ Backends:
   - falls back to a pure-Python implementation when `scipy` is unavailable
   - no extra post-merge by default
 
-#### 6.5.4 Unified postprocessing and persistence
+#### 6.7.4 Unified postprocessing and persistence
 
 After initial labels from either backend:
 
@@ -635,7 +697,7 @@ After initial labels from either backend:
    - `interest_cluster_members` (`membership=1.0`)
    - `interest_meta` (build timestamp + algo/pca/tag-weight metadata)
 
-#### 6.5.5 Main env knobs
+#### 6.7.5 Main env knobs
 
 - `CLAWSQLITE_INTEREST_CLUSTER_ALGO` (`kmeans++` | `hierarchical`)
 - `CLAWSQLITE_INTEREST_TAG_WEIGHT` (`0..1`)
@@ -651,13 +713,12 @@ After initial labels from either backend:
 - `CLAWSQLITE_INTEREST_HIERARCHICAL_LINKAGE`
 - `CLAWSQLITE_INTEREST_HIERARCHICAL_DISTANCE_THRESHOLD`
 
-#### 6.5.6 Cluster quality inspection
+#### 6.7.6 Cluster quality inspection
 
 为了调参和观察兴趣簇结构，可使用内置分析命令：
 
 ```bash
 clawsqlite knowledge inspect-interest-clusters \
-  --db /path/to/clawkb.sqlite3 \
   --vec-dim 1024
 ```
 
@@ -683,7 +744,6 @@ clawsqlite knowledge inspect-interest-clusters \
 
 ```bash
 clawsqlite knowledge inspect-interest-clusters \
-  --db /path/to/clawkb.sqlite3 \
   --vec-dim 1024 \
   --no-plot
 ```
@@ -702,7 +762,7 @@ clawsqlite knowledge inspect-interest-clusters \
 
 ---
 
-### 6.7 maintenance
+### 6.8 maintenance
 
 ```bash
 clawsqlite knowledge maintenance prune --days 3 --dry-run
@@ -738,66 +798,10 @@ current format is stable and works well with existing tools.
 
 ---
 
-## 8. 中文说明（简要）
+## 8. Chinese Documentation
 
-`clawsqlite` 提供的知识库应用是一个基于 SQLite + FTS5 + sqlite-vec
-的本地知识库 CLI，主要特性：
-
-- 文章元数据存到 `articles` 表，全文索引用 FTS5，向量检索用 sqlite-vec
-- FTS5 会索引标题、标签、摘要和 Markdown 正文
-- 每篇文章同时会写成一个 markdown 文件，包含 `--- METADATA ---` 和 `--- MARKDOWN ---`
-- 支持：
-  - `ingest`：从 URL 或纯文本入库
-  - `search`：FTS / 向量 / 混合模式
-  - `show` / `export` / `update` / `delete` / `reindex` / `maintenance`
-
-### 快速开始
-
-1. 克隆仓库：
-
-   ```bash
-   git clone git@github.com:ernestyu/clawsqlite.git
-   cd clawsqlite
-   ```
-
-2. 在运行环境中配置好 `CLAWSQLITE_ROOT` / `CLAWSQLITE_DB` 等路径以及
-   EMBEDDING_* / SMALL_LLM_* 等变量，或直接在命令行通过
-   `--root/--db/--articles-dir` 传入。这一步通常在 OpenClaw 的 agent
-   配置中完成。
-
-3. 第一次入库（文本）：
-
-   ```bash
-   clawsqlite knowledge ingest \
-     --text "你好，clawsqlite" \
-     --title "第一次笔记" \
-     --category test \
-     --tags demo \
-     --gen-provider off
-   ```
-
-4. 搜索：
-
-   ```bash
-   clawsqlite knowledge search "clawsqlite" --mode fts
-   ```
-
-### URL 重抓 & 刷新
-
-当你知道某篇文章更新了，并且之前已经用 URL 入过库，可以用：
-
-```bash
-clawsqlite knowledge ingest \
-  --url "https://example.com/article" \
-  --update-existing
-```
-
-行为：
-
-- `source_url` 已存在时：只有显式 `--update-existing` 才更新同一条记录（title/summary/tags/category/priority），并重写 markdown + 索引
-- `source_url` 不存在时：正常新增一条记录
-
-`articles.source_url` 对非空、非 `Local` 的 URL 有唯一约束，保证一个 URL 对应最多一条记录。
+中文完整说明见 [README_zh.md](README_zh.md)。Agent-specific usage rules are
+also summarized in [AGENT_USAGE.md](AGENT_USAGE.md).
 
 ---
 

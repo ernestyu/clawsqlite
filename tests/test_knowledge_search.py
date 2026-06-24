@@ -23,6 +23,8 @@ import unittest
 import uuid
 from pathlib import Path
 
+from tests.helpers import write_knowledge_config
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BASE_TMP = Path(os.environ.get("CLAWSQLITE_TEST_TMP", str(REPO_ROOT / ".tmp_tests")))
 BASE_TMP.mkdir(parents=True, exist_ok=True)
@@ -66,6 +68,7 @@ class KnowledgeSearchTests(unittest.TestCase):
         with _tempdir() as tmpdir:
             root = Path(tmpdir) / "kb_root"
             root.mkdir(parents=True, exist_ok=True)
+            config_path = write_knowledge_config(root)
 
             def _ingest(text, title, category, tags):
                 cmd = [
@@ -84,9 +87,11 @@ class KnowledgeSearchTests(unittest.TestCase):
                     tags,
                     "--gen-provider",
                     "off",
+                    "--allow-heuristic",
+                    "--allow-missing-embedding",
                     "--json",
-                    "--root",
-                    str(root),
+                    "--config",
+                    str(config_path),
                 ]
                 p = self._run(cmd)
                 return json.loads(p.stdout)
@@ -105,8 +110,8 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "delete",
                 "--id",
                 str(r2["id"]),
-                "--root",
-                str(root),
+                "--config",
+                str(config_path),
                 "--json",
             ]
             self._run(del_cmd)
@@ -124,8 +129,8 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "--topk",
                 "10",
                 "--json",
-                "--root",
-                str(root),
+                "--config",
+                str(config_path),
             ]
 
             # 1) 不带过滤：应该只返回未删除记录（若命中）
@@ -173,6 +178,7 @@ class KnowledgeSearchTests(unittest.TestCase):
         with _tempdir() as tmpdir:
             root = Path(tmpdir) / "kb_root"
             root.mkdir(parents=True, exist_ok=True)
+            config_path = write_knowledge_config(root)
 
             unique_body_term = "rarebodytoken"
             ingest_cmd = [
@@ -191,9 +197,11 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "metadataonly",
                 "--gen-provider",
                 "off",
+                "--allow-heuristic",
+                "--allow-missing-embedding",
                 "--json",
-                "--root",
-                str(root),
+                "--config",
+                str(config_path),
             ]
             p = self._run(ingest_cmd)
             row = json.loads(p.stdout)
@@ -210,8 +218,8 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "--topk",
                 "5",
                 "--json",
-                "--root",
-                str(root),
+                "--config",
+                str(config_path),
             ]
             p = self._run(search_cmd)
             res = json.loads(p.stdout)
@@ -222,6 +230,7 @@ class KnowledgeSearchTests(unittest.TestCase):
         with _tempdir() as tmpdir:
             root = Path(tmpdir) / "kb_root"
             root.mkdir(parents=True, exist_ok=True)
+            config_path = write_knowledge_config(root)
 
             # 简单入一条数据
             ingest_cmd = [
@@ -240,9 +249,11 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "hybrid",
                 "--gen-provider",
                 "off",
+                "--allow-heuristic",
+                "--allow-missing-embedding",
                 "--json",
-                "--root",
-                str(root),
+                "--config",
+                str(config_path),
             ]
             self._run(ingest_cmd)
 
@@ -259,8 +270,8 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "--topk",
                 "5",
                 "--json",
-                "--root",
-                str(root),
+                "--config",
+                str(config_path),
             ]
             p = self._run(hybrid_cmd, expect_ok=True)
             res = json.loads(p.stdout)
