@@ -89,7 +89,15 @@ def fix_missing(
 
         # Ensure FTS row exists
         try:
-            dbmod.upsert_fts(conn, aid, title, tags, summary)
+            body = ""
+            p = (r["local_file_path"] or "").strip()
+            if p and os.path.exists(p):
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        body = f.read()
+                except Exception:
+                    body = ""
+            dbmod.upsert_fts(conn, aid, title, tags, summary, body)
             updated_fts += 1
         except Exception as e:
             errors.append(f"id={aid}: fts upsert failed: {e}")

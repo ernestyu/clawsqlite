@@ -54,6 +54,7 @@ class KnowledgeIngestURLWithClawfetchTests(unittest.TestCase):
         proc = subprocess.run(
             argv,
             cwd=str(cwd),
+            env=env_full,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

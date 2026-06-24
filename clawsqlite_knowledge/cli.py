@@ -20,7 +20,6 @@ from typing import Any, Dict, List, Optional
 
 from . import db as dbmod
 from .utils import now_iso_z, truncate_text, comma_join_tags, resolve_root_paths, resolve_interest_params, load_project_env
-from .report_interest import run_interest_report
 from .storage import (
     ensure_dir,
     article_abspath,
@@ -38,10 +37,8 @@ from . import interest as interest_mod
 # Plumbing layer (generic db/index/fs helpers)
 try:
     from clawsqlite_plumbing import db_cli as _db_plumbing_cli
-    from clawsqlite_plumbing import index_cli as _index_plumbing_cli
 except Exception:  # pragma: no cover
     _db_plumbing_cli = None
-    _index_plumbing_cli = None
 
 DEFAULT_ROOT = os.environ.get("CLAWSQLITE_ROOT_DEFAULT", "")
 _WARNED_FTS_FALLBACK = False
@@ -218,17 +215,25 @@ def cmd_ingest(args) -> int:
         conn = _open_for_command(paths["db"], need_fts=True, need_vec=True, args=args)
         conn.execute("BEGIN")
 
-        # If this URL already exists (non-Local), and --update-existing is set,
-        # update the existing record instead of inserting a new one.
+        # If this URL already exists (non-Local), require an explicit refresh
+        # flag so agents get a predictable error instead of a UNIQUE failure.
         existing_id: Optional[int] = None
-        if getattr(args, "update_existing", False) and args.url:
+        if args.url:
             row = dbmod.get_article_by_source(conn, source_url)
-            if row is not None:
+            if row is not None and getattr(args, "update_existing", False):
                 existing_id = int(row["id"])
                 old_path = (row["local_file_path"] or "").strip() or None
                 existing_created_at = (row["created_at"] or "").strip()
                 if existing_created_at:
                     created_at_for_md = existing_created_at
+            elif row is not None:
+                sys.stderr.write(f"ERROR: source_url already exists: id={int(row['id'])}\n")
+                sys.stderr.write(
+                    "NEXT: rerun with --update-existing to refresh this URL, "
+                    "or use update/delete on the existing id.\n"
+                )
+                conn.rollback()
+                return 2
 
         if existing_id is not None:
             # Update path: overwrite metadata but keep the same id.
@@ -284,7 +289,7 @@ def cmd_ingest(args) -> int:
 
         # Index sync
         try:
-            dbmod.upsert_fts(conn, new_id, title, tags, summary)
+            dbmod.upsert_fts(conn, new_id, title, tags, summary, body_md)
         except Exception as e:
             sys.stderr.write(f"WARNING: FTS upsert failed: {e}\n")
 
@@ -479,6 +484,33 @@ def cmd_doctor(args) -> int:
 
     return run_doctor()
 
+
+def _format_search_results(results: List[Dict[str, Any]], *, explain: bool) -> List[Dict[str, Any]]:
+    """Return a stable JSON contract for agents, with optional diagnostics."""
+
+    out: List[Dict[str, Any]] = []
+    for row in results:
+        public = {k: v for k, v in row.items() if not k.startswith("_")}
+        if explain:
+            public["explain"] = {
+                "mode": row.get("_mode"),
+                "query_refine": row.get("_query_refine"),
+                "query_tags": row.get("_query_tags"),
+                "vec_distance": row.get("_vec_distance"),
+                "scores": {
+                    "vec": row.get("_vec_score"),
+                    "fts": row.get("_fts_score"),
+                    "tag": row.get("_tag_score"),
+                    "tag_lex": row.get("_tag_lex_score"),
+                    "tag_vec": row.get("_tag_vec_score"),
+                    "priority": row.get("_priority_bonus"),
+                    "recency": row.get("_recency_bonus"),
+                },
+            }
+        out.append(public)
+    return out
+
+
 def cmd_search(args) -> int:
     paths = _resolve_paths(args)
     query = args.query
@@ -551,7 +583,7 @@ def cmd_search(args) -> int:
         )
 
         if args.json:
-            _print(res, True)
+            _print(_format_search_results(res, explain=bool(getattr(args, "explain", False))), True)
         else:
             lines = []
             for x in res:
@@ -692,7 +724,7 @@ def cmd_update(args) -> int:
 
         # sync FTS
         try:
-            dbmod.upsert_fts(conn, aid, title, tags, summary)
+            dbmod.upsert_fts(conn, aid, title, tags, summary, body_md)
         except Exception as e:
             sys.stderr.write(f"WARNING: fts sync failed: {e}\n")
 
@@ -889,7 +921,7 @@ def cmd_maintenance(args) -> int:
             for name in files:
                 path = os.path.join(root, name)
                 # Detect .bak files; capture leading YYYYMMDD date only
-                m_bak = re.search(r"\.bak_(\d{8})", name)
+                m_bak = re.search(r"\.bak(?:_deleted)?_(\d{8})", name)
                 if m_bak:
                     ts = m_bak.group(1)
                     try:
@@ -977,36 +1009,16 @@ def cmd_reindex(args) -> int:
             return 0
 
         if args.rebuild:
-            # 1) If requested, rebuild FTS index via plumbing layer so it
-            #    can be reused by other applications.
-            fts_done = False
-            if args.fts and _index_plumbing_cli is not None:
-                use_jieba = dbmod.fts_jieba_enabled(conn)
-                if not use_jieba:
-                    try:
-                        _index_plumbing_cli.main(
-                            [
-                                "rebuild",
-                                "--db",
-                                paths["db"],
-                                "--table",
-                                "articles",
-                                "--fts-table",
-                                "articles_fts",
-                            ]
-                        )
-                        fts_done = True
-                    except Exception as e:
-                        sys.stderr.write(f"WARNING: reindex: plumbing FTS rebuild failed: {e}\n")
-                elif args.verbose:
-                    sys.stderr.write("INFO: reindex: jieba FTS fallback active; rebuilding in Python (skip plumbing).\n")
-
-            # 2) Vec rebuild semantics: clear the vec table only. Embedding
+            # Knowledge FTS includes Markdown body text stored in files, so it
+            # must be rebuilt by the knowledge layer rather than generic
+            # plumbing that only reads base-table columns.
+            #
+            # Vec rebuild semantics: clear the vec table only. Embedding
             #    recomputation is handled by a separate embedding task/CLI
             #    (e.g. `clawsqlite knowledge embed-from-summary`).
             out = reindex_mod.rebuild(
                 conn,
-                rebuild_fts=bool(args.fts) and not fts_done,
+                rebuild_fts=bool(args.fts),
                 rebuild_vec=bool(args.vec),
                 embed_on=embed_on,
             )
@@ -1150,6 +1162,13 @@ def cmd_report_interest(args) -> int:
         sys.stderr.write(f"ERROR: db not found at {db_path}. Check --root/--db or .env configuration.\n")
         return 2
     try:
+        try:
+            from .report_interest import run_interest_report
+        except ImportError as e:
+            sys.stderr.write("ERROR: report-interest requires optional analysis dependencies (numpy; matplotlib/pandoc optional).\n")
+            sys.stderr.write("NEXT: install with 'pip install clawsqlite[analysis]' or install numpy in this environment.\n")
+            sys.stderr.write(f"DETAIL: {e}\n")
+            return 2
         report_dir = run_interest_report(
             db_path,
             days=int(getattr(args, "days", 7) or 7),
@@ -1238,6 +1257,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--since", default=None, help="Filter created_at >= since (ISO, e.g. 2026-03-01T00:00:00Z)")
     sp.add_argument("--priority", default=None, help="Priority filter, e.g. eq:0, gt:0, ge:1")
     sp.add_argument("--include-deleted", action="store_true", help="Include deleted items")
+    sp.add_argument("--explain", action="store_true", help="Include query plan and score breakdown in JSON output")
     sp.set_defaults(func=cmd_search)
 
     # show

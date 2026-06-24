@@ -5,17 +5,18 @@ usage: clawsqlite knowledge [-h] [--root ROOT] [--db DB]
                             [--articles-dir ARTICLES_DIR]
                             [--tokenizer-ext TOKENIZER_EXT]
                             [--vec-ext VEC_EXT] [--json] [--verbose]
-                            {build-interest-clusters,ingest,search,show,export,update,delete,reindex,inspect-interest-clusters,embed-from-summary,maintenance,doctor}
+                            {build-interest-clusters,ingest,doctor,search,show,export,update,delete,reindex,inspect-interest-clusters,report-interest,embed-from-summary,maintenance}
                             ...
 
 OpenClaw knowledge base CLI (SQLite + FTS5 + sqlite-vec).
 
 positional arguments:
-  {build-interest-clusters,ingest,search,show,export,update,delete,reindex,inspect-interest-clusters,embed-from-summary,maintenance,doctor}
+  {build-interest-clusters,ingest,doctor,search,show,export,update,delete,reindex,inspect-interest-clusters,report-interest,embed-from-summary,maintenance}
     build-interest-clusters
                         Build interest clusters from existing article
                         embeddings
     ingest              Ingest a URL or a text into the KB
+    doctor              Self-check knowledge DB/env, output JSON report
     search              Search the KB (fts/vec/hybrid)
     show                Show one record
     export              Export one record to file
@@ -24,9 +25,11 @@ positional arguments:
     reindex             Maintenance: check/fix/rebuild
     inspect-interest-clusters
                         Inspect interest cluster radius + PCA scatter plot
+                        (requires numpy)
+    report-interest     Generate an interest cluster activity report (Markdown
+                        + optional PDF)
     embed-from-summary  Embed article summaries into articles_vec via plumbing
     maintenance         Maintenance: prune orphan/backup files and check paths
-    doctor              Self-check knowledge DB/env, output JSON report
 
 options:
   -h, --help            show this help message and exit
@@ -205,6 +208,23 @@ options:
   --offset OFFSET       Optional OFFSET for batching
 
 ... (other subcommands unchanged)
+
+## clawsqlite knowledge search --help
+usage: clawsqlite knowledge search [-h] [--root ROOT] [--db DB]
+                                   [--articles-dir ARTICLES_DIR]
+                                   [--tokenizer-ext TOKENIZER_EXT]
+                                   [--vec-ext VEC_EXT] [--json] [--verbose]
+                                   [--mode {hybrid,fts,vec}] [--topk TOPK]
+                                   [--candidates CANDIDATES]
+                                   [--llm-keywords {auto,on,off}]
+                                   [--gen-provider {openclaw,llm,off}]
+                                   [--category CATEGORY] [--tag TAG]
+                                   [--since SINCE] [--priority PRIORITY]
+                                   [--include-deleted] [--explain]
+                                   query
+
+options:
+  --explain             Include query plan and score breakdown in JSON output
 
 ## clawsqlite knowledge report-interest --help
 usage: clawsqlite knowledge report-interest [-h] [--root ROOT] [--db DB]

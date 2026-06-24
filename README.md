@@ -29,7 +29,7 @@ The knowledge app helps you:
 
 - **Pure SQLite backend**
   - `articles` table as source of truth
-  - `articles_fts` FTS5 table for full‑text search
+  - `articles_fts` FTS5 table for full‑text search over title/tags/summary/body
   - `articles_vec` vec0 table for vector search (optional)
 - **Markdown storage**
   - Each article is stored as `articles/<id>__<slug>.md`
@@ -161,7 +161,7 @@ small LLM), you can use:
 ```bash
 clawsqlite knowledge doctor --json
 # or, from source without installing the package
-python -m clawsqlite_knowledge.cli doctor
+python3 -m clawsqlite_knowledge.cli doctor
 ```
 
 ---
@@ -216,10 +216,12 @@ SMALL_LLM_API_KEY=sk-your-small-llm-key
 # CLAWSQLITE_ARTICLES_DIR=/path/to/articles
 ```
 
-At runtime, `clawsqlite knowledge ...` (and `python -m clawsqlite_cli`) will
+At runtime, `clawsqlite knowledge ...` (and `python3 -m clawsqlite_cli`) will
 auto‑load a project‑level `.env` from the current working directory.
-Existing environment variables are **not** overridden. In OpenClaw containers
-this is usually done via the agent’s env config instead of editing `.env`.
+Existing environment variables are **not** overridden by default, so Agent/
+container-injected paths and secrets win over `.env`. If you explicitly want
+project `.env` values to override the process environment, set
+`CLAWSQLITE_ENV_OVERRIDE=1`.
 
 ### 4.3 Embedding configuration
 
@@ -460,12 +462,15 @@ clawsqlite knowledge ingest \
 
 Semantics:
 
-- If a record with this `source_url` exists (and is not deleted), and `--update-existing` is set:
+- If a record with this `source_url` exists (including a soft-deleted record),
+  and `--update-existing` is set:
   - The knowledge app updates that record’s `title` / `summary` / `tags` / `category` / `priority`
   - Keeps the same `id`
   - Rewrites the markdown file
   - Updates FTS and vec indexes
 - If no such record exists, it behaves like a normal ingest.
+- If a record exists and `--update-existing` is not set, ingest fails with a
+  clear `NEXT` hint instead of relying on a SQLite UNIQUE error.
 
 Note: `source_url` has a UNIQUE index for non‑empty, non‑`Local` values, so each URL maps to at
 most one active record.
@@ -543,7 +548,18 @@ understand whether vec features are actually usable for the current DB.
 
 ---
 
-### 6.5 interest clustering (topics)
+### 6.5 `report-interest`
+
+```bash
+clawsqlite knowledge report-interest --days 7 --lang zh --no-pdf
+```
+
+This command is optional analysis/reporting functionality. It lazy-loads
+analysis dependencies, so missing `numpy` will not prevent core commands like
+`ingest`, `search`, or `show` from starting. Install with
+`pip install 'clawsqlite[analysis]'` when you need this report.
+
+### 6.6 interest clustering (topics)
 
 `clawsqlite` can build topic-like clusters from existing `articles_vec` +
 `articles_tag_vec`.
@@ -686,7 +702,7 @@ clawsqlite knowledge inspect-interest-clusters \
 
 ---
 
-### 6.6 maintenance
+### 6.7 maintenance
 
 ```bash
 clawsqlite knowledge maintenance prune --days 3 --dry-run
@@ -728,6 +744,7 @@ current format is stable and works well with existing tools.
 的本地知识库 CLI，主要特性：
 
 - 文章元数据存到 `articles` 表，全文索引用 FTS5，向量检索用 sqlite-vec
+- FTS5 会索引标题、标签、摘要和 Markdown 正文
 - 每篇文章同时会写成一个 markdown 文件，包含 `--- METADATA ---` 和 `--- MARKDOWN ---`
 - 支持：
   - `ingest`：从 URL 或纯文本入库
@@ -777,7 +794,7 @@ clawsqlite knowledge ingest \
 
 行为：
 
-- `source_url` 已存在时：更新同一条记录（title/summary/tags/category/priority），并重写 markdown + 索引
+- `source_url` 已存在时：只有显式 `--update-existing` 才更新同一条记录（title/summary/tags/category/priority），并重写 markdown + 索引
 - `source_url` 不存在时：正常新增一条记录
 
 `articles.source_url` 对非空、非 `Local` 的 URL 有唯一约束，保证一个 URL 对应最多一条记录。

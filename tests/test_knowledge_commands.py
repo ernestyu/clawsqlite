@@ -57,6 +57,7 @@ class KnowledgeCLITests(unittest.TestCase):
         proc = subprocess.run(
             argv,
             cwd=str(REPO_ROOT),
+            env=env_full,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -285,6 +286,75 @@ class KnowledgeCLITests(unittest.TestCase):
             p = self._run(maint_cmd)
             maint2 = json.loads(p.stdout)
             self.assertEqual(maint2["dry_run"], False)
+
+    def test_duplicate_url_requires_update_existing(self):
+        """Duplicate source_url should produce a clear actionable error."""
+        with _tempdir() as tmpdir:
+            root = Path(tmpdir) / "kb_root"
+            root.mkdir(parents=True, exist_ok=True)
+            scraper = Path(tmpdir) / "scrape.py"
+            scraper.write_text(
+                "print('Title: Duplicate URL')\n"
+                "print('# Duplicate URL')\n"
+                "print('body')\n",
+                encoding="utf-8",
+            )
+            url = "https://example.invalid/duplicate"
+            base_cmd = [
+                PYTHON_BIN,
+                "-m",
+                "clawsqlite_cli",
+                "knowledge",
+                "ingest",
+                "--url",
+                url,
+                "--scrape-cmd",
+                f"{PYTHON_BIN} {scraper}",
+                "--gen-provider",
+                "off",
+                "--json",
+                "--root",
+                str(root),
+            ]
+
+            first = self._run(base_cmd)
+            first_row = json.loads(first.stdout)
+
+            duplicate = self._run(base_cmd, expect_ok=False)
+            self.assertEqual(duplicate.returncode, 2)
+            self.assertIn("source_url already exists", duplicate.stderr)
+            self.assertIn("--update-existing", duplicate.stderr)
+
+            refresh = self._run(base_cmd + ["--update-existing"])
+            refreshed_row = json.loads(refresh.stdout)
+            self.assertEqual(refreshed_row["id"], first_row["id"])
+
+    def test_maintenance_prunes_deleted_backup_files(self):
+        """Soft-delete backup names should be eligible for retention pruning."""
+        with _tempdir() as tmpdir:
+            root = Path(tmpdir) / "kb_root"
+            articles = root / "articles"
+            articles.mkdir(parents=True, exist_ok=True)
+            old_backup = articles / "000001__old.md.bak_deleted_20000101000000"
+            old_backup.write_text("old backup", encoding="utf-8")
+
+            maint_cmd = [
+                PYTHON_BIN,
+                "-m",
+                "clawsqlite_cli",
+                "knowledge",
+                "maintenance",
+                "prune",
+                "--days",
+                "0",
+                "--root",
+                str(root),
+                "--json",
+            ]
+            p = self._run(maint_cmd)
+            out = json.loads(p.stdout)
+            self.assertIn(str(old_backup), out["deleted"])
+            self.assertFalse(old_backup.exists())
 
 
 if __name__ == "__main__":  # pragma: no cover

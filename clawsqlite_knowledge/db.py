@@ -82,6 +82,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
   title,
   tags,
   summary,
+  body,
   tokenize='simple'
 );
 """
@@ -90,7 +91,8 @@ FTS_SCHEMA_FALLBACK = """
 CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
   title,
   tags,
-  summary
+  summary,
+  body
 );
 """
 
@@ -299,6 +301,34 @@ def _fts_table_ok(conn: sqlite3.Connection) -> bool:
         return False
 
 
+def _fts_columns(conn: sqlite3.Connection) -> List[str]:
+    try:
+        rows = conn.execute("PRAGMA table_info(articles_fts)").fetchall()
+    except Exception:
+        return []
+    return [str(r["name"] if isinstance(r, sqlite3.Row) else r[1]) for r in rows]
+
+
+def _extract_markdown_body_for_fts(content: str) -> str:
+    if not content:
+        return ""
+    marker = "--- MARKDOWN ---"
+    idx = content.find(marker)
+    if idx != -1:
+        return content[idx + len(marker) :].lstrip("\r\n")
+    return content
+
+
+def _read_body_for_fts(path: str) -> str:
+    if not path:
+        return ""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return _extract_markdown_body_for_fts(f.read())
+    except Exception:
+        return ""
+
+
 def vec_table_exists(conn: sqlite3.Connection) -> bool:
     """Return True if articles_vec exists and is readable.
 
@@ -315,6 +345,23 @@ def vec_table_exists(conn: sqlite3.Connection) -> bool:
 def _drop_fts(conn: sqlite3.Connection) -> None:
     try:
         conn.execute("DROP TABLE IF EXISTS articles_fts")
+    except Exception:
+        pass
+
+
+def _create_fts(conn: sqlite3.Connection, *, use_simple: bool) -> None:
+    conn.executescript(FTS_SCHEMA_SIMPLE if use_simple else FTS_SCHEMA_FALLBACK)
+
+
+def _ensure_fts_schema(conn: sqlite3.Connection, *, use_simple: bool) -> None:
+    expected = ["title", "tags", "summary", "body"]
+    _create_fts(conn, use_simple=use_simple)
+    if _fts_columns(conn) == expected and _fts_table_ok(conn):
+        return
+    _drop_fts(conn)
+    _create_fts(conn, use_simple=use_simple)
+    try:
+        rebuild_fts(conn, include_deleted=False)
     except Exception:
         pass
 
@@ -344,15 +391,15 @@ def open_db(
 
         if tokenizer_loaded:
             try:
-                conn.executescript(FTS_SCHEMA_SIMPLE)
+                _ensure_fts_schema(conn, use_simple=True)
             except Exception:
-                conn.executescript(FTS_SCHEMA_FALLBACK)
+                _ensure_fts_schema(conn, use_simple=False)
         else:
-            conn.executescript(FTS_SCHEMA_FALLBACK)
+            _ensure_fts_schema(conn, use_simple=False)
 
         if not _fts_table_ok(conn):
             _drop_fts(conn)
-            conn.executescript(FTS_SCHEMA_FALLBACK)
+            _ensure_fts_schema(conn, use_simple=False)
 
     if need_vec:
         ext = vec_ext or os.environ.get("CLAWSQLITE_VEC_EXT") or _find_vec0_so()
@@ -459,14 +506,15 @@ def get_article_by_source(conn: sqlite3.Connection, source_url: str):
         (source_url,),
     ).fetchone()
 
-def upsert_fts(conn: sqlite3.Connection, article_id: int, title: str, tags: str, summary: str) -> None:
+def upsert_fts(conn: sqlite3.Connection, article_id: int, title: str, tags: str, summary: str, body: str = "") -> None:
     conn.execute("DELETE FROM articles_fts WHERE rowid=?", (article_id,))
     title = _fts_text_for_index(conn, title)
     tags = _fts_text_for_index(conn, tags)
     summary = _fts_text_for_index(conn, summary)
+    body = _fts_text_for_index(conn, body)
     conn.execute(
-        "INSERT INTO articles_fts(rowid, title, tags, summary) VALUES(?, ?, ?, ?)",
-        (article_id, title or "", tags or "", summary or ""),
+        "INSERT INTO articles_fts(rowid, title, tags, summary, body) VALUES(?, ?, ?, ?, ?)",
+        (article_id, title or "", tags or "", summary or "", body or ""),
     )
 
 def delete_fts(conn: sqlite3.Connection, article_id: int) -> None:
@@ -498,31 +546,41 @@ def rebuild_fts(conn: sqlite3.Connection, include_deleted: bool = False) -> None
     if fts_jieba_enabled(conn):
         if include_deleted:
             rows = conn.execute(
-                "SELECT id, title, tags, summary FROM articles"
+                "SELECT id, title, tags, summary, local_file_path FROM articles"
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT id, title, tags, summary FROM articles WHERE deleted_at IS NULL"
+                "SELECT id, title, tags, summary, local_file_path FROM articles WHERE deleted_at IS NULL"
             ).fetchall()
         for r in rows:
             aid = int(r["id"])
             title = _fts_text_for_index(conn, r["title"] or "")
             tags = _fts_text_for_index(conn, r["tags"] or "")
             summary = _fts_text_for_index(conn, r["summary"] or "")
+            body = _fts_text_for_index(conn, _read_body_for_fts(r["local_file_path"] or ""))
             conn.execute(
-                "INSERT INTO articles_fts(rowid, title, tags, summary) VALUES(?, ?, ?, ?)",
-                (aid, title, tags, summary),
+                "INSERT INTO articles_fts(rowid, title, tags, summary, body) VALUES(?, ?, ?, ?, ?)",
+                (aid, title, tags, summary, body),
             )
     else:
         if include_deleted:
-            conn.execute(
-                "INSERT INTO articles_fts(rowid, title, tags, summary) "
-                "SELECT id, coalesce(title,''), coalesce(tags,''), coalesce(summary,'') FROM articles"
-            )
+            rows = conn.execute(
+                "SELECT id, title, tags, summary, local_file_path FROM articles"
+            ).fetchall()
         else:
+            rows = conn.execute(
+                "SELECT id, title, tags, summary, local_file_path FROM articles WHERE deleted_at IS NULL"
+            ).fetchall()
+        for r in rows:
             conn.execute(
-                "INSERT INTO articles_fts(rowid, title, tags, summary) "
-                "SELECT id, coalesce(title,''), coalesce(tags,''), coalesce(summary,'') FROM articles WHERE deleted_at IS NULL"
+                "INSERT INTO articles_fts(rowid, title, tags, summary, body) VALUES(?, ?, ?, ?, ?)",
+                (
+                    int(r["id"]),
+                    r["title"] or "",
+                    r["tags"] or "",
+                    r["summary"] or "",
+                    _read_body_for_fts(r["local_file_path"] or ""),
+                ),
             )
 
 def vec_knn(conn: sqlite3.Connection, query_vec_blob: bytes, k: int, include_deleted: bool = False) -> List[Tuple[int, float]]:

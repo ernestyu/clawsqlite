@@ -49,6 +49,7 @@ class KnowledgeSearchTests(unittest.TestCase):
         proc = subprocess.run(
             argv,
             cwd=str(REPO_ROOT),
+            env=env_full,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -132,6 +133,8 @@ class KnowledgeSearchTests(unittest.TestCase):
             res = json.loads(p.stdout)
             ids = {row["id"] for row in res}
             self.assertNotIn(r2["id"], ids)
+            for row in res:
+                self.assertFalse(any(k.startswith("_") for k in row), msg=row)
 
             # 2) 带 category=dev：如果有命中，则只包含 dev 类别
             cmd_dev = base_cmd + ["--category", "dev"]
@@ -155,6 +158,64 @@ class KnowledgeSearchTests(unittest.TestCase):
             self.assertTrue(ids.issubset(ids_inc))
             if r2["id"] in ids_inc:
                 self.assertNotIn(r2["id"], ids)
+
+            # 5) --explain exposes diagnostics under a stable explain key.
+            cmd_explain = base_cmd + ["--explain"]
+            p = self._run(cmd_explain)
+            res_explain = json.loads(p.stdout)
+            for row in res_explain:
+                self.assertFalse(any(k.startswith("_") for k in row), msg=row)
+                self.assertIn("explain", row)
+                self.assertIn("scores", row["explain"])
+
+    def test_fts_search_indexes_markdown_body(self):
+        """FTS should search the stored Markdown body, not just title/tags/summary."""
+        with _tempdir() as tmpdir:
+            root = Path(tmpdir) / "kb_root"
+            root.mkdir(parents=True, exist_ok=True)
+
+            unique_body_term = "rarebodytoken"
+            ingest_cmd = [
+                PYTHON_BIN,
+                "-m",
+                "clawsqlite_cli",
+                "knowledge",
+                "ingest",
+                "--text",
+                f"body text contains {unique_body_term}",
+                "--title",
+                "Unrelated title",
+                "--category",
+                "test",
+                "--tags",
+                "metadataonly",
+                "--gen-provider",
+                "off",
+                "--json",
+                "--root",
+                str(root),
+            ]
+            p = self._run(ingest_cmd)
+            row = json.loads(p.stdout)
+
+            search_cmd = [
+                PYTHON_BIN,
+                "-m",
+                "clawsqlite_cli",
+                "knowledge",
+                "search",
+                unique_body_term,
+                "--mode",
+                "fts",
+                "--topk",
+                "5",
+                "--json",
+                "--root",
+                str(root),
+            ]
+            p = self._run(search_cmd)
+            res = json.loads(p.stdout)
+            self.assertIn(row["id"], {x["id"] for x in res})
 
     def test_search_hybrid_and_vec_modes_without_embedding(self):
         """在未启用 embedding 时，检查 hybrid/vec 模式的行为不会崩溃。"""

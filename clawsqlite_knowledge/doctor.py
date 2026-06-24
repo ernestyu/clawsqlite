@@ -140,14 +140,15 @@ def _check_db_schema() -> CheckResult:
 
     try:
         cur = conn.cursor()
-        # Minimal schema check: articles + interest_clusters presence.
+        # Minimal schema check for the core KB. Vector and interest-cluster
+        # tables are optional capabilities and are reported separately.
         tables_raw = cur.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
         ).fetchall()
         tables = {r[0] for r in tables_raw}
 
         missing = []
-        for required in ("articles", "articles_fts", "articles_vec", "interest_clusters"):
+        for required in ("articles", "articles_fts"):
             if required not in tables:
                 missing.append(required)
 
@@ -160,8 +161,7 @@ def _check_db_schema() -> CheckResult:
                 ),
                 next=(
                     "Ensure you're pointing to a clawsqlite knowledge DB. If this is an older "
-                    "schema, run 'clawsqlite knowledge reindex --rebuild --fts --vec' and "
-                    "'clawsqlite knowledge build-interest-clusters' to migrate."
+                    "schema, run 'clawsqlite knowledge reindex --rebuild --fts' to migrate."
                 ),
                 details={"missing_tables": sorted(missing), "tables": sorted(tables)},
             )
@@ -169,8 +169,15 @@ def _check_db_schema() -> CheckResult:
         return CheckResult(
             name="db_schema",
             ok=True,
-            message="Knowledge DB schema looks consistent (articles/FTS/vec/interest_clusters present).",
-            details={"tables": sorted(tables)},
+            message="Knowledge DB core schema looks consistent (articles + FTS present).",
+            details={
+                "tables": sorted(tables),
+                "optional_tables": {
+                    "articles_vec": "articles_vec" in tables,
+                    "articles_tag_vec": "articles_tag_vec" in tables,
+                    "interest_clusters": "interest_clusters" in tables,
+                },
+            },
         )
     finally:
         conn.close()
@@ -379,11 +386,7 @@ def run_doctor() -> int:
     checks.append(_check_small_llm())
     checks.append(_check_capability_mode())
 
-    any_error = any(
-        not c.ok
-        for c in checks
-        if c.name in {"knowledge_paths", "db_schema", "vec_extension", "embedding_config"}
-    )
+    any_error = any(not c.ok for c in checks if c.name in {"knowledge_paths", "db_schema"})
 
     report = {
         "ok": not any_error,

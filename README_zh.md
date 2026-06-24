@@ -30,7 +30,7 @@
 
 - **纯 SQLite 后端**
   - `articles` 表：保存主记录（标题、摘要、标签、分类、路径、时间戳等）
-  - `articles_fts`：FTS5 全文索引，用于按标题/标签/摘要检索
+  - `articles_fts`：FTS5 全文索引，用于按标题/标签/摘要/正文检索
   - `articles_vec`：vec0 向量表（可选），用于向量检索
 
 - **Markdown 正文存储**
@@ -148,7 +148,7 @@ Embedding / 抓取等配置建议通过外部环境变量
 ```bash
 clawsqlite knowledge doctor --json
 # 或在源码目录下（未安装包时）：
-python -m clawsqlite_knowledge.cli doctor
+python3 -m clawsqlite_knowledge.cli doctor
 ```
 
 ---
@@ -203,9 +203,11 @@ SMALL_LLM_API_KEY=sk-your-small-llm-key
 # CLAWSQLITE_ARTICLES_DIR=/path/to/articles
 ```
 
-运行时，`clawsqlite knowledge ...`（以及 `python -m clawsqlite_cli`）会自动加载
-当前工作目录下的 `.env`，并覆盖同名环境变量；整体优先级为：CLI 参数 > 项目 `.env` > 进程环境变量。
-OpenClaw 场景下通常通过 agent 配置注入环境变量。
+运行时，`clawsqlite knowledge ...`（以及 `python3 -m clawsqlite_cli`）会自动加载
+当前工作目录下的 `.env`。默认情况下，`.env` 只填充缺失的变量，不覆盖已有
+进程环境变量；整体优先级为：CLI 参数 > 进程环境变量 > 项目 `.env` > 默认值。
+如果确实希望项目 `.env` 覆盖进程环境变量，可以设置
+`CLAWSQLITE_ENV_OVERRIDE=1`。OpenClaw 场景下通常通过 agent 配置注入环境变量。
 
 ### 4.3 标签生成（长摘要 + LLM / jieba 降级）
 
@@ -530,6 +532,8 @@ clawsqlite knowledge ingest \
   - 同步 FTS/vec 索引；
   - 旧 Markdown 文件会重命名为 `.bak_<timestamp>` 作为备份。
 - 若不存在该 URL，则行为等同普通入库。
+- 若已存在该 URL 但没有显式传入 `--update-existing`，命令会返回清晰错误和
+  `NEXT` 提示，而不是依赖 SQLite 唯一约束报错。
 
 `source_url` 在非空且非 `Local` 时有唯一约束，保证一个 URL 最多只对应一条记录。
 
@@ -684,6 +688,19 @@ clawsqlite knowledge maintenance prune --days 3 --dry-run
 - `--days`：备份保留天数（默认 3 天，`--days 0` 表示不保留）。
 
 这一套配合软删/硬删的备份策略，实现“删除先备份，过保留期后再真正清理”的两阶段删除。
+
+### 6.8 report-interest
+
+```bash
+clawsqlite knowledge report-interest --days 7 --lang zh --no-pdf
+```
+
+这是可选的分析/报告能力，会按需加载 `numpy` 等分析依赖。缺少这些依赖时，
+`ingest` / `search` / `show` 等核心命令不会被影响；需要报告功能时可安装：
+
+```bash
+pip install 'clawsqlite[analysis]'
+```
 
 ---
 

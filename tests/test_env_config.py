@@ -11,7 +11,7 @@ from pathlib import Path
 
 from clawsqlite_knowledge import db as dbmod
 from clawsqlite_knowledge import embed as embedmod
-from clawsqlite_knowledge.utils import resolve_root_paths
+from clawsqlite_knowledge.utils import load_project_env, resolve_root_paths
 
 
 class EnvConfigTests(unittest.TestCase):
@@ -90,6 +90,32 @@ class EnvConfigTests(unittest.TestCase):
         schema = dbmod._vec_schema()
         self.assertIsNotNone(schema)
         self.assertIn("float[128]", schema)
+
+    def test_project_env_fills_missing_without_overriding_process_env(self):
+        with self._tempdir() as tmpdir:
+            env_path = Path(tmpdir) / ".env"
+            env_path.write_text(
+                "CLAWSQLITE_ROOT=/from-dotenv\n"
+                "CLAWSQLITE_DB=/from-dotenv/db.sqlite3\n",
+                encoding="utf-8",
+            )
+            os.environ["CLAWSQLITE_ROOT"] = "/from-process"
+            os.environ.pop("CLAWSQLITE_DB", None)
+
+            load_project_env(env_path)
+
+            self.assertEqual(os.environ["CLAWSQLITE_ROOT"], "/from-process")
+            self.assertEqual(os.environ["CLAWSQLITE_DB"], "/from-dotenv/db.sqlite3")
+
+    def test_project_env_can_override_when_explicitly_enabled(self):
+        with self._tempdir() as tmpdir:
+            env_path = Path(tmpdir) / ".env"
+            env_path.write_text("CLAWSQLITE_ROOT=/from-dotenv\n", encoding="utf-8")
+            os.environ["CLAWSQLITE_ROOT"] = "/from-process"
+
+            load_project_env(env_path, override=True)
+
+            self.assertEqual(os.environ["CLAWSQLITE_ROOT"], "/from-dotenv")
 
 
 if __name__ == "__main__":  # pragma: no cover

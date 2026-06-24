@@ -68,6 +68,7 @@ class CLISmokeTests(unittest.TestCase):
         proc = subprocess.run(
             argv,
             cwd=str(REPO_ROOT),
+            env=full_env,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
