@@ -11,6 +11,11 @@ behavior to `clawsqlite knowledge`.
 Always let the Knowledge CLI load its configuration before touching the DB.
 Do not guess database names or scan random directories.
 
+Treat `clawsqlite.toml` as the local private source of truth. It should contain
+the real root/db/articles paths plus LLM, embedding, scraper, and ingest policy
+values. Do not split LLM or embedding API keys into a second environment layer
+unless you are intentionally maintaining an old compatibility config.
+
 Config lookup order:
 
 1. `--config /path/to/clawsqlite.toml`
@@ -18,6 +23,8 @@ Config lookup order:
 3. nearest `clawsqlite.toml` found by walking upward from the current working directory
 
 If config is missing, stop and report the `ERROR_KIND: config_required` message.
+If `doctor --json` reports missing `[llm].api_key` or `[embedding].api_key`,
+fix the private `clawsqlite.toml` and rerun doctor; do not guess shell state.
 
 ## Knowledge vs Plumbing
 

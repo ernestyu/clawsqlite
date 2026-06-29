@@ -483,7 +483,7 @@ def _warn_llm_tags_fallback(reason: str) -> None:
     if reason:
         sys.stderr.write(f"WARNING: reason: {reason}\n")
     sys.stderr.write(
-        "NEXT: set SMALL_LLM_BASE_URL/SMALL_LLM_MODEL/SMALL_LLM_API_KEY to enable LLM field generation.\n"
+        "NEXT: configure [llm].base_url/model/api_key in clawsqlite.toml to enable LLM field generation.\n"
     )
 
 

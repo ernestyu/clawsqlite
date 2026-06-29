@@ -33,6 +33,9 @@ clawsqlite knowledge ...
 ## 2. 配置文件优先
 
 Knowledge 命令默认会读取 `clawsqlite.toml`。不要让 Agent 猜数据库路径。
+真实的 `clawsqlite.toml` 是本地私有配置源，已经被 `.gitignore` 忽略，
+可以直接放真实 API key。`clawsqlite.toml.example` 只是公开示例模板，
+里面只应该保留占位值和说明。
 
 配置查找顺序：
 
@@ -67,7 +70,7 @@ fallback = "fail"
 [llm]
 base_url = "https://llm.example.com/v1"
 model = "your-small-llm"
-api_key_env = "SMALL_LLM_API_KEY"
+api_key = ""  # 在私有 clawsqlite.toml 中填入真实 key
 timeout_seconds = 90
 context_window_chars = 24000
 prompt_reserved_chars = 4000
@@ -76,7 +79,7 @@ chunk_overlap_chars = 500
 [embedding]
 base_url = "https://embed.example.com/v1"
 model = "your-embedding-model"
-api_key_env = "EMBEDDING_API_KEY"
+api_key = ""  # 在私有 clawsqlite.toml 中填入真实 key
 dim = 1024
 timeout_seconds = 300
 content = "summary"
@@ -90,7 +93,7 @@ content = "summary"
 - `root` 相对路径按配置文件所在目录解析。
 - `db` 和 `articles_dir` 相对路径按 `root` 解析。
 - `--root` / `--db` / `--articles-dir` 仍保留为调试覆盖参数，但正常 Agent 使用应优先依赖 `clawsqlite.toml`。
-- `.env` 仍会自动读取，但主要用于 API key、扩展路径、搜索权重等环境变量，不再是知识库路径的主配置入口。
+- `.env` 仍会自动读取，但只建议用于可选底层调参；LLM、embedding、scraper、路径和入库策略都应写在私有 `clawsqlite.toml` 里。
 
 ---
 
@@ -177,12 +180,7 @@ chunk_overlap_chars = 500
    clawsqlite knowledge init-config --out clawsqlite.toml
    ```
 
-3. 在配置里填写 `[knowledge]`、`[llm]`、`[embedding]`。真实 API key 放进环境变量或 `.env`：
-
-   ```env
-   SMALL_LLM_API_KEY=sk-your-small-llm-key
-   EMBEDDING_API_KEY=sk-your-embedding-key
-   ```
+3. 在私有配置里直接填写 `[knowledge]`、`[llm]`、`[embedding]`，包括真实 API key。
 
 4. 自检：
 

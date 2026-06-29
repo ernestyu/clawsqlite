@@ -63,7 +63,7 @@ fallback = "fail"
 [llm]
 base_url = "https://llm.example.com/v1"
 model = "your-small-llm"
-api_key_env = "SMALL_LLM_API_KEY"
+api_key = ""
 timeout_seconds = 90
 # Character-budget approximation for the model context. The generator
 # subtracts prompt_reserved_chars before deciding whether to chunk.
@@ -74,7 +74,7 @@ chunk_overlap_chars = 500
 [embedding]
 base_url = "https://embed.example.com/v1"
 model = "your-embedding-model"
-api_key_env = "EMBEDDING_API_KEY"
+api_key = ""
 dim = 1024
 timeout_seconds = 300
 content = "summary"
@@ -235,8 +235,8 @@ def cmd_ingest(args) -> int:
         except Exception as e:
             sys.stderr.write(f"ERROR: scrape failed: {e}\n")
             sys.stderr.write(
-                "NEXT: install the 'clawfetch' skill from ClawHub and set CLAWSQLITE_SCRAPE_CMD, "
-                "or pass --scrape-cmd \"<your-scraper> <url>\" for a custom scraper.\n"
+                "NEXT: install the 'clawfetch' skill from ClawHub and set [scraper].cmd "
+                "in clawsqlite.toml, or pass --scrape-cmd \"<your-scraper> <url>\" for a debug override.\n"
             )
             return 3
     else:
@@ -303,14 +303,14 @@ def cmd_ingest(args) -> int:
     if policy.require_llm and generation_quality != "llm" and not allow_heuristic:
         sys.stderr.write("ERROR: strict ingest requires LLM-generated summary and tags.\n")
         sys.stderr.write("ERROR_KIND: llm_required\n")
-        sys.stderr.write("NEXT: configure [llm] in clawsqlite.toml and set the API key env, or pass --allow-heuristic.\n")
+        sys.stderr.write("NEXT: configure [llm].base_url/model/api_key in clawsqlite.toml, or pass --allow-heuristic.\n")
         return 2
 
     if policy.require_embedding and not allow_missing_embedding and not embedding_enabled():
         missing = ", ".join(_embedding_missing_keys())
         sys.stderr.write(f"ERROR: embedding is required by clawsqlite.toml; missing {missing}.\n")
         sys.stderr.write("ERROR_KIND: embedding_required\n")
-        sys.stderr.write("NEXT: configure [embedding] in clawsqlite.toml and set the API key env, or pass --allow-missing-embedding.\n")
+        sys.stderr.write("NEXT: configure [embedding].base_url/model/api_key/dim in clawsqlite.toml, or pass --allow-missing-embedding.\n")
         return 2
 
     created_at = now_iso_z()
@@ -694,8 +694,8 @@ def cmd_search(args) -> int:
             reason = _embed_reason()
             sys.stderr.write(f"ERROR: vector search requires embeddings; {reason}.\n")
             sys.stderr.write(
-                "NEXT: configure EMBEDDING_MODEL/EMBEDDING_BASE_URL/EMBEDDING_API_KEY "
-                "and CLAWSQLITE_VEC_DIM, and ensure vec0 is available.\n"
+                "NEXT: configure [embedding].base_url/model/api_key/dim in clawsqlite.toml, "
+                "and ensure vec0 is available.\n"
             )
             return 2
 
@@ -1229,10 +1229,10 @@ def cmd_rebuild_quality(args) -> int:
     if not os.path.exists(db_path):
         sys.stderr.write(f"ERROR: db not found at {db_path}. Check --config/clawsqlite.toml.\n")
         return 2
-    if cfg.ingest.require_llm and not (os.environ.get("SMALL_LLM_BASE_URL") and os.environ.get("SMALL_LLM_MODEL") and os.environ.get("SMALL_LLM_API_KEY")):
+    if cfg.ingest.require_llm and not (cfg.llm.base_url and cfg.llm.model and cfg.llm.resolved_api_key):
         sys.stderr.write("ERROR: rebuild-quality requires configured LLM.\n")
         sys.stderr.write("ERROR_KIND: llm_required\n")
-        sys.stderr.write("NEXT: configure [llm] in clawsqlite.toml and set the API key env.\n")
+        sys.stderr.write("NEXT: configure [llm].base_url/model/api_key in clawsqlite.toml.\n")
         return 2
     if cfg.ingest.require_embedding and not getattr(args, "allow_missing_embedding", False) and not embedding_enabled():
         sys.stderr.write("ERROR: rebuild-quality requires configured embedding.\n")
@@ -1571,7 +1571,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--priority", default=0, type=int, help="Priority (0 default)")
     sp.add_argument("--gen-provider", default=None, choices=["openclaw", "llm", "off"], help="Generator provider override (default from clawsqlite.toml)")
     sp.add_argument("--max-summary-chars", default=None, type=int, help="Summary target/limit override (default from clawsqlite.toml)")
-    sp.add_argument("--scrape-cmd", default=None, help="Scraper command for URL ingest. Or env CLAWSQLITE_SCRAPE_CMD")
+    sp.add_argument("--scrape-cmd", default=None, help="Debug scraper command override for URL ingest (default from clawsqlite.toml)")
     sp.add_argument("--update-existing", action="store_true", help="If URL exists, refresh that record instead of inserting a new one")
     sp.add_argument("--allow-heuristic", action="store_true", help="Explicitly allow heuristic generation when LLM generation is unavailable")
     sp.add_argument("--allow-missing-embedding", action="store_true", help="Explicitly allow ingest without vector embeddings")
@@ -1707,8 +1707,8 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 def main(argv: Optional[List[str]] = None) -> int:
-    # Load project-level .env first for secret env vars referenced by
-    # clawsqlite.toml (for example SMALL_LLM_API_KEY).
+    # Load project-level .env for optional low-level tuning knobs. Knowledge
+    # runtime config itself should live in clawsqlite.toml.
     try:
         load_project_env()
     except Exception:

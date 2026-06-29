@@ -11,7 +11,9 @@ Use this skill as a thin adapter over `clawsqlite knowledge`. Do not treat it as
 
 - Keep core behavior in `clawsqlite knowledge`.
 - Require an explicit config path through request field `config` or environment variable `CLAWSQLITE_CONFIG`.
+- Treat that config as the private source of truth for real LLM, embedding, scraper, path, and ingest-policy values.
 - Do not guess DB paths, roots, article directories, or working directories.
+- Do not accept or interpret API keys in skill input; the CLI reads them from the private `clawsqlite.toml`.
 - Do not pass `--allow-heuristic` or `--allow-missing-embedding` unless the user explicitly asks for degraded ingest.
 - Do not implement summary generation, tag generation, embedding checks, path resolution, DB access, or search ranking inside the skill.
 - Do not expose destructive or broad maintenance actions as ordinary Agent entry points.

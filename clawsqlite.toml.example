@@ -19,7 +19,7 @@ fallback = "fail"
 [llm]
 base_url = "https://llm.example.com/v1"
 model = "your-small-llm"
-api_key_env = "SMALL_LLM_API_KEY"
+api_key = ""
 timeout_seconds = 90
 
 # Character-budget approximation for the model context. The generator subtracts
@@ -31,7 +31,7 @@ chunk_overlap_chars = 500
 [embedding]
 base_url = "https://embed.example.com/v1"
 model = "your-embedding-model"
-api_key_env = "EMBEDDING_API_KEY"
+api_key = ""
 dim = 1024
 timeout_seconds = 300
 content = "summary"

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import os
 import shutil
 import sqlite3
@@ -100,7 +101,12 @@ class StrictIngestConfigTests(unittest.TestCase):
     def test_strict_ingest_fails_when_required_llm_is_not_configured(self):
         with _tempdir() as tmpdir:
             root = tmpdir / "kb"
-            config_path = write_knowledge_config(root, require_llm=True, require_embedding=False)
+            config_path = write_knowledge_config(
+                root,
+                require_llm=True,
+                require_embedding=False,
+                llm_api_key="",
+            )
             code, _, err = self._run_cli(
                 [
                     "ingest",
@@ -149,7 +155,12 @@ class StrictIngestConfigTests(unittest.TestCase):
     def test_strict_ingest_rejects_missing_embedding(self):
         with _tempdir() as tmpdir:
             root = tmpdir / "kb"
-            config_path = write_knowledge_config(root, require_llm=False, require_embedding=True)
+            config_path = write_knowledge_config(
+                root,
+                require_llm=False,
+                require_embedding=True,
+                embedding_api_key="",
+            )
             code, _, err = self._run_cli(
                 [
                     "ingest",
@@ -200,6 +211,19 @@ class StrictIngestConfigTests(unittest.TestCase):
                 conn.row_factory = sqlite3.Row
                 row = conn.execute("SELECT summary FROM articles WHERE id=1").fetchone()
         self.assertLessEqual(len(row["summary"]), 140)
+
+    def test_doctor_reports_toml_api_key_sources(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "kb"
+            config_path = write_knowledge_config(root, require_llm=True, require_embedding=True)
+            code, out, err = self._run_cli(["doctor", "--config", str(config_path), "--json"])
+
+        self.assertEqual(code, 0, err)
+        report = json.loads(out)
+        self.assertTrue(report["llm"]["configured"])
+        self.assertEqual(report["llm"]["api_key_source"], "config")
+        self.assertTrue(report["embedding"]["configured"])
+        self.assertEqual(report["embedding"]["api_key_source"], "config")
 
     def test_reindex_fix_missing_respects_strict_llm_policy(self):
         with _tempdir() as tmpdir:

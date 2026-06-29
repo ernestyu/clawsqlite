@@ -9,7 +9,7 @@ from __future__ import annotations
 - clawsqlite.toml 中的 root / DB 是否指向有效的知识库；
 - vec0 扩展和 vec 表是否可用；
 - Embedding 配置是否完整且能正常调用；
-- SMALL_LLM_* 配置是否完整；
+- [llm] 配置是否完整；
 - 当前大致处于哪个 capability mode（有/无 embedding + 有/无 small LLM）。
 
 该命令不会修改任何数据，只做只读检查。
@@ -233,15 +233,30 @@ def _check_vec_extension(config: Optional[KnowledgeConfig] = None) -> CheckResul
         conn.close()
 
 
-def _check_embedding_config() -> CheckResult:
-    missing = _embedding_missing_keys()
+def _embedding_missing_config(config: Optional[KnowledgeConfig] = None) -> List[str]:
+    if config is None:
+        return _embedding_missing_keys()
+    missing: List[str] = []
+    if not config.embedding.base_url:
+        missing.append("[embedding].base_url")
+    if not config.embedding.model:
+        missing.append("[embedding].model")
+    if not config.embedding.resolved_api_key:
+        missing.append("[embedding].api_key")
+    if config.embedding.dim <= 0:
+        missing.append("[embedding].dim")
+    return missing
+
+
+def _check_embedding_config(config: Optional[KnowledgeConfig] = None) -> CheckResult:
+    missing = _embedding_missing_config(config)
     if missing:
         return CheckResult(
             name="embedding_config",
             ok=False,
             message="Embedding config incomplete: missing " + ", ".join(sorted(missing)),
             next=(
-                "Set EMBEDDING_BASE_URL/EMBEDDING_MODEL/EMBEDDING_API_KEY and CLAWSQLITE_VEC_DIM "
+                "Set [embedding].base_url/model/api_key/dim in clawsqlite.toml "
                 "to enable hybrid/vec search and background embeddings."
             ),
             details={"missing_keys": sorted(missing)},
@@ -249,30 +264,30 @@ def _check_embedding_config() -> CheckResult:
 
     # If config looks present, also sanity-check vec_dim.
     try:
-        vec_dim = _resolve_vec_dim()
+        vec_dim = config.embedding.dim if config is not None else _resolve_vec_dim()
     except Exception as e:
         return CheckResult(
             name="embedding_config",
             ok=False,
             message=f"Embedding vec_dim invalid: {e}",
-            next=(
-                "Ensure CLAWSQLITE_VEC_DIM is a positive integer matching your embedding model "
-                "and existing vec schema."
-            ),
+            next="Ensure [embedding].dim is a positive integer matching your embedding model and existing vec schema.",
         )
 
     return CheckResult(
         name="embedding_config",
         ok=True,
-        message="Embedding env looks complete (EMBEDDING_* + CLAWSQLITE_VEC_DIM configured).",
-        details={"vec_dim": vec_dim},
+        message="Embedding config in clawsqlite.toml looks complete.",
+        details={
+            "vec_dim": vec_dim,
+            "api_key_source": config.embedding.api_key_source if config is not None else "env",
+        },
     )
 
 
-def _check_embedding_roundtrip() -> CheckResult:
+def _check_embedding_roundtrip(config: Optional[KnowledgeConfig] = None) -> CheckResult:
     # Only attempt a real call when config is present; otherwise embedding_config
     # will already be false.
-    missing = _embedding_missing_keys()
+    missing = _embedding_missing_config(config)
     if missing:
         return CheckResult(
             name="embedding_roundtrip",
@@ -289,7 +304,7 @@ def _check_embedding_roundtrip() -> CheckResult:
                 name="embedding_roundtrip",
                 ok=False,
                 message="Embedding service returned an empty vector.",
-                next="Check your EMBEDDING_* settings and provider docs.",
+                next="Check [embedding] in clawsqlite.toml and provider docs.",
             )
         return CheckResult(
             name="embedding_roundtrip",
@@ -302,25 +317,28 @@ def _check_embedding_roundtrip() -> CheckResult:
             name="embedding_roundtrip",
             ok=False,
             message=f"Embedding request failed: {e}",
-            next=(
-                "Verify EMBEDDING_BASE_URL/EMBEDDING_MODEL/EMBEDDING_API_KEY and network reachability."
-            ),
+            next="Verify [embedding].base_url/model/api_key in clawsqlite.toml and network reachability.",
         )
 
 
-def _check_small_llm() -> CheckResult:
-    base = os.environ.get("SMALL_LLM_BASE_URL")
-    model = os.environ.get("SMALL_LLM_MODEL")
-    key = os.environ.get("SMALL_LLM_API_KEY")
+def _check_small_llm(config: Optional[KnowledgeConfig] = None) -> CheckResult:
+    if config is not None:
+        base = config.llm.base_url
+        model = config.llm.model
+        key = config.llm.resolved_api_key
+    else:
+        base = os.environ.get("SMALL_LLM_BASE_URL")
+        model = os.environ.get("SMALL_LLM_MODEL")
+        key = os.environ.get("SMALL_LLM_API_KEY")
 
     if not base and not model and not key:
         return CheckResult(
             name="small_llm",
             ok=False,
-            message="Small LLM not configured (SMALL_LLM_BASE_URL/MODEL/API_KEY all empty).",
+            message="Small LLM not configured ([llm].base_url/model/api_key all empty).",
             next=(
-                "If you want LLM-based summaries/tags/query_refine, set SMALL_LLM_BASE_URL/" 
-                "SMALL_LLM_MODEL/SMALL_LLM_API_KEY. Otherwise, you can ignore this warning."
+                "If you want LLM-based summaries/tags/query_refine, set "
+                "[llm].base_url/model/api_key in clawsqlite.toml."
             ),
         )
 
@@ -329,26 +347,40 @@ def _check_small_llm() -> CheckResult:
             name="small_llm",
             ok=False,
             message="Small LLM config is partially set.",
-            next="Set all of SMALL_LLM_BASE_URL, SMALL_LLM_MODEL, and SMALL_LLM_API_KEY or clear them all.",
-            details={"base_url": base, "model": model, "has_key": bool(key)},
+            next="Set all of [llm].base_url, [llm].model, and [llm].api_key in clawsqlite.toml or clear them all.",
+            details={
+                "base_url": base,
+                "model": model,
+                "has_key": bool(key),
+                "api_key_source": config.llm.api_key_source if config is not None else "env",
+            },
         )
 
     return CheckResult(
         name="small_llm",
         ok=True,
         message=f"Small LLM configured: model={model!r}, base_url={base!r}",
-        details={"base_url": base, "model": model},
+        details={
+            "base_url": base,
+            "model": model,
+            "api_key_source": config.llm.api_key_source if config is not None else "env",
+        },
     )
 
 
-def _check_capability_mode() -> CheckResult:
+def _check_capability_mode(config: Optional[KnowledgeConfig] = None) -> CheckResult:
     # This mirrors the high-level capability modes used in search scoring.
-    missing = _embedding_missing_keys()
+    missing = _embedding_missing_config(config)
     embedding_ok = not missing
 
-    small_llm_base = os.environ.get("SMALL_LLM_BASE_URL") or ""
-    small_llm_model = os.environ.get("SMALL_LLM_MODEL") or ""
-    small_llm_key = os.environ.get("SMALL_LLM_API_KEY") or ""
+    if config is not None:
+        small_llm_base = config.llm.base_url
+        small_llm_model = config.llm.model
+        small_llm_key = config.llm.resolved_api_key
+    else:
+        small_llm_base = os.environ.get("SMALL_LLM_BASE_URL") or ""
+        small_llm_model = os.environ.get("SMALL_LLM_MODEL") or ""
+        small_llm_key = os.environ.get("SMALL_LLM_API_KEY") or ""
     small_llm_ok = bool(small_llm_base and small_llm_model and small_llm_key)
 
     if embedding_ok and small_llm_ok:
@@ -430,20 +462,22 @@ def _config_report(config: Optional[KnowledgeConfig]) -> Dict[str, Any]:
             "fallback": config.ingest.fallback,
         },
         "llm": {
-            "configured": bool(config.llm.base_url and config.llm.model and os.environ.get(config.llm.api_key_env)),
+            "configured": bool(config.llm.base_url and config.llm.model and config.llm.resolved_api_key),
             "model": config.llm.model,
             "base_url": config.llm.base_url,
-            "api_key_env": config.llm.api_key_env,
-            "has_api_key": bool(os.environ.get(config.llm.api_key_env)),
+            "has_api_key": bool(config.llm.resolved_api_key),
+            "api_key_source": config.llm.api_key_source,
+            "legacy_api_key_env": config.llm.api_key_env,
             "context_window_chars": config.llm.context_window_chars,
             "prompt_reserved_chars": config.llm.prompt_reserved_chars,
         },
         "embedding": {
-            "configured": bool(config.embedding.base_url and config.embedding.model and os.environ.get(config.embedding.api_key_env) and config.embedding.dim > 0),
+            "configured": bool(config.embedding.base_url and config.embedding.model and config.embedding.resolved_api_key and config.embedding.dim > 0),
             "model": config.embedding.model,
             "base_url": config.embedding.base_url,
-            "api_key_env": config.embedding.api_key_env,
-            "has_api_key": bool(os.environ.get(config.embedding.api_key_env)),
+            "has_api_key": bool(config.embedding.resolved_api_key),
+            "api_key_source": config.embedding.api_key_source,
+            "legacy_api_key_env": config.embedding.api_key_env,
             "dim": config.embedding.dim,
         },
     }
@@ -460,11 +494,11 @@ def run_doctor(
     checks.append(_check_kb_paths(config))
     checks.append(_check_db_schema(config))
     checks.append(_check_vec_extension(config))
-    checks.append(_check_embedding_config())
+    checks.append(_check_embedding_config(config))
     if check_embedding:
-        checks.append(_check_embedding_roundtrip())
-    checks.append(_check_small_llm())
-    checks.append(_check_capability_mode())
+        checks.append(_check_embedding_roundtrip(config))
+    checks.append(_check_small_llm(config))
+    checks.append(_check_capability_mode(config))
 
     any_error = any(not c.ok for c in checks if c.name in {"knowledge_paths", "db_schema"})
 

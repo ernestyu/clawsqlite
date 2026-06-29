@@ -160,8 +160,8 @@ Use:
 clawsqlite knowledge ...
 ```
 
-To run a quick self-check of your knowledge DB + env (paths, vec0, embedding,
-small LLM), you can use:
+To run a quick self-check of your active config, DB paths, vec0, embedding, and
+small LLM readiness, you can use:
 
 ```bash
 clawsqlite knowledge doctor --json
@@ -178,6 +178,10 @@ python3 -m clawsqlite_knowledge.cli doctor
 The knowledge app is configured by `clawsqlite.toml`. This is deliberate:
 Agents should run the Knowledge CLI and let it load the configured root, DB,
 LLM, and embedding settings instead of guessing file names.
+
+Treat `clawsqlite.toml` as the local private source of truth. The checked-in
+`clawsqlite.toml.example` is only a public template with placeholders; the real
+`clawsqlite.toml` is ignored by git and may contain real API keys.
 
 Config lookup order:
 
@@ -212,7 +216,7 @@ fallback = "fail"
 [llm]
 base_url = "https://llm.example.com/v1"
 model = "your-small-llm"
-api_key_env = "SMALL_LLM_API_KEY"
+api_key = ""  # fill in the real key in your private clawsqlite.toml
 context_window_chars = 24000
 prompt_reserved_chars = 4000
 chunk_overlap_chars = 500
@@ -220,7 +224,7 @@ chunk_overlap_chars = 500
 [embedding]
 base_url = "https://embed.example.com/v1"
 model = "your-embedding-model"
-api_key_env = "EMBEDDING_API_KEY"
+api_key = ""  # fill in the real key in your private clawsqlite.toml
 dim = 1024
 content = "summary"
 ```
@@ -230,16 +234,16 @@ Relative `root` is resolved relative to the config file. Relative `db` and
 `--articles-dir` still exist as debug overrides, but normal Agent usage should
 prefer the config file.
 
-### 4.2 Project `.env` for secrets and advanced knobs
+### 4.2 Private config vs optional `.env`
 
 The CLI still auto-loads a project-level `.env` from the current working
-directory, but `.env` is no longer the primary knowledge-path configuration.
-Use it for secrets referenced by `api_key_env`, extension paths, and search/
-interest tuning knobs:
+directory for optional low-level tuning knobs, but `.env` is not the normal
+place for Knowledge runtime configuration.
+
+Put real LLM, embedding, scraper, path, and ingest settings directly in the
+private `clawsqlite.toml`. Use `.env` only for optional generic toggles such as:
 
 ```env
-SMALL_LLM_API_KEY=sk-your-small-llm-key
-EMBEDDING_API_KEY=sk-your-embedding-key
 CLAWSQLITE_FTS_JIEBA=auto
 ```
 
@@ -250,8 +254,8 @@ set `CLAWSQLITE_ENV_OVERRIDE=1`.
 ### 4.3 Embedding configuration
 
 Embeddings are used for vector search (`articles_vec`) and, by default, for
-strict ingest quality. The endpoint, model, dimension, and API-key env name are
-configured in `[embedding]`; the actual secret stays in the environment.
+strict ingest quality. The endpoint, model, dimension, and API key are
+configured directly in `[embedding]` inside the private `clawsqlite.toml`.
 
 The knowledge app will:
 
@@ -376,20 +380,18 @@ And you can tune the lexical tag compression via::
 ### 4.6 Scraper configuration
 
 The knowledge app does **not** implement web scraping itself. For `--url`
-ingest it runs an external scraper command, configured via:
+ingest it runs an external scraper command, configured in `[scraper].cmd`:
 
-- CLI: `--scrape-cmd`
-- Env: `CLAWSQLITE_SCRAPE_CMD`
+Recommended `clawsqlite.toml` usage:
 
-Recommended usage:
-
-```env
-CLAWSQLITE_SCRAPE_CMD="node /path/to/scrape.js --some-flag"
+```toml
+[scraper]
+cmd = "node /path/to/scrape.js --some-flag"
 ```
 
 The knowledge app will:
 
-- Load this value from `.env` (stripping outer quotes)
+- Read this value from `clawsqlite.toml`
 - Use `shlex.split()` to build argv (no `shell=True` by default)
 - Append the URL as the last argument if you don’t use `{url}`
 
@@ -437,8 +439,8 @@ The knowledge app will parse these into `title` and markdown body.
    clawsqlite knowledge init-config --out clawsqlite.toml
    ```
 
-   Fill in `[knowledge].root`, `[llm]`, and `[embedding]`. Put real API keys in
-   your environment or `.env` according to `api_key_env`.
+   Fill in `[knowledge].root`, `[llm]`, and `[embedding]` directly in this
+   private file, including real API keys.
 
 3. **First strict ingest (text)** – this also creates the DB and basic tables:
 
@@ -480,7 +482,7 @@ The knowledge app will parse these into `title` and markdown body.
 
 ### 5.2 Ingest a URL
 
-Assuming you have a scraper command set in `.env`:
+Assuming you have `[scraper].cmd` set in `clawsqlite.toml`:
 
 ```bash
 clawsqlite knowledge ingest \
@@ -544,7 +546,7 @@ Key options:
 - `--title`, `--summary`, `--tags`, `--category`, `--priority`
 - `--gen-provider {openclaw,llm,off}` (default from `clawsqlite.toml`)
 - `--max-summary-chars` (default from `summary_target_chars`)
-- `--scrape-cmd` (or env `CLAWSQLITE_SCRAPE_CMD`)
+- `--scrape-cmd` (debug override; normal usage prefers `[scraper].cmd`)
 - `--update-existing` (for URL mode)
 - `--allow-heuristic`, `--allow-missing-embedding` for explicit degraded ingest
 
@@ -697,7 +699,7 @@ After initial labels from either backend:
    - `interest_cluster_members` (`membership=1.0`)
    - `interest_meta` (build timestamp + algo/pca/tag-weight metadata)
 
-#### 6.7.5 Main env knobs
+#### 6.7.5 Optional analysis knobs
 
 - `CLAWSQLITE_INTEREST_CLUSTER_ALGO` (`kmeans++` | `hierarchical`)
 - `CLAWSQLITE_INTEREST_TAG_WEIGHT` (`0..1`)
@@ -755,7 +757,7 @@ clawsqlite knowledge inspect-interest-clusters \
 2. 使用辅助脚本（`tests/test_interest_merge_suggest.py`）或类似逻辑，按
    `alpha * median(mean_radius)` 估算一个合适的
    `CLAWSQLITE_INTEREST_MERGE_DISTANCE`（例如 0.07）；
-3. 调整 `.env` 中的
+3. 调整 `.env` 或当前 shell 中的可选分析参数
    `CLAWSQLITE_INTEREST_MIN_SIZE` / `CLAWSQLITE_INTEREST_MAX_CLUSTERS` /
    `CLAWSQLITE_INTEREST_MERGE_DISTANCE` 后重新构建，并用
    `inspect-interest-clusters` 观察结构变化。

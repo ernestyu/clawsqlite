@@ -8,7 +8,7 @@ import unittest
 import uuid
 from pathlib import Path
 
-from clawsqlite_knowledge.config import ConfigError, find_config_path, load_knowledge_config
+from clawsqlite_knowledge.config import ConfigError, apply_config_env, find_config_path, load_knowledge_config
 from tests.helpers import write_knowledge_config
 
 
@@ -56,6 +56,44 @@ class KnowledgeConfigTomlTests(unittest.TestCase):
             self.assertTrue(cfg.ingest.require_embedding)
             self.assertEqual(cfg.ingest.summary_target_chars, 640)
             self.assertEqual(cfg.llm.context_window_chars, 4000)
+            self.assertEqual(cfg.llm.resolved_api_key, "test-small-llm-key")
+            self.assertEqual(cfg.llm.api_key_source, "config")
+            self.assertEqual(cfg.embedding.resolved_api_key, "test-embedding-key")
+            self.assertEqual(cfg.embedding.api_key_source, "config")
+
+    def test_config_api_keys_are_applied_as_runtime_values(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "kb"
+            config_path = write_knowledge_config(
+                root,
+                llm_api_key="llm-from-toml",
+                embedding_api_key="embedding-from-toml",
+            )
+            os.environ["SMALL_LLM_API_KEY"] = "stale-env-llm"
+            os.environ["EMBEDDING_API_KEY"] = "stale-env-embedding"
+
+            cfg = load_knowledge_config(cli_config=str(config_path))
+            apply_config_env(cfg)
+
+            self.assertEqual(os.environ["SMALL_LLM_API_KEY"], "llm-from-toml")
+            self.assertEqual(os.environ["EMBEDDING_API_KEY"], "embedding-from-toml")
+
+    def test_config_clears_stale_runtime_keys_when_api_keys_missing(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "kb"
+            config_path = write_knowledge_config(
+                root,
+                llm_api_key="",
+                embedding_api_key="",
+            )
+            os.environ["SMALL_LLM_API_KEY"] = "stale-env-llm"
+            os.environ["EMBEDDING_API_KEY"] = "stale-env-embedding"
+
+            cfg = load_knowledge_config(cli_config=str(config_path))
+            apply_config_env(cfg)
+
+            self.assertNotIn("SMALL_LLM_API_KEY", os.environ)
+            self.assertNotIn("EMBEDDING_API_KEY", os.environ)
 
     def test_relative_root_resolves_from_config_directory(self):
         with _tempdir() as tmpdir:

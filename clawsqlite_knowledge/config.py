@@ -67,7 +67,8 @@ class IngestPolicy:
 class LLMConfig:
     base_url: str = ""
     model: str = ""
-    api_key_env: str = "SMALL_LLM_API_KEY"
+    api_key: str = ""
+    api_key_env: str = ""
     timeout_seconds: int = 90
     context_window_chars: int = 24000
     prompt_reserved_chars: int = 4000
@@ -77,15 +78,52 @@ class LLMConfig:
     def content_budget_chars(self) -> int:
         return max(1000, self.context_window_chars - self.prompt_reserved_chars)
 
+    @property
+    def resolved_api_key(self) -> str:
+        if self.api_key:
+            return self.api_key
+        if self.api_key_env:
+            return os.environ.get(self.api_key_env, "")
+        return ""
+
+    @property
+    def api_key_source(self) -> str:
+        if self.api_key:
+            return "config"
+        if self.api_key_env and os.environ.get(self.api_key_env):
+            return "env_legacy"
+        if self.api_key_env:
+            return "env_legacy_missing"
+        return "missing"
+
 
 @dataclass(frozen=True)
 class EmbeddingConfig:
     base_url: str = ""
     model: str = ""
-    api_key_env: str = "EMBEDDING_API_KEY"
+    api_key: str = ""
+    api_key_env: str = ""
     dim: int = 0
     timeout_seconds: int = 300
     content: str = "summary"
+
+    @property
+    def resolved_api_key(self) -> str:
+        if self.api_key:
+            return self.api_key
+        if self.api_key_env:
+            return os.environ.get(self.api_key_env, "")
+        return ""
+
+    @property
+    def api_key_source(self) -> str:
+        if self.api_key:
+            return "config"
+        if self.api_key_env and os.environ.get(self.api_key_env):
+            return "env_legacy"
+        if self.api_key_env:
+            return "env_legacy_missing"
+        return "missing"
 
 
 @dataclass(frozen=True)
@@ -195,7 +233,8 @@ def load_knowledge_config(
     llm_cfg = LLMConfig(
         base_url=str(llm.get("base_url") or "").strip(),
         model=str(llm.get("model") or "").strip(),
-        api_key_env=str(llm.get("api_key_env") or "SMALL_LLM_API_KEY").strip(),
+        api_key=str(llm.get("api_key") or "").strip(),
+        api_key_env=str(llm.get("api_key_env") or "").strip(),
         timeout_seconds=_int_value(llm.get("timeout_seconds"), 90, lo=1),
         context_window_chars=_int_value(llm.get("context_window_chars") or llm.get("context_chars"), 24000, lo=2000),
         prompt_reserved_chars=_int_value(llm.get("prompt_reserved_chars"), 4000, lo=500),
@@ -205,7 +244,8 @@ def load_knowledge_config(
     emb_cfg = EmbeddingConfig(
         base_url=str(embedding.get("base_url") or "").strip(),
         model=str(embedding.get("model") or "").strip(),
-        api_key_env=str(embedding.get("api_key_env") or "EMBEDDING_API_KEY").strip(),
+        api_key=str(embedding.get("api_key") or "").strip(),
+        api_key_env=str(embedding.get("api_key_env") or "").strip(),
         dim=_int_value(embedding.get("dim"), 0, lo=0),
         timeout_seconds=_int_value(embedding.get("timeout_seconds"), 300, lo=1),
         content=str(embedding.get("content") or "summary").strip().lower(),
@@ -234,19 +274,37 @@ def apply_config_env(config: KnowledgeConfig) -> None:
 
     if config.llm.base_url:
         os.environ["SMALL_LLM_BASE_URL"] = config.llm.base_url
+    else:
+        os.environ.pop("SMALL_LLM_BASE_URL", None)
     if config.llm.model:
         os.environ["SMALL_LLM_MODEL"] = config.llm.model
-    if config.llm.api_key_env and os.environ.get(config.llm.api_key_env):
-        os.environ["SMALL_LLM_API_KEY"] = os.environ[config.llm.api_key_env]
+    else:
+        os.environ.pop("SMALL_LLM_MODEL", None)
+    llm_api_key = config.llm.resolved_api_key
+    if llm_api_key:
+        os.environ["SMALL_LLM_API_KEY"] = llm_api_key
+    else:
+        os.environ.pop("SMALL_LLM_API_KEY", None)
 
     if config.embedding.base_url:
         os.environ["EMBEDDING_BASE_URL"] = config.embedding.base_url
+    else:
+        os.environ.pop("EMBEDDING_BASE_URL", None)
     if config.embedding.model:
         os.environ["EMBEDDING_MODEL"] = config.embedding.model
+    else:
+        os.environ.pop("EMBEDDING_MODEL", None)
     if config.embedding.dim > 0:
         os.environ["CLAWSQLITE_VEC_DIM"] = str(config.embedding.dim)
-    if config.embedding.api_key_env and os.environ.get(config.embedding.api_key_env):
-        os.environ["EMBEDDING_API_KEY"] = os.environ[config.embedding.api_key_env]
+    else:
+        os.environ.pop("CLAWSQLITE_VEC_DIM", None)
+    embedding_api_key = config.embedding.resolved_api_key
+    if embedding_api_key:
+        os.environ["EMBEDDING_API_KEY"] = embedding_api_key
+    else:
+        os.environ.pop("EMBEDDING_API_KEY", None)
 
     if config.scraper.cmd:
         os.environ["CLAWSQLITE_SCRAPE_CMD"] = config.scraper.cmd
+    else:
+        os.environ.pop("CLAWSQLITE_SCRAPE_CMD", None)
