@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import sqlite3
+import tempfile
 import unittest
 import uuid
 from pathlib import Path
@@ -30,6 +31,15 @@ def _tempdir():
         shutil.rmtree(path, ignore_errors=True)
 
 
+@contextlib.contextmanager
+def _isolated_tempdir():
+    path = Path(tempfile.mkdtemp(prefix="clawsqlite_no_config_"))
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
+
+
 class StrictIngestConfigTests(unittest.TestCase):
     maxDiff = None
 
@@ -47,6 +57,8 @@ class StrictIngestConfigTests(unittest.TestCase):
             os.environ.pop(key, None)
 
     def tearDown(self) -> None:
+        if hasattr(self, "_run_cwd"):
+            delattr(self, "_run_cwd")
         os.environ.clear()
         os.environ.update(self._env)
 
@@ -63,13 +75,9 @@ class StrictIngestConfigTests(unittest.TestCase):
         return code, stdout.getvalue(), stderr.getvalue()
 
     def test_missing_config_fails_before_guessing_paths(self):
-        with _tempdir() as tmpdir:
-            old = Path.cwd()
-            os.chdir(tmpdir)
-            try:
-                code, _, err = self._run_cli(["doctor"])
-            finally:
-                os.chdir(old)
+        with _isolated_tempdir() as tmpdir:
+            self._run_cwd = tmpdir
+            code, _, err = self._run_cli(["doctor"])
         self.assertEqual(code, 2)
         self.assertIn("ERROR_KIND: config_required", err)
         self.assertIn("clawsqlite.toml", err)
