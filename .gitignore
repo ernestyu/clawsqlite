@@ -41,3 +41,7 @@ dist_test/
 .pytest_cache/
 pytest-cache-files-*
 .gitconfig_codex
+
+# Private local knowledge config/data
+clawsqlite.toml
+knowledge_data/
