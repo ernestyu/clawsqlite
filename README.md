@@ -183,11 +183,10 @@ Treat `clawsqlite.toml` as the local private source of truth. The checked-in
 `clawsqlite.toml.example` is only a public template with placeholders; the real
 `clawsqlite.toml` is ignored by git and may contain real API keys.
 
-Config lookup order:
-
-1. CLI: `--config /path/to/clawsqlite.toml`
-2. Env: `CLAWSQLITE_CONFIG`
-3. Nearest `clawsqlite.toml` found by walking upward from the current working directory
+Config lookup is intentionally single-source: Knowledge commands find the
+nearest `clawsqlite.toml` by walking upward from the current working directory.
+The directory containing that file is the project root. There is no separate
+config-path environment variable or CLI config override.
 
 Create a template:
 
@@ -230,9 +229,8 @@ content = "summary"
 ```
 
 Relative `root` is resolved relative to the config file. Relative `db` and
-`articles_dir` are resolved under `root`. `--root`, `--db`, and
-`--articles-dir` still exist as debug overrides, but normal Agent usage should
-prefer the config file.
+`articles_dir` are resolved under `root`. Knowledge root/db/articles paths are
+not overridden on the CLI; edit the private `clawsqlite.toml` instead.
 
 ### 4.2 Private config vs optional `.env`
 
@@ -528,9 +526,8 @@ most one active record.
 
 ## 6. CLI Overview
 
-All Knowledge commands read `clawsqlite.toml` before resolving paths. Common
-flags include `--config`, debug path overrides (`--root`, `--db`,
-`--articles-dir`), `--json`, and `--verbose`.
+All Knowledge commands read the project-root `clawsqlite.toml` before resolving
+paths. Common flags include `--json` and `--verbose`.
 Run `clawsqlite knowledge <command> --help` for full details.
 
 ### 6.1 ingest
@@ -566,7 +563,7 @@ Other flags:
 
 - `--candidates` – candidate pool before re‑ranking
 - `--llm-keywords {auto,on,off}` – small-LLM usage policy for building `query_refine/query_tags`
-- `--gen-provider` – set to `llm` to enable the small LLM (requires `SMALL_LLM_*`)
+- `--gen-provider` – set to `llm` to enable the small LLM configured in `clawsqlite.toml`
 - Filters: `--category`, `--tag`, `--since`, `--priority`, `--include-deleted`
 
 ### 6.3 show / export / update / delete
@@ -581,7 +578,7 @@ All read/update/delete style commands **check that the DB file exists** before o
 - If `clawsqlite.toml` points to a non‑existent DB path, they report:
 
   ```text
-  ERROR: db not found at /path/to/db. Check --config/clawsqlite.toml.
+  ERROR: db not found at /path/to/db. Check project-root clawsqlite.toml.
   ```
 
   instead of silently creating an empty DB and then failing with `id not found`.
@@ -807,9 +804,9 @@ This repo includes a thin ClawHub/OpenClaw skill adapter under
 
 It exposes only conservative Agent actions: `ingest_url`, `ingest_text`,
 `search`, `show`, and `doctor`. It does not implement knowledge-base logic,
-does not read the database directly, and does not guess paths. Agents should
-pass an explicit `config` path or set `CLAWSQLITE_CONFIG`; strict ingest and
-error semantics remain owned by `clawsqlite knowledge`.
+does not read the database directly, and does not guess paths. It relies on the
+project-root `clawsqlite.toml`; strict ingest and error semantics remain owned
+by `clawsqlite knowledge`.
 
 ## 9. Chinese Documentation
 

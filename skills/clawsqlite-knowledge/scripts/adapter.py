@@ -25,8 +25,6 @@ Runner = Callable[..., subprocess.CompletedProcess[str]]
 ALLOWED_ACTIONS = {"ingest_url", "ingest_text", "search", "show", "doctor"}
 ALLOWED_FIELDS = {
     "action",
-    "config",
-    "config_path",
     "allow_heuristic",
     "allow_missing_embedding",
     "timeout_seconds",
@@ -105,27 +103,10 @@ def _read_request(args: argparse.Namespace) -> Dict[str, Any]:
     return obj
 
 
-def _config_path(request: Mapping[str, Any]) -> Optional[str]:
-    raw = request.get("config") or request.get("config_path") or os.environ.get("CLAWSQLITE_CONFIG")
-    if not raw:
-        return None
-    path = Path(str(raw)).expanduser()
-    if not path.is_absolute():
-        path = Path.cwd() / path
-    return str(path)
-
-
 def _append_optional(argv: List[str], request: Mapping[str, Any], field: str, flag: str) -> None:
     value = request.get(field)
     if value is not None and value != "":
         argv.extend([flag, str(value)])
-
-
-def _append_config(argv: List[str], config: str) -> None:
-    # The knowledge CLI accepts common flags both before and after the
-    # subcommand, but subparser defaults can shadow pre-subcommand values.
-    # Passing --config after the subcommand is the most stable form.
-    argv.extend(["--config", config])
 
 
 def _append_ingest_common(argv: List[str], request: Mapping[str, Any]) -> None:
@@ -162,7 +143,7 @@ def build_cli_args(request: Mapping[str, Any]) -> Dict[str, Any]:
             action=action,
             kind="path_override_forbidden",
             message="This Skill does not accept path override fields: " + ", ".join(forbidden),
-            next_hint="Put root/db/articles_dir in clawsqlite.toml and pass config instead.",
+            next_hint="Put root/db/articles_dir in the project-root clawsqlite.toml.",
         )
 
     unknown = sorted(str(k) for k in request.keys() if str(k) not in ALLOWED_FIELDS)
@@ -174,22 +155,6 @@ def build_cli_args(request: Mapping[str, Any]) -> Dict[str, Any]:
             next_hint="Use the documented JSON fields in schema.json.",
         )
 
-    config = _config_path(request)
-    if not config:
-        return _json_fail(
-            action=action,
-            kind="config_required",
-            message="Missing explicit config. Pass request.config or set CLAWSQLITE_CONFIG.",
-            next_hint="Create a clawsqlite.toml with `clawsqlite knowledge init-config`, then pass its path.",
-        )
-    if not Path(config).is_file():
-        return _json_fail(
-            action=action,
-            kind="config_required",
-            message=f"Config file not found: {config}",
-            next_hint="Pass a valid clawsqlite.toml path in request.config or CLAWSQLITE_CONFIG.",
-        )
-
     argv = [sys.executable, "-m", "clawsqlite_cli", "knowledge"]
 
     if action == "ingest_url":
@@ -198,7 +163,6 @@ def build_cli_args(request: Mapping[str, Any]) -> Dict[str, Any]:
             return _json_fail(action=action, kind="invalid_input", message="ingest_url requires url.")
         argv.extend(["ingest", "--url", url, "--json"])
         _append_ingest_common(argv, request)
-        _append_config(argv, config)
         return {"ok": True, "action": action, "argv": argv}
 
     if action == "ingest_text":
@@ -207,7 +171,6 @@ def build_cli_args(request: Mapping[str, Any]) -> Dict[str, Any]:
             return _json_fail(action=action, kind="invalid_input", message="ingest_text requires text.")
         argv.extend(["ingest", "--text", text, "--json"])
         _append_ingest_common(argv, request)
-        _append_config(argv, config)
         return {"ok": True, "action": action, "argv": argv}
 
     if action == "search":
@@ -231,7 +194,6 @@ def build_cli_args(request: Mapping[str, Any]) -> Dict[str, Any]:
             argv.append("--include-deleted")
         if bool(request.get("explain")):
             argv.append("--explain")
-        _append_config(argv, config)
         return {"ok": True, "action": action, "argv": argv}
 
     if action == "show":
@@ -241,13 +203,11 @@ def build_cli_args(request: Mapping[str, Any]) -> Dict[str, Any]:
         argv.extend(["show", "--id", str(article_id), "--json"])
         if bool(request.get("full")):
             argv.append("--full")
-        _append_config(argv, config)
         return {"ok": True, "action": action, "argv": argv}
 
     argv.extend(["doctor", "--json"])
     if bool(request.get("check_embedding")):
         argv.append("--check-embedding")
-    _append_config(argv, config)
     return {"ok": True, "action": action, "argv": argv}
 
 

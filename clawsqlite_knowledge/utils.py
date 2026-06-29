@@ -76,61 +76,6 @@ def load_project_env(path: Optional[Path] = None, *, override: Optional[bool] = 
             os.environ[key] = value
 
 
-def resolve_root_paths(
-    cli_root: Optional[str] = None,
-    cli_db: Optional[str] = None,
-    cli_articles_dir: Optional[str] = None,
-    default_root: Optional[str] = None,
-) -> Dict[str, str]:
-    """Resolve root/db/articles-dir with a clear priority chain.
-
-    Priority for root:
-    1. CLI --root
-    2. CLAWSQLITE_ROOT env
-    3. default_root (if provided)
-    4. <cwd>/knowledge_data
-
-    DB and articles dir follow the same pattern, but can be overridden via
-    CLAWSQLITE_DB / CLAWSQLITE_ARTICLES_DIR.
-    """
-
-    # Root
-    env_root_new = os.environ.get("CLAWSQLITE_ROOT")
-    root: Path
-    if cli_root:
-        root = Path(cli_root)
-    elif env_root_new:
-        root = Path(env_root_new)
-    elif default_root:
-        root = Path(default_root)
-    else:
-        root = Path.cwd() / "knowledge_data"
-
-    # DB
-    env_db_new = os.environ.get("CLAWSQLITE_DB")
-    if cli_db:
-        db_path = Path(cli_db)
-    elif env_db_new:
-        db_path = Path(env_db_new)
-    else:
-        db_path = root / "knowledge.sqlite3"
-
-    # Articles dir
-    env_articles_new = os.environ.get("CLAWSQLITE_ARTICLES_DIR")
-    if cli_articles_dir:
-        articles_dir = Path(cli_articles_dir)
-    elif env_articles_new:
-        articles_dir = Path(env_articles_new)
-    else:
-        articles_dir = root / "articles"
-
-    return {
-        "root": str(root),
-        "db": str(db_path),
-        "articles_dir": str(articles_dir),
-    }
-
-
 def resolve_interest_params(
     *,
     cli_min_size: Optional[int] = None,

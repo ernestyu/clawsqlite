@@ -6,7 +6,7 @@ Implements:
 - ingest / reindex / search / show / update / delete / export / doctor
 
 Note on CLI ergonomics:
-- Common flags (--db/--root/--articles-dir/--json/--verbose/...) are accepted BOTH before and after the subcommand.
+- Knowledge commands load the project-root clawsqlite.toml before resolving paths.
 """
 from __future__ import annotations
 
@@ -88,20 +88,14 @@ def _get_config(args, *, require: bool = True) -> KnowledgeConfig:
     cfg = getattr(args, "_knowledge_config", None)
     if cfg is not None:
         return cfg
-    cfg = load_knowledge_config(
-        cli_config=getattr(args, "config", None),
-        cli_root=getattr(args, "root", None),
-        cli_db=getattr(args, "db", None),
-        cli_articles_dir=getattr(args, "articles_dir", None),
-        require=require,
-    )
+    cfg = load_knowledge_config(require=require)
     apply_config_env(cfg)
     setattr(args, "_knowledge_config", cfg)
     return cfg
 
 
 def _resolve_paths(args) -> Dict[str, str]:
-    """Resolve paths from the knowledge config plus explicit CLI overrides."""
+    """Resolve paths from the root clawsqlite.toml."""
 
     cfg = _get_config(args)
     return {"root": cfg.root, "db": cfg.db, "articles_dir": cfg.articles_dir}
@@ -189,13 +183,13 @@ def cmd_embed_from_summary(args) -> int:
 
 
 def cmd_init_config(args) -> int:
-    out = getattr(args, "out", None) or getattr(args, "config", None) or "clawsqlite.toml"
+    out = getattr(args, "out", None) or "clawsqlite.toml"
     path = os.path.abspath(os.path.expanduser(out))
     if os.path.exists(path) and not getattr(args, "force", False):
         sys.stderr.write(f"ERROR: config already exists at {path}\n")
         sys.stderr.write("NEXT: pass --force to overwrite, or choose --out /path/to/clawsqlite.toml.\n")
         return 2
-    root = getattr(args, "root", None) or "./knowledge_data"
+    root = "./knowledge_data"
     ensure_dir(os.path.dirname(path) or ".")
     with open(path, "w", encoding="utf-8") as f:
         f.write(CONFIG_TEMPLATE.format(root=root))
@@ -498,8 +492,8 @@ def cmd_show(args) -> int:
     paths = _resolve_paths(args)
     db_path = paths["db"]
     if not os.path.exists(db_path):
-        sys.stderr.write(f"ERROR: db not found at {db_path}. Check --config/clawsqlite.toml.\n")
-        sys.stderr.write("NEXT: set [knowledge].root/[knowledge].db in clawsqlite.toml, pass --config, "
+        sys.stderr.write(f"ERROR: db not found at {db_path}. Check project-root clawsqlite.toml.\n")
+        sys.stderr.write("NEXT: set [knowledge].root/[knowledge].db in clawsqlite.toml, "
                          "or run an ingest command first to initialize the DB.\n")
         return 2
     conn = None
@@ -570,7 +564,7 @@ def cmd_export(args) -> int:
     try:
         db_path = paths["db"]
         if not os.path.exists(db_path):
-            sys.stderr.write(f"ERROR: db not found at {db_path}. Check --config/clawsqlite.toml.\n")
+            sys.stderr.write(f"ERROR: db not found at {db_path}. Check project-root clawsqlite.toml.\n")
             return 2
         conn = _open_for_command(db_path, need_fts=False, need_vec=False, args=args)
         row = dbmod.get_article(conn, int(args.id))
@@ -758,8 +752,8 @@ def cmd_update(args) -> int:
     try:
         db_path = paths["db"]
         if not os.path.exists(db_path):
-            sys.stderr.write(f"ERROR: db not found at {db_path}. Check --config/clawsqlite.toml.\n")
-            sys.stderr.write("NEXT: set [knowledge].root/[knowledge].db in clawsqlite.toml, pass --config, "
+            sys.stderr.write(f"ERROR: db not found at {db_path}. Check project-root clawsqlite.toml.\n")
+            sys.stderr.write("NEXT: set [knowledge].root/[knowledge].db in clawsqlite.toml, "
                              "or run an ingest command first to initialize the DB.\n")
             return 2
         conn = _open_for_command(db_path, need_fts=True, need_vec=True, args=args)
@@ -1227,7 +1221,7 @@ def cmd_rebuild_quality(args) -> int:
     paths = _resolve_paths(args)
     db_path = paths["db"]
     if not os.path.exists(db_path):
-        sys.stderr.write(f"ERROR: db not found at {db_path}. Check --config/clawsqlite.toml.\n")
+        sys.stderr.write(f"ERROR: db not found at {db_path}. Check project-root clawsqlite.toml.\n")
         return 2
     if cfg.ingest.require_llm and not (cfg.llm.base_url and cfg.llm.model and cfg.llm.resolved_api_key):
         sys.stderr.write("ERROR: rebuild-quality requires configured LLM.\n")
@@ -1365,28 +1359,6 @@ def cmd_rebuild_quality(args) -> int:
 
 def _add_common_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--config",
-        default=None,
-        help="Knowledge config path. Priority: CLI --config > $CLAWSQLITE_CONFIG > nearest clawsqlite.toml.",
-    )
-    parser.add_argument(
-        "--root",
-        default=None,
-        help=(
-            "Debug override for knowledge root. Normal usage should configure [knowledge].root in clawsqlite.toml."
-        ),
-    )
-    parser.add_argument(
-        "--db",
-        default=None,
-        help="SQLite db path. Priority: CLI --db > $CLAWSQLITE_DB > <root>/knowledge.sqlite3",
-    )
-    parser.add_argument(
-        "--articles-dir",
-        default=None,
-        help="Articles markdown dir. Priority: CLI --articles-dir > $CLAWSQLITE_ARTICLES_DIR > <root>/articles",
-    )
-    parser.add_argument(
         "--tokenizer-ext",
         default=None,
         help="Tokenizer extension path. Default: /usr/local/lib/libsimple.so or $CLAWSQLITE_TOKENIZER_EXT",
@@ -1404,9 +1376,9 @@ def cmd_build_interest_clusters(args) -> int:
     paths = _resolve_paths(args)
     db_path = paths["db"]
     if not os.path.exists(db_path):
-        sys.stderr.write(f"ERROR: db not found at {db_path}. Check --config/clawsqlite.toml.\n")
+        sys.stderr.write(f"ERROR: db not found at {db_path}. Check project-root clawsqlite.toml.\n")
         sys.stderr.write(
-            "NEXT: set [knowledge].root/[knowledge].db in clawsqlite.toml, pass --config, "
+            "NEXT: set [knowledge].root/[knowledge].db in clawsqlite.toml, "
             "or run an ingest command first to initialize the DB.\n"
         )
         return 2
@@ -1458,7 +1430,7 @@ def cmd_inspect_interest_clusters(args) -> int:
     paths = _resolve_paths(args)
     db_path = paths["db"]
     if not os.path.exists(db_path):
-        sys.stderr.write(f"ERROR: db not found at {db_path}. Check --config/clawsqlite.toml.\n")
+        sys.stderr.write(f"ERROR: db not found at {db_path}. Check project-root clawsqlite.toml.\n")
         return 2
     try:
         try:
@@ -1489,7 +1461,7 @@ def cmd_report_interest(args) -> int:
     paths = _resolve_paths(args)
     db_path = paths["db"]
     if not os.path.exists(db_path):
-        sys.stderr.write(f"ERROR: db not found at {db_path}. Check --config/clawsqlite.toml.\n")
+        sys.stderr.write(f"ERROR: db not found at {db_path}. Check project-root clawsqlite.toml.\n")
         return 2
     try:
         try:
@@ -1580,7 +1552,6 @@ def build_parser() -> argparse.ArgumentParser:
     # doctor
     sp = sub.add_parser("doctor", help="Self-check knowledge DB/env, output JSON report")
     _add_common_flags(sp)
-    sp.add_argument("--allow-missing-config", action="store_true", help="Run doctor even when clawsqlite.toml is missing")
     sp.add_argument("--check-llm", action="store_true", help="Reserved for LLM roundtrip checks")
     sp.add_argument("--check-embedding", action="store_true", help="Run embedding roundtrip check")
     sp.set_defaults(func=cmd_doctor)
@@ -1719,8 +1690,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     require_config = True
     if args.cmd == "init-config":
         require_config = False
-    if args.cmd == "doctor" and getattr(args, "allow_missing_config", False):
-        require_config = False
     try:
         if args.cmd != "init-config":
             _get_config(args, require=require_config)
@@ -1729,7 +1698,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         sys.stderr.write("ERROR_KIND: config_required\n")
         sys.stderr.write(
             "NEXT: create clawsqlite.toml with 'clawsqlite knowledge init-config', "
-            "pass --config, or set CLAWSQLITE_CONFIG.\n"
+            "then run the command from that project root or a directory inside it.\n"
         )
         return 2
     return int(args.func(args))

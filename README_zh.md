@@ -37,11 +37,9 @@ Knowledge 命令默认会读取 `clawsqlite.toml`。不要让 Agent 猜数据库
 可以直接放真实 API key。`clawsqlite.toml.example` 只是公开示例模板，
 里面只应该保留占位值和说明。
 
-配置查找顺序：
-
-1. `--config /path/to/clawsqlite.toml`
-2. 环境变量 `CLAWSQLITE_CONFIG`
-3. 从当前目录向上查找最近的 `clawsqlite.toml`
+配置查找只有一条规则：Knowledge 命令会从当前目录向上查找最近的
+`clawsqlite.toml`，该文件所在目录就是项目根。没有额外的配置路径环境变量，
+也没有 CLI 配置覆盖入口。
 
 创建模板：
 
@@ -92,7 +90,7 @@ content = "summary"
 
 - `root` 相对路径按配置文件所在目录解析。
 - `db` 和 `articles_dir` 相对路径按 `root` 解析。
-- `--root` / `--db` / `--articles-dir` 仍保留为调试覆盖参数，但正常 Agent 使用应优先依赖 `clawsqlite.toml`。
+- Knowledge 的 root / db / articles 路径不再通过 CLI 覆盖；要修改就改私有 `clawsqlite.toml`。
 - `.env` 仍会自动读取，但只建议用于可选底层调参；LLM、embedding、scraper、路径和入库策略都应写在私有 `clawsqlite.toml` 里。
 
 ---
@@ -225,7 +223,6 @@ clawsqlite knowledge ingest --text "一段想法" --category thought --json
 
 常用参数：
 
-- `--config`：显式指定 `clawsqlite.toml`
 - `--url` / `--text`：二选一
 - `--title` / `--summary` / `--tags` / `--category` / `--priority`
 - `--gen-provider {openclaw,llm,off}`：默认来自配置

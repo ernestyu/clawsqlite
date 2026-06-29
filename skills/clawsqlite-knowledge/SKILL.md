@@ -10,8 +10,7 @@ Use this skill as a thin adapter over `clawsqlite knowledge`. Do not treat it as
 ## Non-Negotiable Rules
 
 - Keep core behavior in `clawsqlite knowledge`.
-- Require an explicit config path through request field `config` or environment variable `CLAWSQLITE_CONFIG`.
-- Treat that config as the private source of truth for real LLM, embedding, scraper, path, and ingest-policy values.
+- Use only the project-root `clawsqlite.toml` as the private source of truth for real LLM, embedding, scraper, path, and ingest-policy values.
 - Do not guess DB paths, roots, article directories, or working directories.
 - Do not accept or interpret API keys in skill input; the CLI reads them from the private `clawsqlite.toml`.
 - Do not pass `--allow-heuristic` or `--allow-missing-embedding` unless the user explicitly asks for degraded ingest.
@@ -26,7 +25,6 @@ Call the bundled adapter with a JSON request:
 python skills/clawsqlite-knowledge/scripts/adapter.py --pretty <<'JSON'
 {
   "action": "search",
-  "config": "/absolute/path/to/clawsqlite.toml",
   "query": "sqlite agent knowledge",
   "mode": "hybrid",
   "topk": 5
@@ -49,7 +47,6 @@ Strict URL ingest:
 ```json
 {
   "action": "ingest_url",
-  "config": "/absolute/path/to/clawsqlite.toml",
   "url": "https://example.com/article",
   "category": "web"
 }
@@ -60,7 +57,6 @@ Strict text ingest:
 ```json
 {
   "action": "ingest_text",
-  "config": "/absolute/path/to/clawsqlite.toml",
   "text": "A thought worth saving.",
   "title": "A saved thought",
   "category": "thought"
@@ -72,7 +68,6 @@ Explicit degraded ingest, only when the user requested it:
 ```json
 {
   "action": "ingest_text",
-  "config": "/absolute/path/to/clawsqlite.toml",
   "text": "Local no-network test.",
   "title": "Test",
   "gen_provider": "off",
@@ -86,7 +81,6 @@ Show a record:
 ```json
 {
   "action": "show",
-  "config": "/absolute/path/to/clawsqlite.toml",
   "id": 12,
   "full": true
 }

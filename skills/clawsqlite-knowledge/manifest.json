@@ -7,12 +7,7 @@
   "description": "Thin ClawHub/OpenClaw Agent adapter for clawsqlite knowledge. Core logic, strict ingest policy, config loading, and error semantics remain in clawsqlite knowledge.",
   "entrypoint": "SKILL.md",
   "adapter": "scripts/adapter.py",
-  "config": {
-    "CLAWSQLITE_CONFIG": {
-      "description": "Absolute path to clawsqlite.toml. Agents should prefer explicit config instead of path overrides.",
-      "required": true
-    }
-  },
+  "config": {},
   "actions": [
     "ingest_url",
     "ingest_text",

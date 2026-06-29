@@ -10,17 +10,14 @@ clawsqlite knowledge [common flags] <command> [command flags]
 
 Common flags are accepted before or after the subcommand:
 
-- `--config CONFIG`: Knowledge config path. Priority: CLI `--config` > `$CLAWSQLITE_CONFIG` > nearest `clawsqlite.toml`.
-- `--root ROOT`: debug override for `[knowledge].root`.
-- `--db DB`: debug override for `[knowledge].db`.
-- `--articles-dir ARTICLES_DIR`: debug override for `[knowledge].articles_dir`.
 - `--tokenizer-ext TOKENIZER_EXT`
 - `--vec-ext VEC_EXT`
 - `--json`
 - `--verbose`
 
-Knowledge commands require `clawsqlite.toml` by default. `init-config` does not.
-`doctor --allow-missing-config` is the only diagnostic exception.
+Knowledge commands require the project-root `clawsqlite.toml` by default.
+They find it by walking upward from the current working directory. `init-config`
+is the only command that does not require an existing config.
 
 ## Commands
 

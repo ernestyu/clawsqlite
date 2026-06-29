@@ -10,11 +10,9 @@ remain configuration-agnostic.
 
 ## Configuration
 
-Configuration lookup:
-
-1. `--config`
-2. `$CLAWSQLITE_CONFIG`
-3. nearest `clawsqlite.toml` above the current working directory
+Knowledge commands find the nearest `clawsqlite.toml` by walking upward from
+the current working directory. The directory containing that file is the project
+root and the file is the only Knowledge configuration source.
 
 Create a template:
 

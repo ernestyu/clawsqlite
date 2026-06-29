@@ -67,9 +67,11 @@ class CLISmokeTests(unittest.TestCase):
         full_env = os.environ.copy()
         if env:
             full_env.update(env)
+        existing = full_env.get("PYTHONPATH", "")
+        full_env["PYTHONPATH"] = str(REPO_ROOT) if not existing else str(REPO_ROOT) + os.pathsep + existing
         proc = subprocess.run(
             argv,
-            cwd=str(REPO_ROOT),
+            cwd=str(getattr(self, "_run_cwd", REPO_ROOT)),
             env=full_env,
             text=True,
             stdout=subprocess.PIPE,
@@ -92,6 +94,7 @@ class CLISmokeTests(unittest.TestCase):
             # Ensure root exists; CLI will create db + articles under it.
             root.mkdir(parents=True, exist_ok=True)
             config_path = write_knowledge_config(root)
+            self._run_cwd = root
 
             # 1) Ingest a simple text article
             ingest_cmd = [
@@ -113,8 +116,6 @@ class CLISmokeTests(unittest.TestCase):
                 "--allow-heuristic",
                 "--allow-missing-embedding",
                 "--json",
-                "--config",
-                str(config_path),
             ]
             p = self._run(ingest_cmd)
             data = json.loads(p.stdout)
@@ -134,8 +135,6 @@ class CLISmokeTests(unittest.TestCase):
                 "--topk",
                 "5",
                 "--json",
-                "--config",
-                str(config_path),
             ]
             p = self._run(search_cmd)
             res = json.loads(p.stdout)
@@ -153,8 +152,6 @@ class CLISmokeTests(unittest.TestCase):
                 "--id",
                 "1",
                 "--json",
-                "--config",
-                str(config_path),
             ]
             p = self._run(show_cmd)
             row = json.loads(p.stdout)
@@ -175,8 +172,6 @@ class CLISmokeTests(unittest.TestCase):
                 "md",
                 "--out",
                 str(out_md),
-                "--config",
-                str(config_path),
                 "--json",
             ]
             p = self._run(export_cmd)
@@ -194,8 +189,6 @@ class CLISmokeTests(unittest.TestCase):
                 "1",
                 "--title",
                 "Hello Updated",
-                "--config",
-                str(config_path),
                 "--json",
             ]
             p = self._run(update_cmd)
@@ -210,8 +203,6 @@ class CLISmokeTests(unittest.TestCase):
                 "knowledge",
                 "reindex",
                 "--check",
-                "--config",
-                str(config_path),
                 "--json",
             ]
             self._run(reindex_check_cmd)
@@ -227,8 +218,6 @@ class CLISmokeTests(unittest.TestCase):
                 "--days",
                 "0",
                 "--dry-run",
-                "--config",
-                str(config_path),
                 "--json",
             ]
             p = self._run(maint_dry_cmd)
@@ -244,8 +233,6 @@ class CLISmokeTests(unittest.TestCase):
                 "gc",
                 "--days",
                 "0",
-                "--config",
-                str(config_path),
                 "--json",
             ]
             p = self._run(maint_cmd)
@@ -261,8 +248,6 @@ class CLISmokeTests(unittest.TestCase):
                 "clawsqlite_cli",
                 "knowledge",
                 "embed-from-summary",
-                "--config",
-                str(config_path),
             ]
             self._run(embed_cmd, expect_ok=False)
 

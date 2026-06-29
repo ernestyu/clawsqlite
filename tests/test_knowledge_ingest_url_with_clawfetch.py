@@ -53,6 +53,8 @@ class KnowledgeIngestURLWithClawfetchTests(unittest.TestCase):
         env_full = os.environ.copy()
         if env:
             env_full.update(env)
+        existing = env_full.get("PYTHONPATH", "")
+        env_full["PYTHONPATH"] = str(REPO_ROOT) if not existing else str(REPO_ROOT) + os.pathsep + existing
         proc = subprocess.run(
             argv,
             cwd=str(cwd),
@@ -130,10 +132,8 @@ class KnowledgeIngestURLWithClawfetchTests(unittest.TestCase):
                 "--allow-heuristic",
                 "--allow-missing-embedding",
                 "--json",
-                "--config",
-                str(config_path),
             ]
-            p_ing = self._run(ingest_cmd, cwd=REPO_ROOT)
+            p_ing = self._run(ingest_cmd, cwd=root)
             row = json.loads(p_ing.stdout)
             self.assertEqual(row["id"], 1)
             self.assertIn("local_file_path", row)
@@ -149,10 +149,8 @@ class KnowledgeIngestURLWithClawfetchTests(unittest.TestCase):
                 "1",
                 "--full",
                 "--json",
-                "--config",
-                str(config_path),
             ]
-            p_show = self._run(show_cmd, cwd=REPO_ROOT)
+            p_show = self._run(show_cmd, cwd=root)
             rec = json.loads(p_show.stdout)
             self.assertEqual(rec["id"], 1)
             self.assertEqual(rec["category"], "web")
@@ -171,11 +169,9 @@ class KnowledgeIngestURLWithClawfetchTests(unittest.TestCase):
                 "md",
                 "--out",
                 str(export_path),
-                "--config",
-                str(config_path),
                 "--json",
             ]
-            p_exp = self._run(export_cmd, cwd=REPO_ROOT)
+            p_exp = self._run(export_cmd, cwd=root)
             info = json.loads(p_exp.stdout)
             self.assertTrue(Path(info["out"]).exists())
 

@@ -27,6 +27,16 @@ def _tempdir():
         shutil.rmtree(path, ignore_errors=True)
 
 
+@contextlib.contextmanager
+def _cwd(path: Path):
+    old = Path.cwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(old)
+
+
 class KnowledgeConfigTomlTests(unittest.TestCase):
     def setUp(self) -> None:
         self._env = os.environ.copy()
@@ -48,7 +58,8 @@ class KnowledgeConfigTomlTests(unittest.TestCase):
         with _tempdir() as tmpdir:
             root = tmpdir / "kb"
             config_path = write_knowledge_config(root, require_llm=True, require_embedding=True, summary_target_chars=640)
-            cfg = load_knowledge_config(cli_config=str(config_path))
+            with _cwd(root):
+                cfg = load_knowledge_config()
             self.assertEqual(cfg.root, str(root))
             self.assertEqual(cfg.db, str(root / "knowledge.sqlite3"))
             self.assertEqual(cfg.articles_dir, str(root / "articles"))
@@ -57,9 +68,7 @@ class KnowledgeConfigTomlTests(unittest.TestCase):
             self.assertEqual(cfg.ingest.summary_target_chars, 640)
             self.assertEqual(cfg.llm.context_window_chars, 4000)
             self.assertEqual(cfg.llm.resolved_api_key, "test-small-llm-key")
-            self.assertEqual(cfg.llm.api_key_source, "config")
             self.assertEqual(cfg.embedding.resolved_api_key, "test-embedding-key")
-            self.assertEqual(cfg.embedding.api_key_source, "config")
 
     def test_config_api_keys_are_applied_as_runtime_values(self):
         with _tempdir() as tmpdir:
@@ -72,7 +81,8 @@ class KnowledgeConfigTomlTests(unittest.TestCase):
             os.environ["SMALL_LLM_API_KEY"] = "stale-env-llm"
             os.environ["EMBEDDING_API_KEY"] = "stale-env-embedding"
 
-            cfg = load_knowledge_config(cli_config=str(config_path))
+            with _cwd(root):
+                cfg = load_knowledge_config()
             apply_config_env(cfg)
 
             self.assertEqual(os.environ["SMALL_LLM_API_KEY"], "llm-from-toml")
@@ -89,7 +99,8 @@ class KnowledgeConfigTomlTests(unittest.TestCase):
             os.environ["SMALL_LLM_API_KEY"] = "stale-env-llm"
             os.environ["EMBEDDING_API_KEY"] = "stale-env-embedding"
 
-            cfg = load_knowledge_config(cli_config=str(config_path))
+            with _cwd(root):
+                cfg = load_knowledge_config()
             apply_config_env(cfg)
 
             self.assertNotIn("SMALL_LLM_API_KEY", os.environ)
@@ -110,19 +121,11 @@ articles_dir = "articles"
                 encoding="utf-8",
             )
 
-            cfg = load_knowledge_config(cli_config=str(config_path))
+            with _cwd(project):
+                cfg = load_knowledge_config()
 
             self.assertEqual(cfg.root, str(project / "knowledge_data"))
             self.assertEqual(cfg.db, str(project / "knowledge_data" / "knowledge.sqlite3"))
-
-    def test_cli_overrides_paths_without_changing_config_file(self):
-        with _tempdir() as tmpdir:
-            root = tmpdir / "kb"
-            config_path = write_knowledge_config(root)
-            override = tmpdir / "override"
-            cfg = load_knowledge_config(cli_config=str(config_path), cli_root=str(override))
-            self.assertEqual(cfg.root, str(override))
-            self.assertEqual(cfg.db, str(override / "knowledge.sqlite3"))
 
     def test_config_rejects_non_fail_fallback_policy(self):
         with _tempdir() as tmpdir:
@@ -132,16 +135,17 @@ articles_dir = "articles"
             config_path.write_text(text, encoding="utf-8")
 
             with self.assertRaises(ConfigError):
-                load_knowledge_config(cli_config=str(config_path))
+                with _cwd(root):
+                    load_knowledge_config()
 
-    def test_config_file_requires_root_even_when_env_root_exists(self):
+    def test_config_file_requires_root(self):
         with _tempdir() as tmpdir:
             config_path = tmpdir / "clawsqlite.toml"
             config_path.write_text("[knowledge]\ndb = \"knowledge.sqlite3\"\n", encoding="utf-8")
-            os.environ["CLAWSQLITE_ROOT"] = str(tmpdir / "env_root")
 
             with self.assertRaises(ConfigError):
-                load_knowledge_config(cli_config=str(config_path))
+                with _cwd(tmpdir):
+                    load_knowledge_config()
 
 
 if __name__ == "__main__":  # pragma: no cover

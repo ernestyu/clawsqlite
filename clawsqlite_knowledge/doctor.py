@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .embed import embedding_enabled, get_embedding, _embedding_missing_keys, _resolve_vec_dim
-from .utils import resolve_root_paths
 from . import db as dbmod
 from .config import KnowledgeConfig
 
@@ -38,27 +37,17 @@ class CheckResult:
     details: Optional[Dict[str, Any]] = None
 
 
-def _load_paths_from_env(config: Optional[KnowledgeConfig] = None) -> Dict[str, str]:
-    """Resolve root/db/articles-dir for doctor.
-
-    Normal CLI execution passes a KnowledgeConfig loaded from clawsqlite.toml.
-    The env/default fallback is only used by `doctor --allow-missing-config`.
-    """
+def _load_paths_from_config(config: Optional[KnowledgeConfig] = None) -> Dict[str, str]:
+    """Resolve root/db/articles-dir for doctor from clawsqlite.toml."""
 
     if config is not None:
         return {"root": config.root, "db": config.db, "articles_dir": config.articles_dir}
 
-    default_root = os.environ.get("CLAWSQLITE_ROOT_DEFAULT") or None
-    return resolve_root_paths(
-        cli_root=None,
-        cli_db=None,
-        cli_articles_dir=None,
-        default_root=default_root,
-    )
+    return {"root": "", "db": "", "articles_dir": ""}
 
 
 def _check_kb_paths(config: Optional[KnowledgeConfig] = None) -> CheckResult:
-    paths = _load_paths_from_env(config)
+    paths = _load_paths_from_config(config)
     root = paths["root"]
     db_path = paths["db"]
 
@@ -116,7 +105,7 @@ def _check_kb_paths(config: Optional[KnowledgeConfig] = None) -> CheckResult:
 
 
 def _check_db_schema(config: Optional[KnowledgeConfig] = None) -> CheckResult:
-    paths = _load_paths_from_env(config)
+    paths = _load_paths_from_config(config)
     db_path = paths["db"]
     if not db_path or not Path(db_path).is_file():
         return CheckResult(
@@ -185,7 +174,7 @@ def _check_db_schema(config: Optional[KnowledgeConfig] = None) -> CheckResult:
 
 
 def _check_vec_extension(config: Optional[KnowledgeConfig] = None) -> CheckResult:
-    paths = _load_paths_from_env(config)
+    paths = _load_paths_from_config(config)
     db_path = paths["db"]
     if not db_path or not Path(db_path).is_file():
         return CheckResult(
@@ -277,10 +266,7 @@ def _check_embedding_config(config: Optional[KnowledgeConfig] = None) -> CheckRe
         name="embedding_config",
         ok=True,
         message="Embedding config in clawsqlite.toml looks complete.",
-        details={
-            "vec_dim": vec_dim,
-            "api_key_source": config.embedding.api_key_source if config is not None else "env",
-        },
+        details={"vec_dim": vec_dim},
     )
 
 
@@ -352,7 +338,6 @@ def _check_small_llm(config: Optional[KnowledgeConfig] = None) -> CheckResult:
                 "base_url": base,
                 "model": model,
                 "has_key": bool(key),
-                "api_key_source": config.llm.api_key_source if config is not None else "env",
             },
         )
 
@@ -360,11 +345,7 @@ def _check_small_llm(config: Optional[KnowledgeConfig] = None) -> CheckResult:
         name="small_llm",
         ok=True,
         message=f"Small LLM configured: model={model!r}, base_url={base!r}",
-        details={
-            "base_url": base,
-            "model": model,
-            "api_key_source": config.llm.api_key_source if config is not None else "env",
-        },
+        details={"base_url": base, "model": model},
     )
 
 
@@ -409,7 +390,7 @@ def _check_capability_mode(config: Optional[KnowledgeConfig] = None) -> CheckRes
 
 
 def _db_summary(config: Optional[KnowledgeConfig]) -> Dict[str, Any]:
-    paths = _load_paths_from_env(config)
+    paths = _load_paths_from_config(config)
     db_path = paths["db"]
     out: Dict[str, Any] = {
         "exists": bool(db_path and Path(db_path).is_file()),
@@ -466,8 +447,6 @@ def _config_report(config: Optional[KnowledgeConfig]) -> Dict[str, Any]:
             "model": config.llm.model,
             "base_url": config.llm.base_url,
             "has_api_key": bool(config.llm.resolved_api_key),
-            "api_key_source": config.llm.api_key_source,
-            "legacy_api_key_env": config.llm.api_key_env,
             "context_window_chars": config.llm.context_window_chars,
             "prompt_reserved_chars": config.llm.prompt_reserved_chars,
         },
@@ -476,8 +455,6 @@ def _config_report(config: Optional[KnowledgeConfig]) -> Dict[str, Any]:
             "model": config.embedding.model,
             "base_url": config.embedding.base_url,
             "has_api_key": bool(config.embedding.resolved_api_key),
-            "api_key_source": config.embedding.api_key_source,
-            "legacy_api_key_env": config.embedding.api_key_env,
             "dim": config.embedding.dim,
         },
     }

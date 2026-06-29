@@ -68,7 +68,6 @@ class LLMConfig:
     base_url: str = ""
     model: str = ""
     api_key: str = ""
-    api_key_env: str = ""
     timeout_seconds: int = 90
     context_window_chars: int = 24000
     prompt_reserved_chars: int = 4000
@@ -80,21 +79,7 @@ class LLMConfig:
 
     @property
     def resolved_api_key(self) -> str:
-        if self.api_key:
-            return self.api_key
-        if self.api_key_env:
-            return os.environ.get(self.api_key_env, "")
-        return ""
-
-    @property
-    def api_key_source(self) -> str:
-        if self.api_key:
-            return "config"
-        if self.api_key_env and os.environ.get(self.api_key_env):
-            return "env_legacy"
-        if self.api_key_env:
-            return "env_legacy_missing"
-        return "missing"
+        return self.api_key
 
 
 @dataclass(frozen=True)
@@ -102,28 +87,13 @@ class EmbeddingConfig:
     base_url: str = ""
     model: str = ""
     api_key: str = ""
-    api_key_env: str = ""
     dim: int = 0
     timeout_seconds: int = 300
     content: str = "summary"
 
     @property
     def resolved_api_key(self) -> str:
-        if self.api_key:
-            return self.api_key
-        if self.api_key_env:
-            return os.environ.get(self.api_key_env, "")
-        return ""
-
-    @property
-    def api_key_source(self) -> str:
-        if self.api_key:
-            return "config"
-        if self.api_key_env and os.environ.get(self.api_key_env):
-            return "env_legacy"
-        if self.api_key_env:
-            return "env_legacy_missing"
-        return "missing"
+        return self.api_key
 
 
 @dataclass(frozen=True)
@@ -144,10 +114,6 @@ class KnowledgeConfig:
 
 
 def find_config_path(start: Optional[Path] = None) -> Optional[Path]:
-    env_path = os.environ.get("CLAWSQLITE_CONFIG")
-    if env_path:
-        return Path(env_path).expanduser()
-
     cur = (start or Path.cwd()).resolve()
     if cur.is_file():
         cur = cur.parent
@@ -168,33 +134,13 @@ def _resolve_under_root(root: Path, value: str, default_name: str) -> str:
 
 def load_knowledge_config(
     *,
-    cli_config: Optional[str] = None,
-    cli_root: Optional[str] = None,
-    cli_db: Optional[str] = None,
-    cli_articles_dir: Optional[str] = None,
     require: bool = True,
 ) -> KnowledgeConfig:
-    cfg_path = Path(cli_config).expanduser() if cli_config else find_config_path()
+    cfg_path = find_config_path()
     if cfg_path is None:
-        if require:
-            raise ConfigError(
-                "clawsqlite.toml not found. Run from a project directory, pass --config, "
-                "or set CLAWSQLITE_CONFIG."
-            )
-        root = Path(cli_root or os.environ.get("CLAWSQLITE_ROOT") or (Path.cwd() / "knowledge_data")).expanduser()
-        if not root.is_absolute():
-            root = root.resolve()
-        db = Path(cli_db).expanduser() if cli_db else root / "knowledge.sqlite3"
-        articles_dir = Path(cli_articles_dir).expanduser() if cli_articles_dir else root / "articles"
-        return KnowledgeConfig(
-            config_path="",
-            root=str(root),
-            db=str(db if db.is_absolute() else root / db),
-            articles_dir=str(articles_dir if articles_dir.is_absolute() else root / articles_dir),
-            ingest=IngestPolicy(),
-            llm=LLMConfig(),
-            embedding=EmbeddingConfig(),
-            scraper=ScraperConfig(),
+        raise ConfigError(
+            "clawsqlite.toml not found. Run from the project root, or a directory inside it, "
+            "so the Knowledge CLI can read the root clawsqlite.toml."
         )
 
     try:
@@ -210,15 +156,15 @@ def load_knowledge_config(
     embedding = data.get("embedding") or {}
     scraper = data.get("scraper") or {}
 
-    root_text = str(cli_root or knowledge.get("root") or "").strip()
+    root_text = str(knowledge.get("root") or "").strip()
     if not root_text:
         raise ConfigError("[knowledge].root is required in clawsqlite.toml")
     root = Path(root_text).expanduser()
     if not root.is_absolute():
         root = (cfg_path.parent / root).resolve()
 
-    db_path = _resolve_under_root(root, str(cli_db or knowledge.get("db") or ""), "knowledge.sqlite3")
-    articles_dir = _resolve_under_root(root, str(cli_articles_dir or knowledge.get("articles_dir") or ""), "articles")
+    db_path = _resolve_under_root(root, str(knowledge.get("db") or ""), "knowledge.sqlite3")
+    articles_dir = _resolve_under_root(root, str(knowledge.get("articles_dir") or ""), "articles")
 
     fallback = _choice_value(ingest.get("fallback"), "fail", {"fail"}, name="[ingest].fallback")
     policy = IngestPolicy(
@@ -234,7 +180,6 @@ def load_knowledge_config(
         base_url=str(llm.get("base_url") or "").strip(),
         model=str(llm.get("model") or "").strip(),
         api_key=str(llm.get("api_key") or "").strip(),
-        api_key_env=str(llm.get("api_key_env") or "").strip(),
         timeout_seconds=_int_value(llm.get("timeout_seconds"), 90, lo=1),
         context_window_chars=_int_value(llm.get("context_window_chars") or llm.get("context_chars"), 24000, lo=2000),
         prompt_reserved_chars=_int_value(llm.get("prompt_reserved_chars"), 4000, lo=500),
@@ -245,7 +190,6 @@ def load_knowledge_config(
         base_url=str(embedding.get("base_url") or "").strip(),
         model=str(embedding.get("model") or "").strip(),
         api_key=str(embedding.get("api_key") or "").strip(),
-        api_key_env=str(embedding.get("api_key_env") or "").strip(),
         dim=_int_value(embedding.get("dim"), 0, lo=0),
         timeout_seconds=_int_value(embedding.get("timeout_seconds"), 300, lo=1),
         content=str(embedding.get("content") or "summary").strip().lower(),
@@ -266,11 +210,7 @@ def load_knowledge_config(
 
 
 def apply_config_env(config: KnowledgeConfig) -> None:
-    """Expose knowledge config through existing env-based clients."""
-
-    os.environ["CLAWSQLITE_ROOT"] = config.root
-    os.environ["CLAWSQLITE_DB"] = config.db
-    os.environ["CLAWSQLITE_ARTICLES_DIR"] = config.articles_dir
+    """Expose service config to existing env-based HTTP clients."""
 
     if config.llm.base_url:
         os.environ["SMALL_LLM_BASE_URL"] = config.llm.base_url

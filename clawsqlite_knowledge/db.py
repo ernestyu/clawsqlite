@@ -35,7 +35,7 @@ except Exception:
     _JIEBA_AVAILABLE = False
 
 # Defaults for clawsqlite_knowledge.
-DEFAULT_DB_PATH = os.environ.get("CLAWSQLITE_DB_DEFAULT", "knowledge.sqlite3")
+DEFAULT_DB_PATH = "knowledge.sqlite3"
 DEFAULT_TOKENIZER_EXT = os.environ.get("CLAWSQLITE_TOKENIZER_EXT_DEFAULT", "/usr/local/lib/libsimple.so")
 
 _VEC_GLOBS = [

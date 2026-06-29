@@ -8,10 +8,6 @@
       "type": "string",
       "enum": ["ingest_url", "ingest_text", "search", "show", "doctor"]
     },
-    "config": {
-      "type": "string",
-      "description": "Path to clawsqlite.toml. Prefer absolute paths. If omitted, CLAWSQLITE_CONFIG must be set."
-    },
     "allow_heuristic": {
       "type": "boolean",
       "default": false

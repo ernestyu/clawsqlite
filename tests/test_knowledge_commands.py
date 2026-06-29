@@ -56,9 +56,11 @@ class KnowledgeCLITests(unittest.TestCase):
         env_full = os.environ.copy()
         if env:
             env_full.update(env)
+        existing = env_full.get("PYTHONPATH", "")
+        env_full["PYTHONPATH"] = str(REPO_ROOT) if not existing else str(REPO_ROOT) + os.pathsep + existing
         proc = subprocess.run(
             argv,
-            cwd=str(REPO_ROOT),
+            cwd=str(getattr(self, "_run_cwd", REPO_ROOT)),
             env=env_full,
             text=True,
             stdout=subprocess.PIPE,
@@ -77,6 +79,7 @@ class KnowledgeCLITests(unittest.TestCase):
             root = Path(tmpdir) / "kb_root"
             root.mkdir(parents=True, exist_ok=True)
             config_path = write_knowledge_config(root)
+            self._run_cwd = root
 
             # 1) ingest 两条记录
             def _ingest(text, title):
@@ -99,8 +102,6 @@ class KnowledgeCLITests(unittest.TestCase):
                     "--allow-heuristic",
                     "--allow-missing-embedding",
                     "--json",
-                    "--config",
-                    str(config_path),
                 ]
                 p = self._run(cmd)
                 return json.loads(p.stdout)
@@ -123,8 +124,6 @@ class KnowledgeCLITests(unittest.TestCase):
                 "--topk",
                 "10",
                 "--json",
-                "--config",
-                str(config_path),
             ]
             p = self._run(search_cmd)
             res = json.loads(p.stdout)
@@ -143,8 +142,6 @@ class KnowledgeCLITests(unittest.TestCase):
                 "1",
                 "--full",
                 "--json",
-                "--config",
-                str(config_path),
             ]
             p = self._run(show_cmd)
             show_row = json.loads(p.stdout)
@@ -165,8 +162,6 @@ class KnowledgeCLITests(unittest.TestCase):
                 "md",
                 "--out",
                 str(out_md),
-                "--config",
-                str(config_path),
                 "--json",
             ]
             p = self._run(export_cmd)
@@ -184,8 +179,6 @@ class KnowledgeCLITests(unittest.TestCase):
                 "1",
                 "--title",
                 "Article 1 Updated",
-                "--config",
-                str(config_path),
                 "--json",
             ]
             p = self._run(update_cmd)
@@ -202,8 +195,6 @@ class KnowledgeCLITests(unittest.TestCase):
                 "--id",
                 "1",
                 "--json",
-                "--config",
-                str(config_path),
             ]
             p = self._run(show2_cmd)
             show2 = json.loads(p.stdout)
@@ -218,8 +209,6 @@ class KnowledgeCLITests(unittest.TestCase):
                 "delete",
                 "--id",
                 "2",
-                "--config",
-                str(config_path),
                 "--json",
             ]
             p = self._run(delete_cmd)
@@ -250,8 +239,6 @@ class KnowledgeCLITests(unittest.TestCase):
                 "knowledge",
                 "reindex",
                 "--check",
-                "--config",
-                str(config_path),
                 "--json",
             ]
             self._run(reindex_cmd)
@@ -267,8 +254,6 @@ class KnowledgeCLITests(unittest.TestCase):
                 "--days",
                 "0",
                 "--dry-run",
-                "--config",
-                str(config_path),
                 "--json",
             ]
             p = self._run(maint_dry_cmd)
@@ -284,8 +269,6 @@ class KnowledgeCLITests(unittest.TestCase):
                 "gc",
                 "--days",
                 "0",
-                "--config",
-                str(config_path),
                 "--json",
             ]
             p = self._run(maint_cmd)
@@ -298,6 +281,7 @@ class KnowledgeCLITests(unittest.TestCase):
             root = Path(tmpdir) / "kb_root"
             root.mkdir(parents=True, exist_ok=True)
             config_path = write_knowledge_config(root)
+            self._run_cwd = root
             scraper = Path(tmpdir) / "scrape.py"
             scraper.write_text(
                 "print('Title: Duplicate URL')\n"
@@ -321,8 +305,6 @@ class KnowledgeCLITests(unittest.TestCase):
                 "--allow-heuristic",
                 "--allow-missing-embedding",
                 "--json",
-                "--config",
-                str(config_path),
             ]
 
             first = self._run(base_cmd)
@@ -344,6 +326,7 @@ class KnowledgeCLITests(unittest.TestCase):
             articles = root / "articles"
             articles.mkdir(parents=True, exist_ok=True)
             config_path = write_knowledge_config(root)
+            self._run_cwd = root
             old_backup = articles / "000001__old.md.bak_deleted_20000101000000"
             old_backup.write_text("old backup", encoding="utf-8")
 
@@ -356,8 +339,6 @@ class KnowledgeCLITests(unittest.TestCase):
                 "prune",
                 "--days",
                 "0",
-                "--config",
-                str(config_path),
                 "--json",
             ]
             p = self._run(maint_cmd)

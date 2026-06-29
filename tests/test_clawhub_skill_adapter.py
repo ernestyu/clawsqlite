@@ -10,8 +10,6 @@ import unittest
 import uuid
 from pathlib import Path
 
-from tests.helpers import write_knowledge_config
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ADAPTER_PATH = REPO_ROOT / "skills" / "clawsqlite-knowledge" / "scripts" / "adapter.py"
@@ -43,7 +41,6 @@ class ClawHubSkillAdapterTests(unittest.TestCase):
     def setUp(self) -> None:
         self.adapter = _load_adapter()
         self._env = os.environ.copy()
-        os.environ.pop("CLAWSQLITE_CONFIG", None)
 
     def tearDown(self) -> None:
         os.environ.clear()
@@ -57,27 +54,21 @@ class ClawHubSkillAdapterTests(unittest.TestCase):
 
         return runner
 
-    def test_requires_explicit_config_without_calling_runner(self):
-        called = {"value": False}
-
-        def runner(*args, **kwargs):
-            called["value"] = True
-            raise AssertionError("runner should not be called")
-
-        result = self.adapter.handle_request({"action": "search", "query": "sqlite"}, runner=runner)
+    def test_config_field_is_not_allowed(self):
+        result = self.adapter.handle_request(
+            {"action": "search", "config": "/tmp/clawsqlite.toml", "query": "sqlite"},
+            runner=self._fake_runner({}),
+        )
 
         self.assertFalse(result["ok"])
-        self.assertEqual(result["error"]["kind"], "config_required")
-        self.assertFalse(called["value"])
+        self.assertEqual(result["error"]["kind"], "invalid_input")
+        self.assertIn("config", result["error"]["message"])
 
     def test_rejects_path_overrides(self):
         with _tempdir() as tmpdir:
-            config = write_knowledge_config(tmpdir / "kb")
-
             result = self.adapter.handle_request(
                 {
                     "action": "search",
-                    "config": str(config),
                     "query": "sqlite",
                     "db": str(tmpdir / "other.sqlite3"),
                 },
@@ -88,67 +79,55 @@ class ClawHubSkillAdapterTests(unittest.TestCase):
         self.assertEqual(result["error"]["kind"], "path_override_forbidden")
 
     def test_rejects_unknown_fields(self):
-        with _tempdir() as tmpdir:
-            config = write_knowledge_config(tmpdir / "kb")
-
-            result = self.adapter.handle_request(
-                {
-                    "action": "search",
-                    "config": str(config),
-                    "query": "sqlite",
-                    "surprise": True,
-                },
-                runner=self._fake_runner({}),
-            )
+        result = self.adapter.handle_request(
+            {
+                "action": "search",
+                "query": "sqlite",
+                "surprise": True,
+            },
+            runner=self._fake_runner({}),
+        )
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["kind"], "invalid_input")
         self.assertIn("surprise", result["error"]["message"])
 
     def test_ingest_text_default_does_not_add_degraded_flags(self):
-        with _tempdir() as tmpdir:
-            config = write_knowledge_config(tmpdir / "kb")
-            captured = {}
+        captured = {}
 
-            result = self.adapter.handle_request(
-                {
-                    "action": "ingest_text",
-                    "config": str(config),
-                    "text": "A strict note for the adapter.",
-                    "title": "Adapter note",
-                    "category": "test",
-                },
-                runner=self._fake_runner(captured, stdout='{"id": 1, "title": "Adapter note"}'),
-            )
+        result = self.adapter.handle_request(
+            {
+                "action": "ingest_text",
+                "text": "A strict note for the adapter.",
+                "title": "Adapter note",
+                "category": "test",
+            },
+            runner=self._fake_runner(captured, stdout='{"id": 1, "title": "Adapter note"}'),
+        )
 
         argv = captured["argv"]
         self.assertTrue(result["ok"])
         self.assertEqual(result["data"]["id"], 1)
-        self.assertIn("--config", argv)
-        self.assertIn(str(config), argv)
+        self.assertNotIn("--" + "config", argv)
         self.assertIn("ingest", argv)
-        self.assertGreater(argv.index("--config"), argv.index("ingest"))
         self.assertIn("--text", argv)
         self.assertNotIn("--allow-heuristic", argv)
         self.assertNotIn("--allow-missing-embedding", argv)
         self.assertNotIn("--gen-provider", argv)
 
     def test_degraded_flags_are_explicit_only(self):
-        with _tempdir() as tmpdir:
-            config = write_knowledge_config(tmpdir / "kb")
-            captured = {}
+        captured = {}
 
-            self.adapter.handle_request(
-                {
-                    "action": "ingest_text",
-                    "config": str(config),
-                    "text": "A degraded no-network note.",
-                    "gen_provider": "off",
-                    "allow_heuristic": True,
-                    "allow_missing_embedding": True,
-                },
-                runner=self._fake_runner(captured),
-            )
+        self.adapter.handle_request(
+            {
+                "action": "ingest_text",
+                "text": "A degraded no-network note.",
+                "gen_provider": "off",
+                "allow_heuristic": True,
+                "allow_missing_embedding": True,
+            },
+            runner=self._fake_runner(captured),
+        )
 
         argv = captured["argv"]
         self.assertIn("--gen-provider", argv)
@@ -157,20 +136,18 @@ class ClawHubSkillAdapterTests(unittest.TestCase):
         self.assertIn("--allow-missing-embedding", argv)
 
     def test_cli_error_is_structured_from_stderr(self):
-        with _tempdir() as tmpdir:
-            config = write_knowledge_config(tmpdir / "kb")
-            stderr = "\n".join(
-                [
-                    "ERROR: LLM generation is required by clawsqlite.toml.",
-                    "ERROR_KIND: llm_required",
-                    "NEXT: use the default LLM path, or explicitly pass --allow-heuristic.",
-                ]
-            )
+        stderr = "\n".join(
+            [
+                "ERROR: LLM generation is required by clawsqlite.toml.",
+                "ERROR_KIND: llm_required",
+                "NEXT: use the default LLM path, or explicitly pass --allow-heuristic.",
+            ]
+        )
 
-            result = self.adapter.handle_request(
-                {"action": "ingest_text", "config": str(config), "text": "x"},
-                runner=self._fake_runner({}, returncode=2, stdout="", stderr=stderr),
-            )
+        result = self.adapter.handle_request(
+            {"action": "ingest_text", "text": "x"},
+            runner=self._fake_runner({}, returncode=2, stdout="", stderr=stderr),
+        )
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["exit_code"], 2)
@@ -178,29 +155,25 @@ class ClawHubSkillAdapterTests(unittest.TestCase):
         self.assertIn("LLM generation is required", result["error"]["message"])
         self.assertIn("--allow-heuristic", result["error"]["next"])
 
-    def test_search_builds_config_first_json_command(self):
-        with _tempdir() as tmpdir:
-            config = write_knowledge_config(tmpdir / "kb")
-            captured = {}
+    def test_search_builds_root_config_json_command(self):
+        captured = {}
 
-            result = self.adapter.handle_request(
-                {
-                    "action": "search",
-                    "config": str(config),
-                    "query": "sqlite agent",
-                    "mode": "hybrid",
-                    "topk": 3,
-                    "explain": True,
-                },
-                runner=self._fake_runner(captured, stdout="[]"),
-            )
+        result = self.adapter.handle_request(
+            {
+                "action": "search",
+                "query": "sqlite agent",
+                "mode": "hybrid",
+                "topk": 3,
+                "explain": True,
+            },
+            runner=self._fake_runner(captured, stdout="[]"),
+        )
 
         argv = captured["argv"]
         self.assertTrue(result["ok"])
         self.assertEqual(result["data"], [])
-        self.assertEqual(argv[argv.index("--config") + 1], str(config))
+        self.assertNotIn("--" + "config", argv)
         self.assertIn("search", argv)
-        self.assertGreater(argv.index("--config"), argv.index("search"))
         self.assertIn("--json", argv)
         self.assertIn("--explain", argv)
 

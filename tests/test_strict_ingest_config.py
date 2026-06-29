@@ -36,10 +36,6 @@ class StrictIngestConfigTests(unittest.TestCase):
     def setUp(self) -> None:
         self._env = os.environ.copy()
         for key in [
-            "CLAWSQLITE_CONFIG",
-            "CLAWSQLITE_ROOT",
-            "CLAWSQLITE_DB",
-            "CLAWSQLITE_ARTICLES_DIR",
             "SMALL_LLM_MODEL",
             "SMALL_LLM_BASE_URL",
             "SMALL_LLM_API_KEY",
@@ -57,8 +53,13 @@ class StrictIngestConfigTests(unittest.TestCase):
     def _run_cli(self, argv):
         stdout = io.StringIO()
         stderr = io.StringIO()
-        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-            code = kcli.main(argv)
+        old = Path.cwd()
+        os.chdir(getattr(self, "_run_cwd", old))
+        try:
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                code = kcli.main(argv)
+        finally:
+            os.chdir(old)
         return code, stdout.getvalue(), stderr.getvalue()
 
     def test_missing_config_fails_before_guessing_paths(self):
@@ -77,11 +78,10 @@ class StrictIngestConfigTests(unittest.TestCase):
         with _tempdir() as tmpdir:
             root = tmpdir / "kb"
             config_path = write_knowledge_config(root, require_llm=True, require_embedding=False)
+            self._run_cwd = root
             code, _, err = self._run_cli(
                 [
                     "ingest",
-                    "--config",
-                    str(config_path),
                     "--text",
                     "A useful note about SQLite and agents.",
                     "--title",
@@ -107,11 +107,10 @@ class StrictIngestConfigTests(unittest.TestCase):
                 require_embedding=False,
                 llm_api_key="",
             )
+            self._run_cwd = root
             code, _, err = self._run_cli(
                 [
                     "ingest",
-                    "--config",
-                    str(config_path),
                     "--text",
                     "A useful note about SQLite and agents.",
                     "--title",
@@ -130,11 +129,10 @@ class StrictIngestConfigTests(unittest.TestCase):
         with _tempdir() as tmpdir:
             root = tmpdir / "kb"
             config_path = write_knowledge_config(root, require_llm=True, require_embedding=False)
+            self._run_cwd = root
             code, _, err = self._run_cli(
                 [
                     "ingest",
-                    "--config",
-                    str(config_path),
                     "--text",
                     "SQLite agents need stable configuration before they write knowledge.",
                     "--title",
@@ -161,11 +159,10 @@ class StrictIngestConfigTests(unittest.TestCase):
                 require_embedding=True,
                 embedding_api_key="",
             )
+            self._run_cwd = root
             code, _, err = self._run_cli(
                 [
                     "ingest",
-                    "--config",
-                    str(config_path),
                     "--text",
                     "Manual note with summary and tags.",
                     "--title",
@@ -191,12 +188,11 @@ class StrictIngestConfigTests(unittest.TestCase):
                 require_embedding=False,
                 summary_target_chars=140,
             )
+            self._run_cwd = root
             text = " ".join([f"paragraph{i}" for i in range(120)])
             code, _, err = self._run_cli(
                 [
                     "ingest",
-                    "--config",
-                    str(config_path),
                     "--text",
                     text,
                     "--title",
@@ -212,28 +208,28 @@ class StrictIngestConfigTests(unittest.TestCase):
                 row = conn.execute("SELECT summary FROM articles WHERE id=1").fetchone()
         self.assertLessEqual(len(row["summary"]), 140)
 
-    def test_doctor_reports_toml_api_key_sources(self):
+    def test_doctor_reports_toml_api_key_completeness(self):
         with _tempdir() as tmpdir:
             root = tmpdir / "kb"
             config_path = write_knowledge_config(root, require_llm=True, require_embedding=True)
-            code, out, err = self._run_cli(["doctor", "--config", str(config_path), "--json"])
+            self._run_cwd = root
+            code, out, err = self._run_cli(["doctor", "--json"])
 
         self.assertEqual(code, 0, err)
         report = json.loads(out)
         self.assertTrue(report["llm"]["configured"])
-        self.assertEqual(report["llm"]["api_key_source"], "config")
+        self.assertTrue(report["llm"]["has_api_key"])
         self.assertTrue(report["embedding"]["configured"])
-        self.assertEqual(report["embedding"]["api_key_source"], "config")
+        self.assertTrue(report["embedding"]["has_api_key"])
 
     def test_reindex_fix_missing_respects_strict_llm_policy(self):
         with _tempdir() as tmpdir:
             root = tmpdir / "kb"
             config_path = write_knowledge_config(root, require_llm=True, require_embedding=False)
+            self._run_cwd = root
             code, _, err = self._run_cli(
                 [
                     "ingest",
-                    "--config",
-                    str(config_path),
                     "--text",
                     "Seed record for reindex strict policy.",
                     "--title",
@@ -249,8 +245,6 @@ class StrictIngestConfigTests(unittest.TestCase):
             code, _, err = self._run_cli(
                 [
                     "reindex",
-                    "--config",
-                    str(config_path),
                     "--fix-missing",
                     "--gen-provider",
                     "openclaw",

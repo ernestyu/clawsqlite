@@ -48,9 +48,11 @@ class KnowledgeSearchTests(unittest.TestCase):
         env_full = os.environ.copy()
         if env:
             env_full.update(env)
+        existing = env_full.get("PYTHONPATH", "")
+        env_full["PYTHONPATH"] = str(REPO_ROOT) if not existing else str(REPO_ROOT) + os.pathsep + existing
         proc = subprocess.run(
             argv,
-            cwd=str(REPO_ROOT),
+            cwd=str(getattr(self, "_run_cwd", REPO_ROOT)),
             env=env_full,
             text=True,
             stdout=subprocess.PIPE,
@@ -69,6 +71,7 @@ class KnowledgeSearchTests(unittest.TestCase):
             root = Path(tmpdir) / "kb_root"
             root.mkdir(parents=True, exist_ok=True)
             config_path = write_knowledge_config(root)
+            self._run_cwd = root
 
             def _ingest(text, title, category, tags):
                 cmd = [
@@ -90,8 +93,6 @@ class KnowledgeSearchTests(unittest.TestCase):
                     "--allow-heuristic",
                     "--allow-missing-embedding",
                     "--json",
-                    "--config",
-                    str(config_path),
                 ]
                 p = self._run(cmd)
                 return json.loads(p.stdout)
@@ -110,8 +111,6 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "delete",
                 "--id",
                 str(r2["id"]),
-                "--config",
-                str(config_path),
                 "--json",
             ]
             self._run(del_cmd)
@@ -129,8 +128,6 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "--topk",
                 "10",
                 "--json",
-                "--config",
-                str(config_path),
             ]
 
             # 1) 不带过滤：应该只返回未删除记录（若命中）
@@ -179,6 +176,7 @@ class KnowledgeSearchTests(unittest.TestCase):
             root = Path(tmpdir) / "kb_root"
             root.mkdir(parents=True, exist_ok=True)
             config_path = write_knowledge_config(root)
+            self._run_cwd = root
 
             unique_body_term = "rarebodytoken"
             ingest_cmd = [
@@ -200,8 +198,6 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "--allow-heuristic",
                 "--allow-missing-embedding",
                 "--json",
-                "--config",
-                str(config_path),
             ]
             p = self._run(ingest_cmd)
             row = json.loads(p.stdout)
@@ -218,8 +214,6 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "--topk",
                 "5",
                 "--json",
-                "--config",
-                str(config_path),
             ]
             p = self._run(search_cmd)
             res = json.loads(p.stdout)
@@ -231,6 +225,7 @@ class KnowledgeSearchTests(unittest.TestCase):
             root = Path(tmpdir) / "kb_root"
             root.mkdir(parents=True, exist_ok=True)
             config_path = write_knowledge_config(root)
+            self._run_cwd = root
 
             # 简单入一条数据
             ingest_cmd = [
@@ -252,8 +247,6 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "--allow-heuristic",
                 "--allow-missing-embedding",
                 "--json",
-                "--config",
-                str(config_path),
             ]
             self._run(ingest_cmd)
 
@@ -270,8 +263,6 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "--topk",
                 "5",
                 "--json",
-                "--config",
-                str(config_path),
             ]
             p = self._run(hybrid_cmd, expect_ok=True)
             res = json.loads(p.stdout)
