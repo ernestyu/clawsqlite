@@ -1,0 +1,23 @@
+{
+  "package": "clawsqlite-knowledge",
+  "name": "ClawSQLite Knowledge",
+  "author": "Ernest Yu",
+  "version": "0.1.0",
+  "homepage": "https://github.com/ernestyu/clawsqlite",
+  "description": "Thin ClawHub/OpenClaw Agent adapter for clawsqlite knowledge. Core logic, strict ingest policy, config loading, and error semantics remain in clawsqlite knowledge.",
+  "entrypoint": "SKILL.md",
+  "adapter": "scripts/adapter.py",
+  "config": {
+    "CLAWSQLITE_CONFIG": {
+      "description": "Absolute path to clawsqlite.toml. Agents should prefer explicit config instead of path overrides.",
+      "required": true
+    }
+  },
+  "actions": [
+    "ingest_url",
+    "ingest_text",
+    "search",
+    "show",
+    "doctor"
+  ]
+}

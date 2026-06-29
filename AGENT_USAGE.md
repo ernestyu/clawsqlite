@@ -2,6 +2,10 @@
 
 This file is for AI Agents using `clawsqlite knowledge ...`.
 
+For ClawHub/OpenClaw integration, use the thin skill adapter in
+`skills/clawsqlite-knowledge/`. It follows the same rules and delegates core
+behavior to `clawsqlite knowledge`.
+
 ## First Rule
 
 Always let the Knowledge CLI load its configuration before touching the DB.

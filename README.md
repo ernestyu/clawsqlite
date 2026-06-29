@@ -798,7 +798,18 @@ current format is stable and works well with existing tools.
 
 ---
 
-## 8. Chinese Documentation
+## 8. ClawHub Skill Adapter
+
+This repo includes a thin ClawHub/OpenClaw skill adapter under
+[skills/clawsqlite-knowledge](skills/clawsqlite-knowledge/SKILL.md).
+
+It exposes only conservative Agent actions: `ingest_url`, `ingest_text`,
+`search`, `show`, and `doctor`. It does not implement knowledge-base logic,
+does not read the database directly, and does not guess paths. Agents should
+pass an explicit `config` path or set `CLAWSQLITE_CONFIG`; strict ingest and
+error semantics remain owned by `clawsqlite knowledge`.
+
+## 9. Chinese Documentation
 
 中文完整说明见 [README_zh.md](README_zh.md)。Agent-specific usage rules are
 also summarized in [AGENT_USAGE.md](AGENT_USAGE.md).

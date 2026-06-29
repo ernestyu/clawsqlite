@@ -294,6 +294,11 @@ clawsqlite knowledge maintenance prune --days 3 --dry-run
 - 不要无声降级生成标签；
 - 只有用户明确允许时才加 `--allow-heuristic` 或 `--allow-missing-embedding`。
 
+本仓库也提供一个很薄的 ClawHub/OpenClaw Skill 适配层：
+[skills/clawsqlite-knowledge](skills/clawsqlite-knowledge/SKILL.md)。
+它只开放 `ingest_url`、`ingest_text`、`search`、`show`、`doctor`，并把 JSON 请求转换为
+`clawsqlite knowledge` 调用；不直接读数据库，不生成标签，不猜路径，也不默认降级。
+
 ---
 
 ## 8. 兴趣簇

@@ -6,6 +6,7 @@ include pyproject.toml
 
 recursive-include clawsqlite_knowledge *.py
 recursive-include clawsqlite_plumbing *.py
+recursive-include skills *.md *.json *.py
 
 
 prune tests
