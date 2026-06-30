@@ -9,6 +9,10 @@ This skill is a thin wrapper around `clawsqlite knowledge`. It is not a second
 knowledge-base product, not a runtime wrapper script, and not a separate rules
 engine.
 
+Naming note: `clawsqlite_knowledge/` in the repository is the Python package
+that implements the Knowledge app. `skills/clawsqlite-knowledge/` is only this
+thin Agent-facing instruction layer.
+
 ## Component Root
 
 The skill directory is the component root. Before running any Knowledge command,

@@ -11,7 +11,6 @@ import re
 import json
 import unicodedata as _ud
 import datetime as _dt
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 try:  # optional jieba for tag scoring heuristics
@@ -27,53 +26,6 @@ ISO_Z_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
 def now_iso_z() -> str:
     """Return current UTC time in ISO 8601 with Z suffix."""
     return _dt.datetime.utcnow().replace(tzinfo=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def load_project_env(path: Optional[Path] = None, *, override: Optional[bool] = None) -> None:
-    """Load project-level .env file into os.environ (if it exists).
-
-    Priority model (matching clawsqlite docs):
-    - CLI arguments have highest precedence (handled elsewhere);
-    - existing process env vars override project .env by default;
-    - project .env fills missing values;
-    - set CLAWSQLITE_ENV_OVERRIDE=1 to allow .env to override env vars.
-
-    The file format is intentionally simple: KEY=VALUE per line,
-    lines starting with '#' or without '=' are ignored.
-    """
-
-    if path is None:
-        path = Path.cwd() / ".env"
-    if override is None:
-        override = str(os.environ.get("CLAWSQLITE_ENV_OVERRIDE", "")).strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
-    try:
-        text = path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return
-    except Exception:
-        return
-
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip()
-        if not key:
-            continue
-        # Strip optional surrounding single/double quotes: VAR="value" or VAR='value'
-        if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
-            value = value[1:-1]
-        if override or key not in os.environ:
-            os.environ[key] = value
 
 
 def resolve_interest_params(

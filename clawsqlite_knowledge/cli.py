@@ -19,7 +19,7 @@ import datetime as _dt
 from typing import Any, Dict, List, Optional
 
 from . import db as dbmod
-from .utils import now_iso_z, truncate_text, comma_join_tags, resolve_interest_params, load_project_env
+from .utils import now_iso_z, truncate_text, comma_join_tags, resolve_interest_params
 from .config import ConfigError, KnowledgeConfig, apply_config_env, load_knowledge_config
 from .storage import (
     ensure_dir,
@@ -1799,13 +1799,6 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 def main(argv: Optional[List[str]] = None) -> int:
-    # Load project-level .env for optional low-level tuning knobs. Knowledge
-    # runtime config itself should live in clawsqlite.toml.
-    try:
-        load_project_env()
-    except Exception:
-        # Best-effort; CLI/env resolution will still work with system env only.
-        pass
     parser = build_parser()
     args = parser.parse_args(argv)
     require_config = True

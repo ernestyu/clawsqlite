@@ -10,6 +10,11 @@ This repo currently focuses on the **knowledge** app:
 
 - commands are exposed under `clawsqlite knowledge ...` for users/skills.
 
+Naming note: `clawsqlite_knowledge` is the Python package that implements the
+Knowledge app. `skills/clawsqlite-knowledge` is only a thin OpenClaw/ClawHub
+skill instruction directory; it does not contain a second implementation or a
+second configuration system.
+
 A local Markdown + SQLite knowledge base for OpenClaw, designed for both
 humans and agents.
 
@@ -53,12 +58,9 @@ The knowledge app helps you:
       semantic similarity via **cosine similarity** mapped into [0,1]
       (with a distance->sigmoid fallback for older/partial vec rows)
     - splits the tag channel into **semantic (vector) tag score** and
-      **lexical tag match score**, with the split controlled by
-      `CLAWSQLITE_TAG_VEC_FRACTION` (default 0.7)
+      **lexical tag match score** using conservative built-in defaults
     - applies an optional **log compression** to the lexical tag score
-      (`ln(1 + alpha*x) / ln(1 + alpha)`, `alpha` from
-      `CLAWSQLITE_TAG_FTS_LOG_ALPHA`, default 5.0) so that many partial
-      tag hits don’t overpower the semantic channels
+      so that many partial tag hits don’t overpower the semantic channels
 - **CLI first**
   - Simple subcommands: `ingest`, `search`, `show`, `export`, `update`, `delete`, `reindex`, `doctor`
 
@@ -244,22 +246,17 @@ Relative `root` is resolved relative to the config file. Relative `db` and
 `articles_dir` are resolved under `root`. Knowledge root/db/articles paths are
 not overridden on the CLI; edit the private `clawsqlite.toml` instead.
 
-### 4.2 Private config vs optional `.env`
+### 4.2 Single Configuration Source
 
-The CLI still auto-loads a project-level `.env` from the current working
-directory for optional low-level tuning knobs, but `.env` is not the normal
-place for Knowledge runtime configuration.
+`clawsqlite.toml` is the only project configuration file. The Knowledge CLI no
+longer auto-loads dot-env files, and this repository intentionally does not ship
+a separate environment template. If a setting is part of normal Knowledge
+behavior, it should live in the private `clawsqlite.toml` or be passed as an
+explicit CLI flag.
 
-Put real LLM, embedding, scraper, path, and ingest settings directly in the
-private `clawsqlite.toml`. Use `.env` only for optional generic toggles such as:
-
-```env
-CLAWSQLITE_FTS_JIEBA=auto
-```
-
-Existing process environment variables are **not** overridden by default. If
-you explicitly want project `.env` values to override the process environment,
-set `CLAWSQLITE_ENV_OVERRIDE=1`.
+Some process environment variables still exist for tests, packaging wrappers,
+or low-level native extension discovery. They are runtime hooks, not a second
+project configuration file.
 
 ### 4.3 Embedding configuration
 
@@ -347,17 +344,7 @@ The final hybrid score is a weighted blend of signals::
             + w_tag * tag_score + w_priority * priority_bonus
             + w_recency * recency_bonus
 
-By default we use::
-
-    # Mode1/Mode3 (embedding enabled)
-    CLAWSQLITE_SCORE_WEIGHTS_MODE1=vec=0.45,fts=0.25,tag=0.15,priority=0.03,recency=0.02
-    CLAWSQLITE_SCORE_WEIGHTS_MODE3=vec=0.45,fts=0.25,tag=0.15,priority=0.03,recency=0.02
-
-    # Mode2/Mode4 (no embedding)
-    CLAWSQLITE_SCORE_WEIGHTS_MODE2=fts=0.60,tag=0.25,priority=0.08,recency=0.07
-    CLAWSQLITE_SCORE_WEIGHTS_MODE4=fts=0.60,tag=0.25,priority=0.08,recency=0.07
-
-which roughly means:
+By default the blend roughly means:
 
 - ~45% vector similarity for deep semantic anchoring (summary vectors)
 - ~25% BM25 keywords for textual sanity checks (FTS over title/tags/summary)
@@ -365,30 +352,17 @@ which roughly means:
 - ~3% priority as a manual pinning mechanism
 - ~2% recency to keep new knowledge slightly favored without dominating
 
-You can override these weights via:
+For **mixed Chinese/English knowledge bases**, the built-in defaults bias the
+ranking toward both semantic search and tags. The approximate shape is:
 
-- `CLAWSQLITE_SCORE_WEIGHTS_MODE1..MODE4` (recommended, mode-specific)
-- Legacy compatibility: `CLAWSQLITE_SCORE_WEIGHTS` and `CLAWSQLITE_SCORE_WEIGHTS_TEXT`
+- summary semantic score for deep recall
+- full-text FTS for textual sanity checks
+- tag semantic and lexical tag scores for topic anchoring
+- small priority/recency bonuses
 
-See `ENV.example` for details.
-
-For **mixed Chinese/English knowledge bases** you may want to bias more
-strongly towards tag semantics. A common production shape is::
-
-    CLAWSQLITE_SCORE_WEIGHTS_MODE1=vec=0.30,fts=0.10,tag=0.55,priority=0.03,recency=0.02
-    CLAWSQLITE_TAG_VEC_FRACTION=0.82
-
-which yields approximately:
-
-- ~45% tag semantic (vector) score
-- ~30% summary semantic (vector) score
-- ~10% lexical tag match
-- ~10% full-text FTS
-- ~5% priority/recency
-
-And you can tune the lexical tag compression via::
-
-    CLAWSQLITE_TAG_FTS_LOG_ALPHA=5.0  # larger = stronger compression, 0 = disable
+Search and ranking are Knowledge features. User-facing configuration for these
+should be kept in `clawsqlite.toml` as the product evolves, not in a separate
+environment example file.
 
 ### 4.6 Scraper configuration
 
@@ -692,13 +666,13 @@ For each eligible article (undeleted, non-empty summary, at least one vec):
 2. If only one branch exists:
    - use that branch after `L2` normalize.
 
-`tag_weight` is controlled by `CLAWSQLITE_INTEREST_TAG_WEIGHT` (default `0.75`).
+The default tag weight is `0.75` unless explicitly overridden by the
+`build-interest-clusters` command.
 
 #### 6.8.3 PCA + clustering backends
 
-- PCA is optional (`CLAWSQLITE_INTEREST_USE_PCA=true/false`).
-- PCA dimension is auto-selected by cumulative explained variance threshold:
-  `CLAWSQLITE_INTEREST_PCA_EXPLAINED_VARIANCE_THRESHOLD` (e.g. `0.90`/`0.95`).
+- PCA is optional.
+- PCA dimension is auto-selected by cumulative explained variance threshold.
 - Clustering can run in PCA space, but **persisted centroids are always recomputed in original 1024-d space**.
 
 Backends:
@@ -729,21 +703,27 @@ After initial labels from either backend:
    - `interest_cluster_members` (`membership=1.0`)
    - `interest_meta` (build timestamp + algo/pca/tag-weight metadata)
 
-#### 6.8.5 Optional analysis knobs
+#### 6.8.5 Analysis Knobs
 
-- `CLAWSQLITE_INTEREST_CLUSTER_ALGO` (`kmeans++` | `hierarchical`)
-- `CLAWSQLITE_INTEREST_TAG_WEIGHT` (`0..1`)
-- `CLAWSQLITE_INTEREST_USE_PCA` (`true/false`)
-- `CLAWSQLITE_INTEREST_PCA_EXPLAINED_VARIANCE_THRESHOLD`
-- `CLAWSQLITE_INTEREST_MIN_SIZE`
-- `CLAWSQLITE_INTEREST_MAX_CLUSTERS`
-- `CLAWSQLITE_INTEREST_KMEANS_RANDOM_STATE`
-- `CLAWSQLITE_INTEREST_KMEANS_N_INIT`
-- `CLAWSQLITE_INTEREST_KMEANS_MAX_ITER`
-- `CLAWSQLITE_INTEREST_ENABLE_POST_MERGE`
-- `CLAWSQLITE_INTEREST_MERGE_DISTANCE`
-- `CLAWSQLITE_INTEREST_HIERARCHICAL_LINKAGE`
-- `CLAWSQLITE_INTEREST_HIERARCHICAL_DISTANCE_THRESHOLD`
+Prefer explicit command flags for one-off analysis runs:
+
+- `--algo`
+- `--tag-weight`
+- `--use-pca` / `--no-pca`
+- `--pca-explained-variance-threshold`
+- `--min-size`
+- `--max-clusters`
+- `--kmeans-random-state`
+- `--kmeans-n-init`
+- `--kmeans-max-iter`
+- `--enable-post-merge` / `--disable-post-merge`
+- `--merge-distance-threshold`
+- `--hierarchical-linkage`
+- `--hierarchical-distance-threshold`
+
+Interest clustering and reports are part of `clawsqlite knowledge`. Durable
+user-facing defaults should live in `clawsqlite.toml`, not in a separate ENV
+file.
 
 #### 6.8.6 Cluster quality inspection
 
@@ -784,13 +764,9 @@ clawsqlite knowledge inspect-interest-clusters \
 
 1. 先用当前 KB 跑一轮 `build-interest-clusters`，再运行
    `inspect-interest-clusters` 看各簇的大小、半径以及簇心距离；
-2. 使用辅助脚本（`tests/test_interest_merge_suggest.py`）或类似逻辑，按
-   `alpha * median(mean_radius)` 估算一个合适的
-   `CLAWSQLITE_INTEREST_MERGE_DISTANCE`（例如 0.07）；
-3. 调整 `.env` 或当前 shell 中的可选分析参数
-   `CLAWSQLITE_INTEREST_MIN_SIZE` / `CLAWSQLITE_INTEREST_MAX_CLUSTERS` /
-   `CLAWSQLITE_INTEREST_MERGE_DISTANCE` 后重新构建，并用
-   `inspect-interest-clusters` 观察结构变化。
+2. 使用辅助脚本（`tests/test_interest_merge_suggest.py`）或类似逻辑，估算一个
+   合适的 merge distance；
+3. 通过显式 CLI 参数重新构建，并用 `inspect-interest-clusters` 观察结构变化。
 
 ---
 
@@ -835,6 +811,11 @@ current format is stable and works well with existing tools.
 This repo includes thin ClawHub/OpenClaw skill instructions under
 [skills/clawsqlite-knowledge](skills/clawsqlite-knowledge/SKILL.md).
 
+Do not confuse the two similarly named directories:
+
+- `clawsqlite_knowledge/` is the Python implementation of the Knowledge app.
+- `skills/clawsqlite-knowledge/` is a thin Agent-facing instruction wrapper.
+
 The skill does not ship a runtime JSON wrapper. Agents should `cd` to the skill
 directory, treat that directory as the component root, and run
 `clawsqlite knowledge ...` directly. Core logic, strict ingest, config loading,
@@ -842,8 +823,7 @@ and error semantics remain owned by `clawsqlite knowledge`.
 
 ## 9. Chinese Documentation
 
-中文完整说明见 [README_zh.md](README_zh.md)。Agent-specific usage rules are
-also summarized in [AGENT_USAGE.md](AGENT_USAGE.md).
+中文完整说明见 [README_zh.md](README_zh.md)。
 
 ---
 

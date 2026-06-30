@@ -11,7 +11,6 @@ from pathlib import Path
 
 from clawsqlite_knowledge import db as dbmod
 from clawsqlite_knowledge import embed as embedmod
-from clawsqlite_knowledge.utils import load_project_env
 
 
 class EnvConfigTests(unittest.TestCase):
@@ -63,33 +62,6 @@ class EnvConfigTests(unittest.TestCase):
         schema = dbmod._vec_schema()
         self.assertIsNotNone(schema)
         self.assertIn("float[128]", schema)
-
-    def test_project_env_fills_missing_without_overriding_process_env(self):
-        with self._tempdir() as tmpdir:
-            env_path = Path(tmpdir) / ".env"
-            env_path.write_text(
-                "CLAWSQLITE_TEST_FROM_DOTENV=/from-dotenv\n"
-                "CLAWSQLITE_TEST_ONLY_DOTENV=/from-dotenv/only\n",
-                encoding="utf-8",
-            )
-            os.environ["CLAWSQLITE_TEST_FROM_DOTENV"] = "/from-process"
-            os.environ.pop("CLAWSQLITE_TEST_ONLY_DOTENV", None)
-
-            load_project_env(env_path)
-
-            self.assertEqual(os.environ["CLAWSQLITE_TEST_FROM_DOTENV"], "/from-process")
-            self.assertEqual(os.environ["CLAWSQLITE_TEST_ONLY_DOTENV"], "/from-dotenv/only")
-
-    def test_project_env_can_override_when_explicitly_enabled(self):
-        with self._tempdir() as tmpdir:
-            env_path = Path(tmpdir) / ".env"
-            env_path.write_text("CLAWSQLITE_TEST_OVERRIDE=/from-dotenv\n", encoding="utf-8")
-            os.environ["CLAWSQLITE_TEST_OVERRIDE"] = "/from-process"
-
-            load_project_env(env_path, override=True)
-
-            self.assertEqual(os.environ["CLAWSQLITE_TEST_OVERRIDE"], "/from-dotenv")
-
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()  # type: ignore[arg-type]

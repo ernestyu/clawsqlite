@@ -16,7 +16,7 @@ dist/
 # Logs
 *.log
 
-# Environment variables
+# Local private files not used as clawsqlite project config
 .env
 .env.*
 

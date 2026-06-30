@@ -103,7 +103,8 @@ content = "summary"
 - `root` 相对路径按配置文件所在目录解析。
 - `db` 和 `articles_dir` 相对路径按 `root` 解析。
 - Knowledge 的 root / db / articles 路径不再通过 CLI 覆盖；要修改就改私有 `clawsqlite.toml`。
-- `.env` 仍会自动读取，但只建议用于可选底层调参；LLM、embedding、scraper、路径和入库策略都应写在私有 `clawsqlite.toml` 里。
+- `clawsqlite.toml` 是唯一项目配置文件；本项目不再提供额外环境模板，
+  CLI 也不会自动读取 dot-env 文件作为第二配置源。
 
 ---
 
@@ -313,18 +314,16 @@ clawsqlite knowledge maintenance prune --days 3 --dry-run
 
 ---
 
-## 7. Agent 使用契约
-
-面向 Agent 的更短说明见 [AGENT_USAGE.md](AGENT_USAGE.md)。核心规则：
-
-- 先运行 Knowledge 命令，让它读取 `clawsqlite.toml`；
-- 不要自己猜 DB 文件名；
-- 遇到 `ERROR_KIND: config_required` / `llm_required` / `embedding_required` 时，把错误报告给用户；
-- 不要无声降级生成标签；
-- 只有用户明确允许时才加 `--allow-heuristic` 或 `--allow-missing-embedding`。
+## 7. OpenClaw Skill 说明层
 
 本仓库也提供一个很薄的 ClawHub/OpenClaw Skill 说明层：
 [skills/clawsqlite-knowledge](skills/clawsqlite-knowledge/SKILL.md)。
+
+不要混淆两个名字相近的目录：
+
+- `clawsqlite_knowledge/` 是 Knowledge 应用的 Python 核心实现；
+- `skills/clawsqlite-knowledge/` 只是面向 Agent 的薄说明层。
+
 Agent 应先 `cd` 到该 skill 目录，把它作为 component root，然后直接运行
 `clawsqlite knowledge ...`；Skill 不提供额外运行时脚本，不直接读数据库，
 不生成标签，不猜路径，也不默认降级。

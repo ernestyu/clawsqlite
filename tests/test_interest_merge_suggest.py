@@ -146,7 +146,7 @@ def main() -> None:
         print(f"  alpha        = {args.alpha:.3f}")
         print(f"  raw_suggest  = {raw_suggest:.3f}")
         print(f"  clamped      = {merge_suggest:.3f}")
-        print("\nYou can apply this in your environment or .env as:")
+        print("\nYou can apply this for a one-off analysis run as:")
         print(f"  export CLAWSQLITE_INTEREST_MERGE_DISTANCE={merge_suggest:.3f}")
     finally:
         conn.close()

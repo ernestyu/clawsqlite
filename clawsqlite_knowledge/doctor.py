@@ -195,7 +195,7 @@ def _check_vec_extension(config: Optional[KnowledgeConfig] = None) -> CheckResul
             ),
             next=(
                 "Ensure the sqlite-vec extension (vec0) is installed and configured. "
-                "See ENV.example for CLAWSQLITE_VEC_EXT paths and usage."
+                "Use explicit CLI extension flags for debugging, or install vec0 where clawsqlite can auto-discover it."
             ),
         )
 

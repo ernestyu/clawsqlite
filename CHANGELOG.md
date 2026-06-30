@@ -7,6 +7,24 @@ without strict version tagging yet. Entries are grouped by date + topic.
 
 ---
 
+## 2026-06-30 – Single Config File Cleanup
+
+### Removed
+
+- Removed the legacy Agent usage note from the repository root.
+- Removed the separate environment example file. `clawsqlite.toml` is the only
+  project configuration file; runtime hooks that still use process environment
+  variables are not documented as a second config source.
+
+### Changed
+
+- Documentation now distinguishes `clawsqlite_knowledge/` (Python
+  implementation) from `skills/clawsqlite-knowledge/` (thin Agent-facing skill
+  instructions).
+- The Knowledge CLI no longer auto-loads dot-env files.
+
+---
+
 ## 2026-04-05 – Search Recall Tiers & Vector Normalization
 
 ### Added
@@ -35,7 +53,9 @@ without strict version tagging yet. Entries are grouped by date + topic.
 - **Embedding plumbing** (`clawsqlite embed column`) now L2-normalizes vectors before writing to vec tables.
 
 - **Documentation** updated:
-  - `ENV.example` expanded into a recommended `.env` template with the new knobs.
+  - Historical search-mode docs were expanded with the new knobs. The later
+    config cleanup removed the separate environment template in favor of
+    `clawsqlite.toml` as the only project config file.
   - `README.md` / `README_zh.md` updated to match the new search modes and scoring.
 
 ## 2026-04-05 – Interest Cluster Builder Refactor (kmeans++ / hierarchical / PCA)
@@ -94,7 +114,9 @@ without strict version tagging yet. Entries are grouped by date + topic.
 
 ### Docs
 
-- Updated `ENV.example` with a full recommended interest-clustering template.
+- Historical docs were updated with a full recommended interest-clustering
+  template. The later config cleanup removed the separate environment template
+  in favor of `clawsqlite.toml` as the only project config file.
 - Updated `README.md` and `README_zh.md` to document:
   - new backends and parameters
   - PCA behavior and 1024-d centroid invariant
@@ -165,7 +187,7 @@ without strict version tagging yet. Entries are grouped by date + topic.
      - `CLAWSQLITE_INTEREST_MERGE_ALPHA`
   3. Hard-coded defaults (5 / 16 / 0.4).
 
-- **ENV.example** now documents the interest clustering knobs:
+- Historical environment-template docs covered the interest clustering knobs:
   - `CLAWSQLITE_INTEREST_MERGE_DISTANCE` (cosine distance threshold between
     centroids; typical values ~0.07),
   - `CLAWSQLITE_INTEREST_MERGE_ALPHA` (used by analysis scripts to suggest
@@ -173,7 +195,7 @@ without strict version tagging yet. Entries are grouped by date + topic.
 
 - **README / README_zh** updated to describe:
   - Two-stage interest clustering design.
-  - How to configure `CLAWSQLITE_INTEREST_*` variables.
+  - How interest clustering knobs were configured at that time.
   - How to run `build-interest-clusters` and
     `inspect-interest-clusters` in real KBs.
   - Recommended workflow for tuning `min_size`, `max_clusters` and
