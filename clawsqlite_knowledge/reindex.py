@@ -5,7 +5,7 @@ Reindex and maintenance for clawsqlite knowledge.
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from . import db as dbmod
 from .embed import get_embedding, floats_to_f32_blob, l2_normalize
@@ -42,6 +42,8 @@ def fix_missing(
     gen_provider: str,
     embed_on: bool,
     max_summary_chars: int = 1200,
+    tag_count: int = 8,
+    allowed_content_types: Optional[List[str]] = None,
     allow_heuristic: bool = True,
     llm_context_window_chars: int = 24000,
     llm_prompt_reserved_chars: int = 4000,
@@ -86,8 +88,11 @@ def fix_missing(
                 gen = generate_fields(
                     content,
                     hint_title=title or None,
+                    hint_tags=tags or None,
                     provider=gen_provider,
                     max_summary_chars=max_summary_chars,
+                    tag_count=tag_count,
+                    allowed_content_types=allowed_content_types,
                     allow_heuristic=allow_heuristic,
                     llm_context_window_chars=llm_context_window_chars,
                     llm_prompt_reserved_chars=llm_prompt_reserved_chars,

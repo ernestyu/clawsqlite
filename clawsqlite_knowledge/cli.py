@@ -161,6 +161,18 @@ def _validate_category(value: str, policy) -> Optional[str]:
         return f"category/content_type must be one of: {allowed_text}"
     return None
 
+def _validate_strict_title(title: str) -> Optional[str]:
+    value = re.sub(r"\s+", " ", str(title or "")).strip()
+    if value.lower() in {"", "untitled", "无标题", "未命名", "标题"}:
+        return "strict ingest requires a specific LLM-generated title"
+    if len(value) < 2:
+        return "strict ingest title is too short"
+    if len(value) > 120:
+        return "strict ingest title is too long"
+    if "\n" in str(title or "") or "\r" in str(title or ""):
+        return "strict ingest title must be one line"
+    return None
+
 def _validate_strict_generated_tags(tags: str, policy) -> Optional[str]:
     tag_list = _split_tags(tags)
     if len(tag_list) != int(policy.tag_count):
@@ -318,8 +330,11 @@ def cmd_ingest(args) -> int:
                     llm_chunk_overlap_chars=cfg.llm.chunk_overlap_chars,
                     llm_timeout_seconds=cfg.llm.timeout_seconds,
                 )
-                if not title:
-                    title = (gen.get("title") or "").strip()
+                gen_title = (gen.get("title") or "").strip()
+                if policy.require_llm:
+                    title = gen_title
+                elif not title:
+                    title = gen_title
                 if policy.require_llm or not summary:
                     summary = (gen.get("summary") or "").strip()
                     summary_generated = True
@@ -329,9 +344,10 @@ def cmd_ingest(args) -> int:
                 if generation_quality == "llm":
                     summary_model = cfg.llm.model
                     tags_model = cfg.llm.model
-                content_type = _normalize_category(str(gen.get("content_type") or content_type))
+                generated_category = _normalize_category(str(gen.get("category") or gen.get("content_type") or content_type))
+                content_type = _normalize_category(str(gen.get("content_type") or generated_category or content_type))
                 if policy.require_llm and generation_quality == "llm":
-                    category = content_type
+                    category = generated_category
                 key_claims_json = json.dumps(gen.get("key_claims") or [], ensure_ascii=False)
                 entities_json = json.dumps(gen.get("entities") or [], ensure_ascii=False)
             except Exception as e:
@@ -360,6 +376,12 @@ def cmd_ingest(args) -> int:
         sys.stderr.write("ERROR_KIND: category_invalid\n")
         sys.stderr.write("NEXT: update [ingest].allowed_categories in clawsqlite.toml, or use one of the configured categories.\n")
         return 2
+    content_type_error = _validate_category(content_type, policy)
+    if content_type_error:
+        sys.stderr.write(f"ERROR: {content_type_error}\n")
+        sys.stderr.write("ERROR_KIND: content_type_invalid\n")
+        sys.stderr.write("NEXT: update [ingest].allowed_categories in clawsqlite.toml, or fix the LLM content_type output.\n")
+        return 2
 
     if policy.require_llm and generation_quality != "llm" and not allow_heuristic:
         sys.stderr.write("ERROR: strict ingest requires LLM-generated summary and tags.\n")
@@ -367,6 +389,17 @@ def cmd_ingest(args) -> int:
         sys.stderr.write("NEXT: configure [llm].base_url/model/api_key in clawsqlite.toml, or pass --allow-heuristic.\n")
         return 2
     if policy.require_llm and generation_quality == "llm" and not allow_heuristic:
+        if category != content_type:
+            sys.stderr.write("ERROR: strict ingest requires generated category and content_type to match.\n")
+            sys.stderr.write("ERROR_KIND: category_invalid\n")
+            sys.stderr.write("NEXT: adjust the LLM prompt/model so category and content_type use the same configured value.\n")
+            return 4
+        title_error = _validate_strict_title(title)
+        if title_error:
+            sys.stderr.write(f"ERROR: {title_error}\n")
+            sys.stderr.write("ERROR_KIND: title_invalid\n")
+            sys.stderr.write("NEXT: adjust the LLM prompt/model so it returns a specific one-line title, then retry.\n")
+            return 4
         tag_error = _validate_strict_generated_tags(tags, policy)
         if tag_error:
             sys.stderr.write(f"ERROR: {tag_error}\n")
@@ -1258,6 +1291,8 @@ def cmd_reindex(args) -> int:
                 gen_provider=gen_provider,
                 embed_on=embed_on,
                 max_summary_chars=cfg.ingest.summary_target_chars,
+                tag_count=cfg.ingest.tag_count,
+                allowed_content_types=list(cfg.ingest.allowed_categories),
                 allow_heuristic=allow_heuristic or not cfg.ingest.require_llm,
                 llm_context_window_chars=cfg.llm.context_window_chars,
                 llm_prompt_reserved_chars=cfg.llm.prompt_reserved_chars,
@@ -1638,7 +1673,7 @@ def build_parser() -> argparse.ArgumentParser:
     # doctor
     sp = sub.add_parser("doctor", help="Self-check knowledge DB/env, output JSON report")
     _add_common_flags(sp)
-    sp.add_argument("--check-llm", action="store_true", help="Reserved for LLM roundtrip checks")
+    sp.add_argument("--check-llm", action="store_true", help="Run an LLM HTTP/JSON roundtrip check")
     sp.add_argument("--check-embedding", action="store_true", help="Run embedding roundtrip check")
     sp.set_defaults(func=cmd_doctor)
 

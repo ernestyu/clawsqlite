@@ -144,6 +144,7 @@ LLM 入库会从全文生成结构化字段：
 - `tags`
 - `key_claims`
 - `entities`
+- `category`
 - `content_type`
 
 `summary` 是后续 embedding 的默认文本来源。摘要目标长度由配置控制：
@@ -156,6 +157,8 @@ tag_count = 8
 
 这些值不是写死在代码里的，后续可以按模型和知识库风格调整。
 strict 入库时，最终 tags 必须由 LLM 生成，数量必须等于 `tag_count`。
+如果清理后的正文短于 `summary_target_chars`，summary 会直接使用清理后的正文，
+避免短想法被不必要地改写丢细节。
 
 长文处理使用配置里的上下文预算：
 
@@ -245,11 +248,22 @@ clawsqlite knowledge ingest --text "一段想法" --category thought --json
 - `--update-existing`：URL 已存在时刷新同一条记录
 - `--allow-heuristic` / `--allow-missing-embedding`：显式降级
 
-strict 模式下，人工 tags 只是给 LLM 的提示，不会覆盖最终 tags。最终
-category 必须属于 `[ingest].allowed_categories`；strict LLM 入库会把生成的
-`content_type` 作为存储 category。成功的 JSON 输出会包含 `config_path`、
+strict 模式下，人工 title/category/tags 都只是给 LLM 的提示，不会覆盖最终
+metadata。最终 title、tags、category、content_type 必须由 LLM 生成；tags
+数量必须等于 `[ingest].tag_count`，category 和 content_type 必须一致，并且
+必须属于 `[ingest].allowed_categories`。成功的 JSON 输出会包含 `config_path`、
 `root`、`db`、`articles_dir`、`generation_quality`、`embedding_enabled`，方便
 Agent 核对实际写入位置和生成质量。
+
+### 自检
+
+```bash
+clawsqlite knowledge doctor --json
+```
+
+默认 doctor 只做轻量配置和 schema 检查：它会判断 `[llm]` / `[embedding]`
+字段是否完整，但不会主动请求外部模型服务。只有显式传入 `--check-llm` 或
+`--check-embedding` 时，才会执行更重的 HTTP roundtrip 检查。
 
 ### 搜索
 

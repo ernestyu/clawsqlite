@@ -307,19 +307,36 @@ def _check_embedding_roundtrip(config: Optional[KnowledgeConfig] = None) -> Chec
         )
 
 
-def _check_small_llm(config: Optional[KnowledgeConfig] = None) -> CheckResult:
+def _llm_missing_config(config: Optional[KnowledgeConfig] = None) -> List[str]:
     if config is not None:
-        base = config.llm.base_url
-        model = config.llm.model
-        key = config.llm.resolved_api_key
-    else:
-        base = os.environ.get("SMALL_LLM_BASE_URL")
-        model = os.environ.get("SMALL_LLM_MODEL")
-        key = os.environ.get("SMALL_LLM_API_KEY")
+        missing: List[str] = []
+        if not config.llm.base_url:
+            missing.append("[llm].base_url")
+        if not config.llm.model:
+            missing.append("[llm].model")
+        if not config.llm.resolved_api_key:
+            missing.append("[llm].api_key")
+        return missing
 
-    if not base and not model and not key:
+    missing = []
+    if not os.environ.get("SMALL_LLM_BASE_URL"):
+        missing.append("[llm].base_url")
+    if not os.environ.get("SMALL_LLM_MODEL"):
+        missing.append("[llm].model")
+    if not os.environ.get("SMALL_LLM_API_KEY"):
+        missing.append("[llm].api_key")
+    return missing
+
+
+def _check_llm_config(config: Optional[KnowledgeConfig] = None) -> CheckResult:
+    missing = _llm_missing_config(config)
+    base = config.llm.base_url if config is not None else os.environ.get("SMALL_LLM_BASE_URL")
+    model = config.llm.model if config is not None else os.environ.get("SMALL_LLM_MODEL")
+    key = config.llm.resolved_api_key if config is not None else os.environ.get("SMALL_LLM_API_KEY")
+
+    if len(missing) == 3:
         return CheckResult(
-            name="small_llm",
+            name="llm_config",
             ok=False,
             message="Small LLM not configured ([llm].base_url/model/api_key all empty).",
             next=(
@@ -328,25 +345,67 @@ def _check_small_llm(config: Optional[KnowledgeConfig] = None) -> CheckResult:
             ),
         )
 
-    if not (base and model and key):
+    if missing:
         return CheckResult(
-            name="small_llm",
+            name="llm_config",
             ok=False,
-            message="Small LLM config is partially set.",
+            message="Small LLM config is partially set: missing " + ", ".join(sorted(missing)),
             next="Set all of [llm].base_url, [llm].model, and [llm].api_key in clawsqlite.toml or clear them all.",
             details={
                 "base_url": base,
                 "model": model,
                 "has_key": bool(key),
+                "missing_keys": sorted(missing),
             },
         )
 
     return CheckResult(
-        name="small_llm",
+        name="llm_config",
         ok=True,
         message=f"Small LLM configured: model={model!r}, base_url={base!r}",
         details={"base_url": base, "model": model},
     )
+
+
+def _check_llm_roundtrip(config: Optional[KnowledgeConfig] = None) -> CheckResult:
+    missing = _llm_missing_config(config)
+    if missing:
+        return CheckResult(
+            name="llm_roundtrip",
+            ok=False,
+            message="Skipping LLM roundtrip test because config is incomplete.",
+            next="Fix llm_config first; then rerun doctor --check-llm to verify HTTP connectivity.",
+            details={"missing_keys": sorted(missing)},
+        )
+
+    try:
+        from .generator import _call_small_llm_json
+
+        obj = _call_small_llm_json(
+            "Return STRICT JSON only: {\"ok\": true, \"service\": \"clawsqlite-doctor\"}",
+            timeout=config.llm.timeout_seconds if config is not None else 30,
+        )
+        if obj.get("ok") is not True:
+            return CheckResult(
+                name="llm_roundtrip",
+                ok=False,
+                message="LLM service responded, but did not return the expected JSON shape.",
+                next="Verify [llm].model and provider JSON-mode behavior.",
+                details={"response": obj},
+            )
+        return CheckResult(
+            name="llm_roundtrip",
+            ok=True,
+            message="Small LLM service reachable and returned valid JSON.",
+            details={"response": obj},
+        )
+    except Exception as e:
+        return CheckResult(
+            name="llm_roundtrip",
+            ok=False,
+            message=f"Small LLM request failed: {e}",
+            next="Verify [llm].base_url/model/api_key in clawsqlite.toml and network reachability.",
+        )
 
 
 def _check_capability_mode(config: Optional[KnowledgeConfig] = None) -> CheckResult:
@@ -440,6 +499,8 @@ def _config_report(config: Optional[KnowledgeConfig]) -> Dict[str, Any]:
             "summary_mode": config.ingest.summary_mode,
             "summary_target_chars": config.ingest.summary_target_chars,
             "tags_mode": config.ingest.tags_mode,
+            "tag_count": config.ingest.tag_count,
+            "allowed_categories": list(config.ingest.allowed_categories),
             "fallback": config.ingest.fallback,
         },
         "llm": {
@@ -474,7 +535,9 @@ def run_doctor(
     checks.append(_check_embedding_config(config))
     if check_embedding:
         checks.append(_check_embedding_roundtrip(config))
-    checks.append(_check_small_llm(config))
+    checks.append(_check_llm_config(config))
+    if check_llm:
+        checks.append(_check_llm_roundtrip(config))
     checks.append(_check_capability_mode(config))
 
     any_error = any(not c.ok for c in checks if c.name in {"knowledge_paths", "db_schema"})
@@ -483,6 +546,10 @@ def run_doctor(
         "ok": not any_error,
         "checks": [asdict(c) for c in checks],
         "db": _db_summary(config),
+        "roundtrip": {
+            "llm_checked": bool(check_llm),
+            "embedding_checked": bool(check_embedding),
+        },
     }
     report.update(_config_report(config))
 

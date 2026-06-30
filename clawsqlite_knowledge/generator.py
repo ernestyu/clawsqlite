@@ -279,6 +279,8 @@ _CONTENT_TYPES = {
     "discussion_summary",
 }
 
+_BAD_TITLES = {"", "untitled", "无标题", "未命名", "标题"}
+
 
 def _chunk_text(text: str, *, chunk_chars: int, overlap_chars: int) -> List[str]:
     text = (text or "").strip()
@@ -319,6 +321,19 @@ def _normalize_string_list(value: Any, *, max_items: int) -> List[str]:
     return out
 
 
+def _validate_title(title: str) -> str:
+    out = _normalize_space(title)
+    if out.lower() in _BAD_TITLES:
+        raise RuntimeError("LLM generation failed validation: title is empty or generic")
+    if "\n" in title or "\r" in title:
+        raise RuntimeError("LLM generation failed validation: title must be one line")
+    if len(out) < 2:
+        raise RuntimeError("LLM generation failed validation: title is too short")
+    if len(out) > 120:
+        raise RuntimeError("LLM generation failed validation: title is too long")
+    return out
+
+
 def _validate_llm_fields(
     obj: Dict[str, Any],
     *,
@@ -326,19 +341,25 @@ def _validate_llm_fields(
     tag_count: int = 8,
     allowed_content_types: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    title = str(obj.get("title") or fallback_title or "").strip()
+    title = _validate_title(str(obj.get("title") or fallback_title or "").strip())
     summary = str(obj.get("summary") or "").strip()
     tags = _normalize_tags(obj.get("tags", []), max_tags=max(1, tag_count))
     key_claims = _normalize_string_list(obj.get("key_claims", []), max_items=12)
     entities = _normalize_string_list(obj.get("entities", []), max_items=20)
     content_type = str(obj.get("content_type") or "web_article").strip().lower()
+    category = str(obj.get("category") or "").strip().lower()
     allowed = set(allowed_content_types or sorted(_CONTENT_TYPES))
+    if not category:
+        raise RuntimeError("LLM generation failed validation: category is empty")
+    if category not in allowed:
+        allowed_text = ", ".join(sorted(allowed))
+        raise RuntimeError(f"LLM generation failed validation: category must be one of: {allowed_text}")
     if content_type not in allowed:
         allowed_text = ", ".join(sorted(allowed))
         raise RuntimeError(f"LLM generation failed validation: content_type must be one of: {allowed_text}")
+    if category != content_type:
+        raise RuntimeError("LLM generation failed validation: category and content_type must match")
 
-    if not title:
-        raise RuntimeError("LLM generation failed validation: title is empty")
     if not summary:
         raise RuntimeError("LLM generation failed validation: summary is empty")
     if len(tags) != tag_count:
@@ -350,6 +371,7 @@ def _validate_llm_fields(
         "tags": tags,
         "key_claims": key_claims,
         "entities": entities,
+        "category": category,
         "content_type": content_type,
     }
 
@@ -376,12 +398,17 @@ def _llm_fields_once(
         "The summary will be embedded for semantic search, so it must capture the whole piece, not only the beginning.\n"
         "Constraints:\n"
         "- Output STRICT JSON only.\n"
-        "- Keys: title, summary, tags, key_claims, entities, content_type.\n"
+        "- Keys: title, summary, tags, category, content_type, key_claims, entities.\n"
+        "- title: one line, specific, 2 to 120 characters; never output generic titles like untitled.\n"
         f"- summary target length: about {summary_target_chars} characters; concise but information-dense.\n"
+        "- If the input content is already shorter than the summary target, summary should preserve the original content instead of paraphrasing away details.\n"
         f"- tags: exactly {tag_count} short tags, sorted by importance descending.\n"
+        "- tags must be a JSON array of strings, not a comma-separated string.\n"
         "- key_claims: 3 to 8 short claims or takeaways.\n"
         "- entities: important people/projects/products/orgs/concepts.\n"
+        f"- category must be one of: {allowed_text}.\n"
         f"- content_type must be one of: {allowed_text}.\n"
+        "- category and content_type must be identical in this version.\n"
         "- Do not add extra keys.\n\n"
         f"Title hint: {title_hint}\n"
         f"Tag hints: {tags_hint}\n"
@@ -629,6 +656,7 @@ def generate_fields(
             "summary": "",
             "tags": [],
             "generation_quality": "manual",
+            "category": "note",
             "content_type": "note",
             "key_claims": [],
             "entities": [],
@@ -638,6 +666,7 @@ def generate_fields(
     clean = _strip_metadata_for_generation(content)
     title = _heuristic_title(clean, hint_title=hint_title)
     summary = _build_long_summary(clean, target_words=1200, max_chars=max_summary_chars)
+    short_summary_passthrough = bool(clean and len(clean) <= max_summary_chars)
 
     if provider == "openclaw":
         tags = _heuristic_tags(summary, max_tags=tag_count)
@@ -646,6 +675,7 @@ def generate_fields(
             "summary": summary,
             "tags": tags,
             "generation_quality": "heuristic",
+            "category": "web_article",
             "content_type": "web_article",
             "key_claims": [],
             "entities": [],
@@ -666,6 +696,8 @@ def generate_fields(
                     chunk_overlap_chars=llm_chunk_overlap_chars,
                     timeout=llm_timeout_seconds,
                 )
+                if short_summary_passthrough:
+                    fields["summary"] = clean
                 fields["generation_quality"] = "llm"
                 return fields
             except Exception as e:
@@ -682,6 +714,7 @@ def generate_fields(
             "summary": summary,
             "tags": tags,
             "generation_quality": "heuristic",
+            "category": "web_article",
             "content_type": "web_article",
             "key_claims": [],
             "entities": [],

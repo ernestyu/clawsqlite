@@ -233,6 +233,7 @@ class StrictIngestConfigTests(unittest.TestCase):
                     "summary": "Generated whole article summary",
                     "tags": ["sqlite", "agent", "config", "strict", "summary", "embedding", "search", "knowledge"],
                     "generation_quality": "llm",
+                    "category": "thought",
                     "content_type": "thought",
                     "key_claims": ["Strict generation wins."],
                     "entities": ["ClawSQLite"],
@@ -265,7 +266,7 @@ class StrictIngestConfigTests(unittest.TestCase):
             with sqlite3.connect(root / "knowledge.sqlite3") as conn:
                 conn.row_factory = sqlite3.Row
                 row = conn.execute("SELECT title, tags, category FROM articles WHERE id=1").fetchone()
-        self.assertEqual(row["title"], "Human hint title")
+        self.assertEqual(row["title"], "Generated title")
         self.assertEqual(row["category"], "thought")
         self.assertEqual(row["tags"], "sqlite,agent,config,strict,summary,embedding,search,knowledge")
         self.assertNotIn("manual", row["tags"])
@@ -282,6 +283,7 @@ class StrictIngestConfigTests(unittest.TestCase):
                     "summary": "Generated summary",
                     "tags": ["sqlite", "agent"],
                     "generation_quality": "llm",
+                    "category": "note",
                     "content_type": "note",
                     "key_claims": [],
                     "entities": [],
@@ -304,6 +306,7 @@ class StrictIngestConfigTests(unittest.TestCase):
                     "summary": "Generated summary",
                     "tags": ["sqlite", "agent", "config", "strict", "summary", "embedding", "search", "knowledge"],
                     "generation_quality": "llm",
+                    "category": "misc",
                     "content_type": "misc",
                     "key_claims": [],
                     "entities": [],
@@ -313,6 +316,29 @@ class StrictIngestConfigTests(unittest.TestCase):
             code, _, err = self._run_cli(["ingest", "--text", "Body", "--json"])
         self.assertEqual(code, 2)
         self.assertIn("ERROR_KIND: category_invalid", err)
+
+    def test_strict_ingest_rejects_generic_generated_title(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "kb"
+            config_path = write_knowledge_config(root, require_llm=True, require_embedding=False)
+            self._run_cwd = root
+
+            def fake_generate(*args, **kwargs):
+                return {
+                    "title": "untitled",
+                    "summary": "Generated summary",
+                    "tags": ["sqlite", "agent", "config", "strict", "summary", "embedding", "search", "knowledge"],
+                    "generation_quality": "llm",
+                    "category": "note",
+                    "content_type": "note",
+                    "key_claims": [],
+                    "entities": [],
+                }
+
+            kcli.generate_fields = fake_generate
+            code, _, err = self._run_cli(["ingest", "--text", "Body", "--json"])
+        self.assertEqual(code, 4)
+        self.assertIn("ERROR_KIND: title_invalid", err)
 
     def test_doctor_reports_toml_api_key_completeness(self):
         with _tempdir() as tmpdir:
@@ -327,6 +353,27 @@ class StrictIngestConfigTests(unittest.TestCase):
         self.assertTrue(report["llm"]["has_api_key"])
         self.assertTrue(report["embedding"]["configured"])
         self.assertTrue(report["embedding"]["has_api_key"])
+        names = [c["name"] for c in report["checks"]]
+        self.assertIn("llm_config", names)
+        self.assertIn("embedding_config", names)
+        self.assertNotIn("llm_roundtrip", names)
+        self.assertNotIn("embedding_roundtrip", names)
+        self.assertFalse(report["roundtrip"]["llm_checked"])
+        self.assertFalse(report["roundtrip"]["embedding_checked"])
+
+    def test_doctor_roundtrip_checks_are_explicit(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "kb"
+            config_path = write_knowledge_config(root, require_llm=True, require_embedding=True, llm_api_key="")
+            self._run_cwd = root
+            code, out, err = self._run_cli(["doctor", "--check-llm", "--json"])
+
+        self.assertEqual(code, 0, err)
+        report = json.loads(out)
+        names = [c["name"] for c in report["checks"]]
+        self.assertIn("llm_config", names)
+        self.assertIn("llm_roundtrip", names)
+        self.assertTrue(report["roundtrip"]["llm_checked"])
 
     def test_reindex_fix_missing_respects_strict_llm_policy(self):
         with _tempdir() as tmpdir:

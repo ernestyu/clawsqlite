@@ -85,9 +85,20 @@ clawsqlite knowledge ingest \
 
 Manual tags are hints only. Use `--tags-hint` when you want to give the
 generator extra context; do not treat it as stored metadata in strict mode.
+Likewise, `--title` and `--category` are hints during strict LLM ingest. The
+stored title, tags, category, and content type must come from the configured LLM.
 Successful JSON output includes `config_path`, `root`, `db`, `articles_dir`,
 `generation_quality`, and `embedding_enabled`; check these fields before telling
 the user where data was written.
+
+Doctor is lightweight by default:
+
+```bash
+clawsqlite knowledge doctor --json
+```
+
+Only pass `--check-llm` or `--check-embedding` when the user explicitly wants a
+provider roundtrip check.
 
 Search:
 

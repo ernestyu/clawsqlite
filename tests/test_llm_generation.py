@@ -36,6 +36,7 @@ class LLMGenerationTests(unittest.TestCase):
                 "tags": ["sqlite", "agent", "knowledge", "config", "llm", "ingest", "summary", "search"],
                 "key_claims": ["Uses one LLM call."],
                 "entities": ["ClawSQLite"],
+                "category": "note",
                 "content_type": "note",
             }
 
@@ -51,10 +52,11 @@ class LLMGenerationTests(unittest.TestCase):
         )
 
         self.assertEqual(fields["generation_quality"], "llm")
-        self.assertEqual(fields["summary"], "Fitted summary")
+        self.assertEqual(fields["summary"], "short article body")
         self.assertEqual(len(prompts), 1)
         self.assertIn("summary target length: about 321 characters", prompts[0])
         self.assertIn("tags: exactly 8 short tags", prompts[0])
+        self.assertIn("category and content_type must be identical", prompts[0])
         self.assertNotIn("Summarize one chunk", prompts[0])
 
     def test_llm_generation_chunks_when_content_exceeds_context_budget(self):
@@ -71,6 +73,7 @@ class LLMGenerationTests(unittest.TestCase):
                 "tags": ["sqlite", "agent", "knowledge", "config", "chunking", "summary", "search", "llm"],
                 "key_claims": ["Chunks are synthesized."],
                 "entities": ["ClawSQLite"],
+                "category": "web_article",
                 "content_type": "web_article",
             }
 
@@ -94,6 +97,29 @@ class LLMGenerationTests(unittest.TestCase):
         self.assertEqual(len(final_prompts), 1)
         self.assertIn("Target summary length: about 300 characters", chunk_prompts[0])
         self.assertIn("summary target length: about 321 characters", final_prompts[0])
+
+    def test_llm_generation_rejects_generic_title(self):
+        self._enable_fake_llm()
+
+        def fake_call(prompt: str, *, timeout: int = 60):
+            return {
+                "title": "untitled",
+                "summary": "Generated summary",
+                "tags": ["sqlite", "agent", "knowledge", "config", "llm", "ingest", "summary", "search"],
+                "key_claims": ["Reject generic title."],
+                "entities": ["ClawSQLite"],
+                "category": "note",
+                "content_type": "note",
+            }
+
+        genmod._call_small_llm_json = fake_call
+        with self.assertRaises(RuntimeError):
+            genmod.generate_fields(
+                "short article body",
+                hint_title=None,
+                provider="llm",
+                allow_heuristic=False,
+            )
 
     def test_llm_required_raises_when_small_llm_env_is_missing(self):
         for key in ["SMALL_LLM_MODEL", "SMALL_LLM_BASE_URL", "SMALL_LLM_API_KEY"]:
