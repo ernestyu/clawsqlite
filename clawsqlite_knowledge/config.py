@@ -117,10 +117,9 @@ def find_config_path(start: Optional[Path] = None) -> Optional[Path]:
     cur = (start or Path.cwd()).resolve()
     if cur.is_file():
         cur = cur.parent
-    for path in [cur, *cur.parents]:
-        candidate = path / CONFIG_FILENAME
-        if candidate.exists():
-            return candidate
+    candidate = cur / CONFIG_FILENAME
+    if candidate.exists():
+        return candidate
     return None
 
 
@@ -139,8 +138,8 @@ def load_knowledge_config(
     cfg_path = find_config_path()
     if cfg_path is None:
         raise ConfigError(
-            "clawsqlite.toml not found. Run from the project root, or a directory inside it, "
-            "so the Knowledge CLI can read the root clawsqlite.toml."
+            "clawsqlite.toml not found in the current component root. "
+            "Run from the directory that contains clawsqlite.toml, or create one with init-config."
         )
 
     try:

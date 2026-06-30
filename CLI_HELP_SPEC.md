@@ -15,8 +15,8 @@ Common flags are accepted before or after the subcommand:
 - `--json`
 - `--verbose`
 
-Knowledge commands require the project-root `clawsqlite.toml` by default.
-They find it by walking upward from the current working directory. `init-config`
+Knowledge commands require `./clawsqlite.toml` in the current component root by default.
+They do not search parent directories. `init-config`
 is the only command that does not require an existing config.
 
 ## Commands

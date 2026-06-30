@@ -45,14 +45,14 @@ class KnowledgeConfigTomlTests(unittest.TestCase):
         os.environ.clear()
         os.environ.update(self._env)
 
-    def test_find_config_walks_up_from_cwd(self):
+    def test_find_config_uses_only_current_component_root(self):
         with _tempdir() as tmpdir:
             root = tmpdir / "kb"
             config_path = write_knowledge_config(root)
             nested = root / "a" / "b"
             nested.mkdir(parents=True)
-            found = find_config_path(nested)
-            self.assertEqual(found, config_path)
+            self.assertEqual(find_config_path(root), config_path)
+            self.assertIsNone(find_config_path(nested))
 
     def test_load_config_resolves_paths_and_policy(self):
         with _tempdir() as tmpdir:

@@ -37,9 +37,9 @@ Knowledge 命令默认会读取 `clawsqlite.toml`。不要让 Agent 猜数据库
 可以直接放真实 API key。`clawsqlite.toml.example` 只是公开示例模板，
 里面只应该保留占位值和说明。
 
-配置查找只有一条规则：Knowledge 命令会从当前目录向上查找最近的
-`clawsqlite.toml`，该文件所在目录就是项目根。没有额外的配置路径环境变量，
-也没有 CLI 配置覆盖入口。
+配置查找只有一条规则：Knowledge 命令只读取当前 component root 下的
+`./clawsqlite.toml`。直接使用时当前目录应是 clawsqlite repo 根目录；通过
+OpenClaw/ClawHub 使用时当前目录应是 skill 目录。不会向父目录搜索，也没有 CLI 配置覆盖入口。
 
 创建模板：
 
@@ -289,10 +289,11 @@ clawsqlite knowledge maintenance prune --days 3 --dry-run
 - 不要无声降级生成标签；
 - 只有用户明确允许时才加 `--allow-heuristic` 或 `--allow-missing-embedding`。
 
-本仓库也提供一个很薄的 ClawHub/OpenClaw Skill 适配层：
+本仓库也提供一个很薄的 ClawHub/OpenClaw Skill 说明层：
 [skills/clawsqlite-knowledge](skills/clawsqlite-knowledge/SKILL.md)。
-它只开放 `ingest_url`、`ingest_text`、`search`、`show`、`doctor`，并把 JSON 请求转换为
-`clawsqlite knowledge` 调用；不直接读数据库，不生成标签，不猜路径，也不默认降级。
+Agent 应先 `cd` 到该 skill 目录，把它作为 component root，然后直接运行
+`clawsqlite knowledge ...`；Skill 不提供额外运行时脚本，不直接读数据库，
+不生成标签，不猜路径，也不默认降级。
 
 ---
 

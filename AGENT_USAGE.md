@@ -2,9 +2,9 @@
 
 This file is for AI Agents using `clawsqlite knowledge ...`.
 
-For ClawHub/OpenClaw integration, use the thin skill adapter in
-`skills/clawsqlite-knowledge/`. It follows the same rules and delegates core
-behavior to `clawsqlite knowledge`.
+For ClawHub/OpenClaw integration, use the thin skill instructions in
+`skills/clawsqlite-knowledge/`. The Agent should run `clawsqlite knowledge`
+directly from that skill directory.
 
 ## First Rule
 
@@ -15,9 +15,10 @@ Treat `clawsqlite.toml` as the local private source of truth. It should contain
 the real root/db/articles paths plus LLM, embedding, scraper, and ingest policy
 values. Do not split LLM or embedding API keys into a second environment layer.
 
-Knowledge commands find the nearest `clawsqlite.toml` by walking upward from the
-current working directory. The directory containing that file is the project
-root. There is no separate config-path override.
+Knowledge commands read only `./clawsqlite.toml` from the current component root.
+The current working directory is the component root: the repo root for direct
+CLI use, or the skill directory for OpenClaw/ClawHub use. There is no parent
+directory search and no config-path override.
 
 If config is missing, stop and report the `ERROR_KIND: config_required` message.
 If `doctor --json` reports missing `[llm].api_key` or `[embedding].api_key`,

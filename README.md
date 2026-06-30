@@ -183,10 +183,10 @@ Treat `clawsqlite.toml` as the local private source of truth. The checked-in
 `clawsqlite.toml.example` is only a public template with placeholders; the real
 `clawsqlite.toml` is ignored by git and may contain real API keys.
 
-Config lookup is intentionally single-source: Knowledge commands find the
-nearest `clawsqlite.toml` by walking upward from the current working directory.
-The directory containing that file is the project root. There is no separate
-config-path environment variable or CLI config override.
+Config lookup is intentionally single-source: Knowledge commands read only `./clawsqlite.toml` from the current component root.
+The current working directory is the component root: the repo root for direct
+CLI use, or the skill directory for OpenClaw/ClawHub use. There is no parent
+directory search and no config-path override.
 
 Create a template:
 
@@ -526,7 +526,7 @@ most one active record.
 
 ## 6. CLI Overview
 
-All Knowledge commands read the project-root `clawsqlite.toml` before resolving
+All Knowledge commands read `./clawsqlite.toml` from the current component root before resolving
 paths. Common flags include `--json` and `--verbose`.
 Run `clawsqlite knowledge <command> --help` for full details.
 
@@ -578,7 +578,7 @@ All read/update/delete style commands **check that the DB file exists** before o
 - If `clawsqlite.toml` points to a non‑existent DB path, they report:
 
   ```text
-  ERROR: db not found at /path/to/db. Check project-root clawsqlite.toml.
+  ERROR: db not found at /path/to/db. Check current component-root clawsqlite.toml.
   ```
 
   instead of silently creating an empty DB and then failing with `id not found`.
@@ -797,16 +797,15 @@ current format is stable and works well with existing tools.
 
 ---
 
-## 8. ClawHub Skill Adapter
+## 8. ClawHub Skill Wrapper
 
-This repo includes a thin ClawHub/OpenClaw skill adapter under
+This repo includes thin ClawHub/OpenClaw skill instructions under
 [skills/clawsqlite-knowledge](skills/clawsqlite-knowledge/SKILL.md).
 
-It exposes only conservative Agent actions: `ingest_url`, `ingest_text`,
-`search`, `show`, and `doctor`. It does not implement knowledge-base logic,
-does not read the database directly, and does not guess paths. It relies on the
-project-root `clawsqlite.toml`; strict ingest and error semantics remain owned
-by `clawsqlite knowledge`.
+The skill does not ship a runtime JSON wrapper. Agents should `cd` to the skill
+directory, treat that directory as the component root, and run
+`clawsqlite knowledge ...` directly. Core logic, strict ingest, config loading,
+and error semantics remain owned by `clawsqlite knowledge`.
 
 ## 9. Chinese Documentation
 

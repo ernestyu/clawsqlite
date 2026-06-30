@@ -10,9 +10,9 @@ remain configuration-agnostic.
 
 ## Configuration
 
-Knowledge commands find the nearest `clawsqlite.toml` by walking upward from
-the current working directory. The directory containing that file is the project
-root and the file is the only Knowledge configuration source.
+Knowledge commands read only `./clawsqlite.toml` from the current component root.
+They do not search parent directories, and this file is the only Knowledge
+configuration source.
 
 Create a template:
 
