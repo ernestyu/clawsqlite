@@ -518,6 +518,40 @@ def _config_report(config: Optional[KnowledgeConfig]) -> Dict[str, Any]:
             "has_api_key": bool(config.embedding.resolved_api_key),
             "dim": config.embedding.dim,
         },
+        "fts": {
+            "jieba": config.fts.jieba,
+        },
+        "search": {
+            "query_tag_min": config.search.query_tag_min,
+            "query_tag_max": config.search.query_tag_max,
+            "weights": {
+                "mode1": config.search.weights_mode1,
+                "mode2": config.search.weights_mode2,
+                "mode3": config.search.weights_mode3,
+                "mode4": config.search.weights_mode4,
+            },
+            "tag_vec_fraction": config.search.tag_vec_fraction,
+            "tag_fts_log_alpha": config.search.tag_fts_log_alpha,
+        },
+        "interest": {
+            "cluster_algo": config.interest.cluster_algo,
+            "tag_weight": config.interest.tag_weight,
+            "use_pca": config.interest.use_pca,
+            "pca_explained_variance_threshold": config.interest.pca_explained_variance_threshold,
+            "min_size": config.interest.min_size,
+            "max_clusters": config.interest.max_clusters,
+            "kmeans_random_state": config.interest.kmeans_random_state,
+            "kmeans_n_init": config.interest.kmeans_n_init,
+            "kmeans_max_iter": config.interest.kmeans_max_iter,
+            "enable_post_merge": config.interest.enable_post_merge,
+            "merge_distance_threshold": config.interest.merge_distance_threshold,
+            "hierarchical_linkage": config.interest.hierarchical_linkage,
+            "hierarchical_distance_threshold": config.interest.hierarchical_distance_threshold,
+            "merge_alpha": config.interest.merge_alpha,
+        },
+        "report": {
+            "lang": config.report.lang,
+        },
     }
 
 

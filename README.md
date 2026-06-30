@@ -240,6 +240,62 @@ model = "your-embedding-model"
 api_key = ""  # fill in the real key in your private clawsqlite.toml
 dim = 1024
 content = "summary"
+
+[fts]
+jieba = "auto"
+
+[search.query]
+tag_min = 8
+tag_max = 12
+
+[search.weights.mode1] # LLM + Embedding
+vec = 0.45
+fts = 0.25
+tag = 0.15
+priority = 0.03
+recency = 0.02
+
+[search.weights.mode2] # LLM + no Embedding
+fts = 0.60
+tag = 0.25
+priority = 0.08
+recency = 0.07
+
+[search.weights.mode3] # no LLM + Embedding
+vec = 0.45
+fts = 0.25
+tag = 0.15
+priority = 0.03
+recency = 0.02
+
+[search.weights.mode4] # no LLM + no Embedding
+fts = 0.60
+tag = 0.25
+priority = 0.08
+recency = 0.07
+
+[search.tag]
+vec_fraction = 0.70
+fts_log_alpha = 5.0
+
+[interest]
+cluster_algo = "kmeans++"
+tag_weight = 0.75
+use_pca = true
+pca_explained_variance_threshold = 0.95
+min_size = 8
+max_clusters = 50
+kmeans_random_state = 42
+kmeans_n_init = 10
+kmeans_max_iter = 300
+enable_post_merge = true
+merge_distance_threshold = 0.06
+hierarchical_linkage = "average"
+hierarchical_distance_threshold = 0.20
+merge_alpha = 0.40
+
+[report]
+lang = "en"
 ```
 
 Relative `root` is resolved relative to the config file. Relative `db` and
@@ -361,8 +417,8 @@ ranking toward both semantic search and tags. The approximate shape is:
 - small priority/recency bonuses
 
 Search and ranking are Knowledge features. User-facing configuration for these
-should be kept in `clawsqlite.toml` as the product evolves, not in a separate
-environment example file.
+live in `clawsqlite.toml` under `[search.query]`, `[search.weights.*]`, and
+`[search.tag]`.
 
 ### 4.6 Scraper configuration
 

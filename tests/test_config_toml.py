@@ -108,6 +108,73 @@ class KnowledgeConfigTomlTests(unittest.TestCase):
             self.assertNotIn("SMALL_LLM_API_KEY", os.environ)
             self.assertNotIn("EMBEDDING_API_KEY", os.environ)
 
+    def test_search_interest_and_report_config_apply_to_runtime(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "kb"
+            config_path = write_knowledge_config(root)
+            with config_path.open("a", encoding="utf-8") as f:
+                f.write(
+                    """
+
+[fts]
+jieba = "on"
+
+[search.query]
+tag_min = 6
+tag_max = 9
+
+[search.weights.mode1]
+vec = 0.30
+fts = 0.10
+tag = 0.55
+priority = 0.03
+recency = 0.02
+
+[search.tag]
+vec_fraction = 0.82
+fts_log_alpha = 3.5
+
+[interest]
+cluster_algo = "hierarchical"
+tag_weight = 0.66
+use_pca = false
+pca_explained_variance_threshold = 0.90
+min_size = 4
+max_clusters = 22
+kmeans_random_state = 7
+kmeans_n_init = 3
+kmeans_max_iter = 111
+enable_post_merge = false
+merge_distance_threshold = 0.07
+hierarchical_linkage = "complete"
+hierarchical_distance_threshold = 0.18
+merge_alpha = 0.33
+
+[report]
+lang = "zh"
+""",
+                )
+
+            with _cwd(root):
+                cfg = load_knowledge_config()
+            apply_config_env(cfg)
+
+        self.assertEqual(cfg.fts.jieba, "on")
+        self.assertEqual(cfg.search.query_tag_min, 6)
+        self.assertEqual(cfg.search.query_tag_max, 9)
+        self.assertAlmostEqual(cfg.search.weights_mode1["tag"], 0.55)
+        self.assertEqual(cfg.interest.cluster_algo, "hierarchical")
+        self.assertFalse(cfg.interest.use_pca)
+        self.assertEqual(cfg.report.lang, "zh")
+        self.assertEqual(os.environ["CLAWSQLITE_FTS_JIEBA"], "on")
+        self.assertEqual(os.environ["CLAWSQLITE_SEARCH_QUERY_TAG_MIN"], "6")
+        self.assertEqual(os.environ["CLAWSQLITE_SEARCH_QUERY_TAG_MAX"], "9")
+        self.assertIn("tag=0.55", os.environ["CLAWSQLITE_SCORE_WEIGHTS_MODE1"])
+        self.assertEqual(os.environ["CLAWSQLITE_TAG_VEC_FRACTION"], "0.82")
+        self.assertEqual(os.environ["CLAWSQLITE_INTEREST_CLUSTER_ALGO"], "hierarchical")
+        self.assertEqual(os.environ["CLAWSQLITE_INTEREST_USE_PCA"], "false")
+        self.assertEqual(os.environ["CLAWSQLITE_REPORT_LANG"], "zh")
+
     def test_relative_root_resolves_from_config_directory(self):
         with _tempdir() as tmpdir:
             project = tmpdir / "project"

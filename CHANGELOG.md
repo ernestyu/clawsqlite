@@ -22,6 +22,9 @@ without strict version tagging yet. Entries are grouped by date + topic.
   implementation) from `skills/clawsqlite-knowledge/` (thin Agent-facing skill
   instructions).
 - The Knowledge CLI no longer auto-loads dot-env files.
+- Search, FTS, interest clustering, and report defaults that were formerly
+  documented in the separate environment example are now represented in
+  `clawsqlite.toml.example` and the `init-config` template.
 
 ---
 

@@ -7,7 +7,7 @@ Plumbing commands stay generic and do not read clawsqlite.toml.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -58,6 +58,18 @@ def _int_value(value: Any, default: int, *, lo: int = 1) -> int:
     return max(lo, out)
 
 
+def _float_value(value: Any, default: float, *, lo: Optional[float] = None, hi: Optional[float] = None) -> float:
+    try:
+        out = float(value)
+    except Exception:
+        out = default
+    if lo is not None and out < lo:
+        out = lo
+    if hi is not None and out > hi:
+        out = hi
+    return out
+
+
 def _choice_value(value: Any, default: str, allowed: set[str], *, name: str) -> str:
     out = str(value or default).strip().lower()
     if out not in allowed:
@@ -82,6 +94,26 @@ def _string_list_value(value: Any, default: tuple[str, ...], *, name: str) -> tu
     if not out:
         raise ConfigError(f"{name} must contain at least one category")
     return tuple(out)
+
+
+def _weights_value(value: Any, default: Dict[str, float], *, name: str) -> Dict[str, float]:
+    if value is None:
+        return dict(default)
+    if not isinstance(value, dict):
+        raise ConfigError(f"{name} must be a TOML table")
+    out: Dict[str, float] = {}
+    for key in default:
+        if key not in value:
+            raise ConfigError(f"{name} missing weight: {key}")
+        out[key] = _float_value(value.get(key), default[key], lo=0.0)
+    total = sum(out.values())
+    if total <= 0:
+        raise ConfigError(f"{name} weights must sum to a positive value")
+    return out
+
+
+def _format_weights(weights: Dict[str, float]) -> str:
+    return ",".join(f"{key}={float(value):g}" for key, value in weights.items())
 
 
 @dataclass(frozen=True)
@@ -135,6 +167,46 @@ class ScraperConfig:
 
 
 @dataclass(frozen=True)
+class FTSConfig:
+    jieba: str = "auto"
+
+
+@dataclass(frozen=True)
+class SearchConfig:
+    query_tag_min: int = 8
+    query_tag_max: int = 12
+    weights_mode1: Dict[str, float] = field(default_factory=lambda: {"vec": 0.45, "fts": 0.25, "tag": 0.15, "priority": 0.03, "recency": 0.02})
+    weights_mode2: Dict[str, float] = field(default_factory=lambda: {"fts": 0.60, "tag": 0.25, "priority": 0.08, "recency": 0.07})
+    weights_mode3: Dict[str, float] = field(default_factory=lambda: {"vec": 0.45, "fts": 0.25, "tag": 0.15, "priority": 0.03, "recency": 0.02})
+    weights_mode4: Dict[str, float] = field(default_factory=lambda: {"fts": 0.60, "tag": 0.25, "priority": 0.08, "recency": 0.07})
+    tag_vec_fraction: float = 0.70
+    tag_fts_log_alpha: float = 5.0
+
+
+@dataclass(frozen=True)
+class InterestConfig:
+    cluster_algo: str = "kmeans++"
+    tag_weight: float = 0.75
+    use_pca: bool = True
+    pca_explained_variance_threshold: float = 0.95
+    min_size: int = 8
+    max_clusters: int = 50
+    kmeans_random_state: int = 42
+    kmeans_n_init: int = 10
+    kmeans_max_iter: int = 300
+    enable_post_merge: bool = True
+    merge_distance_threshold: float = 0.06
+    hierarchical_linkage: str = "average"
+    hierarchical_distance_threshold: float = 0.20
+    merge_alpha: float = 0.40
+
+
+@dataclass(frozen=True)
+class ReportConfig:
+    lang: str = "en"
+
+
+@dataclass(frozen=True)
 class KnowledgeConfig:
     config_path: str
     root: str
@@ -144,6 +216,10 @@ class KnowledgeConfig:
     llm: LLMConfig
     embedding: EmbeddingConfig
     scraper: ScraperConfig
+    fts: FTSConfig
+    search: SearchConfig
+    interest: InterestConfig
+    report: ReportConfig
 
 
 def find_config_path(start: Optional[Path] = None) -> Optional[Path]:
@@ -187,6 +263,10 @@ def load_knowledge_config(
     llm = data.get("llm") or {}
     embedding = data.get("embedding") or {}
     scraper = data.get("scraper") or {}
+    fts = data.get("fts") or {}
+    search = data.get("search") or {}
+    interest = data.get("interest") or {}
+    report = data.get("report") or {}
 
     root_text = str(knowledge.get("root") or "").strip()
     if not root_text:
@@ -235,6 +315,47 @@ def load_knowledge_config(
 
     scraper_cfg = ScraperConfig(cmd=str(scraper.get("cmd") or "").strip())
 
+    fts_cfg = FTSConfig(
+        jieba=_choice_value(fts.get("jieba"), "auto", {"auto", "on", "off"}, name="[fts].jieba"),
+    )
+
+    search_query = search.get("query") or {}
+    search_tag = search.get("tag") or {}
+    search_weights = search.get("weights") or {}
+    embed_defaults = {"vec": 0.45, "fts": 0.25, "tag": 0.15, "priority": 0.03, "recency": 0.02}
+    text_defaults = {"fts": 0.60, "tag": 0.25, "priority": 0.08, "recency": 0.07}
+    search_cfg = SearchConfig(
+        query_tag_min=_int_value(search_query.get("tag_min"), 8, lo=1),
+        query_tag_max=_int_value(search_query.get("tag_max"), 12, lo=1),
+        weights_mode1=_weights_value(search_weights.get("mode1"), embed_defaults, name="[search.weights.mode1]"),
+        weights_mode2=_weights_value(search_weights.get("mode2"), text_defaults, name="[search.weights.mode2]"),
+        weights_mode3=_weights_value(search_weights.get("mode3"), embed_defaults, name="[search.weights.mode3]"),
+        weights_mode4=_weights_value(search_weights.get("mode4"), text_defaults, name="[search.weights.mode4]"),
+        tag_vec_fraction=_float_value(search_tag.get("vec_fraction"), 0.70, lo=0.0, hi=1.0),
+        tag_fts_log_alpha=_float_value(search_tag.get("fts_log_alpha"), 5.0, lo=0.0),
+    )
+
+    interest_cfg = InterestConfig(
+        cluster_algo=_choice_value(interest.get("cluster_algo"), "kmeans++", {"kmeans++", "hierarchical"}, name="[interest].cluster_algo"),
+        tag_weight=_float_value(interest.get("tag_weight"), 0.75, lo=0.0, hi=1.0),
+        use_pca=_bool_value(interest.get("use_pca"), True),
+        pca_explained_variance_threshold=_float_value(interest.get("pca_explained_variance_threshold"), 0.95, lo=0.0, hi=1.0),
+        min_size=_int_value(interest.get("min_size"), 8, lo=1),
+        max_clusters=_int_value(interest.get("max_clusters"), 50, lo=1),
+        kmeans_random_state=_int_value(interest.get("kmeans_random_state"), 42, lo=0),
+        kmeans_n_init=_int_value(interest.get("kmeans_n_init"), 10, lo=1),
+        kmeans_max_iter=_int_value(interest.get("kmeans_max_iter"), 300, lo=1),
+        enable_post_merge=_bool_value(interest.get("enable_post_merge"), True),
+        merge_distance_threshold=_float_value(interest.get("merge_distance_threshold"), 0.06, lo=0.0),
+        hierarchical_linkage=_choice_value(interest.get("hierarchical_linkage"), "average", {"average", "complete"}, name="[interest].hierarchical_linkage"),
+        hierarchical_distance_threshold=_float_value(interest.get("hierarchical_distance_threshold"), 0.20, lo=0.0),
+        merge_alpha=_float_value(interest.get("merge_alpha"), 0.40, lo=0.0),
+    )
+
+    report_cfg = ReportConfig(
+        lang=_choice_value(report.get("lang"), "en", {"en", "zh"}, name="[report].lang"),
+    )
+
     return KnowledgeConfig(
         config_path=str(cfg_path.resolve()),
         root=str(root),
@@ -244,6 +365,10 @@ def load_knowledge_config(
         llm=llm_cfg,
         embedding=emb_cfg,
         scraper=scraper_cfg,
+        fts=fts_cfg,
+        search=search_cfg,
+        interest=interest_cfg,
+        report=report_cfg,
     )
 
 
@@ -286,3 +411,30 @@ def apply_config_env(config: KnowledgeConfig) -> None:
         os.environ["CLAWSQLITE_SCRAPE_CMD"] = config.scraper.cmd
     else:
         os.environ.pop("CLAWSQLITE_SCRAPE_CMD", None)
+
+    os.environ["CLAWSQLITE_FTS_JIEBA"] = config.fts.jieba
+    os.environ["CLAWSQLITE_SEARCH_QUERY_TAG_MIN"] = str(config.search.query_tag_min)
+    os.environ["CLAWSQLITE_SEARCH_QUERY_TAG_MAX"] = str(config.search.query_tag_max)
+    os.environ["CLAWSQLITE_SCORE_WEIGHTS_MODE1"] = _format_weights(config.search.weights_mode1)
+    os.environ["CLAWSQLITE_SCORE_WEIGHTS_MODE2"] = _format_weights(config.search.weights_mode2)
+    os.environ["CLAWSQLITE_SCORE_WEIGHTS_MODE3"] = _format_weights(config.search.weights_mode3)
+    os.environ["CLAWSQLITE_SCORE_WEIGHTS_MODE4"] = _format_weights(config.search.weights_mode4)
+    os.environ["CLAWSQLITE_TAG_VEC_FRACTION"] = str(config.search.tag_vec_fraction)
+    os.environ["CLAWSQLITE_TAG_FTS_LOG_ALPHA"] = str(config.search.tag_fts_log_alpha)
+
+    os.environ["CLAWSQLITE_INTEREST_CLUSTER_ALGO"] = config.interest.cluster_algo
+    os.environ["CLAWSQLITE_INTEREST_TAG_WEIGHT"] = str(config.interest.tag_weight)
+    os.environ["CLAWSQLITE_INTEREST_USE_PCA"] = "true" if config.interest.use_pca else "false"
+    os.environ["CLAWSQLITE_INTEREST_PCA_EXPLAINED_VARIANCE_THRESHOLD"] = str(config.interest.pca_explained_variance_threshold)
+    os.environ["CLAWSQLITE_INTEREST_MIN_SIZE"] = str(config.interest.min_size)
+    os.environ["CLAWSQLITE_INTEREST_MAX_CLUSTERS"] = str(config.interest.max_clusters)
+    os.environ["CLAWSQLITE_INTEREST_KMEANS_RANDOM_STATE"] = str(config.interest.kmeans_random_state)
+    os.environ["CLAWSQLITE_INTEREST_KMEANS_N_INIT"] = str(config.interest.kmeans_n_init)
+    os.environ["CLAWSQLITE_INTEREST_KMEANS_MAX_ITER"] = str(config.interest.kmeans_max_iter)
+    os.environ["CLAWSQLITE_INTEREST_ENABLE_POST_MERGE"] = "true" if config.interest.enable_post_merge else "false"
+    os.environ["CLAWSQLITE_INTEREST_MERGE_DISTANCE"] = str(config.interest.merge_distance_threshold)
+    os.environ["CLAWSQLITE_INTEREST_HIERARCHICAL_LINKAGE"] = config.interest.hierarchical_linkage
+    os.environ["CLAWSQLITE_INTEREST_HIERARCHICAL_DISTANCE_THRESHOLD"] = str(config.interest.hierarchical_distance_threshold)
+    os.environ["CLAWSQLITE_INTEREST_MERGE_ALPHA"] = str(config.interest.merge_alpha)
+
+    os.environ["CLAWSQLITE_REPORT_LANG"] = config.report.lang
