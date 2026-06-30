@@ -9,7 +9,22 @@ def write_knowledge_config(
     *,
     require_llm: bool = False,
     require_embedding: bool = False,
-    summary_target_chars: int = 800,
+    summary_target_chars: int = 3600,
+    tag_count: int = 8,
+    allowed_categories: tuple[str, ...] = (
+        "web_article",
+        "note",
+        "thought",
+        "discussion_summary",
+        "document",
+        "reference",
+        "repo",
+        "paper",
+        "social_post",
+        "web",
+        "dev",
+        "test",
+    ),
     llm_api_key: str = "test-small-llm-key",
     embedding_api_key: str = "test-embedding-key",
 ) -> Path:
@@ -28,6 +43,8 @@ require_embedding = {str(require_embedding).lower()}
 summary_mode = "llm"
 summary_target_chars = {summary_target_chars}
 tags_mode = "llm"
+tag_count = {tag_count}
+allowed_categories = [{", ".join(f'"{x}"' for x in allowed_categories)}]
 fallback = "fail"
 
 [llm]

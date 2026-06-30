@@ -18,6 +18,19 @@ except Exception:  # pragma: no cover - Python 3.10 fallback
 
 
 CONFIG_FILENAME = "clawsqlite.toml"
+DEFAULT_SUMMARY_TARGET_CHARS = 3600
+DEFAULT_TAG_COUNT = 8
+DEFAULT_ALLOWED_CATEGORIES = (
+    "web_article",
+    "note",
+    "thought",
+    "discussion_summary",
+    "document",
+    "reference",
+    "repo",
+    "paper",
+    "social_post",
+)
 
 
 class ConfigError(RuntimeError):
@@ -53,6 +66,24 @@ def _choice_value(value: Any, default: str, allowed: set[str], *, name: str) -> 
     return out
 
 
+def _string_list_value(value: Any, default: tuple[str, ...], *, name: str) -> tuple[str, ...]:
+    if value is None:
+        return default
+    if not isinstance(value, list):
+        raise ConfigError(f"{name} must be a TOML array of strings")
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        s = str(item or "").strip().lower()
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+    if not out:
+        raise ConfigError(f"{name} must contain at least one category")
+    return tuple(out)
+
+
 @dataclass(frozen=True)
 class IngestPolicy:
     require_llm: bool = True
@@ -60,7 +91,9 @@ class IngestPolicy:
     summary_mode: str = "llm"
     tags_mode: str = "llm"
     fallback: str = "fail"
-    summary_target_chars: int = 800
+    summary_target_chars: int = DEFAULT_SUMMARY_TARGET_CHARS
+    tag_count: int = DEFAULT_TAG_COUNT
+    allowed_categories: tuple[str, ...] = DEFAULT_ALLOWED_CATEGORIES
 
 
 @dataclass(frozen=True)
@@ -172,7 +205,13 @@ def load_knowledge_config(
         summary_mode=_choice_value(ingest.get("summary_mode"), "llm", {"llm", "openclaw", "off"}, name="[ingest].summary_mode"),
         tags_mode=_choice_value(ingest.get("tags_mode"), "llm", {"llm", "openclaw", "off"}, name="[ingest].tags_mode"),
         fallback=fallback,
-        summary_target_chars=_int_value(ingest.get("summary_target_chars"), 800, lo=100),
+        summary_target_chars=_int_value(ingest.get("summary_target_chars"), DEFAULT_SUMMARY_TARGET_CHARS, lo=100),
+        tag_count=_int_value(ingest.get("tag_count"), DEFAULT_TAG_COUNT, lo=1),
+        allowed_categories=_string_list_value(
+            ingest.get("allowed_categories"),
+            DEFAULT_ALLOWED_CATEGORIES,
+            name="[ingest].allowed_categories",
+        ),
     )
 
     llm_cfg = LLMConfig(

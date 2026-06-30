@@ -66,6 +66,8 @@ class KnowledgeConfigTomlTests(unittest.TestCase):
             self.assertTrue(cfg.ingest.require_llm)
             self.assertTrue(cfg.ingest.require_embedding)
             self.assertEqual(cfg.ingest.summary_target_chars, 640)
+            self.assertEqual(cfg.ingest.tag_count, 8)
+            self.assertIn("note", cfg.ingest.allowed_categories)
             self.assertEqual(cfg.llm.context_window_chars, 4000)
             self.assertEqual(cfg.llm.resolved_api_key, "test-small-llm-key")
             self.assertEqual(cfg.embedding.resolved_api_key, "test-embedding-key")
@@ -132,6 +134,20 @@ articles_dir = "articles"
             root = tmpdir / "kb"
             config_path = write_knowledge_config(root)
             text = config_path.read_text(encoding="utf-8").replace('fallback = "fail"', 'fallback = "heuristic"')
+            config_path.write_text(text, encoding="utf-8")
+
+            with self.assertRaises(ConfigError):
+                with _cwd(root):
+                    load_knowledge_config()
+
+    def test_config_rejects_empty_allowed_categories(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "kb"
+            config_path = write_knowledge_config(root)
+            text = config_path.read_text(encoding="utf-8").replace(
+                'allowed_categories = ["web_article", "note", "thought", "discussion_summary", "document", "reference", "repo", "paper", "social_post", "web", "dev", "test"]',
+                "allowed_categories = []",
+            )
             config_path.write_text(text, encoding="utf-8")
 
             with self.assertRaises(ConfigError):

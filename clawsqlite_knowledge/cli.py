@@ -56,8 +56,20 @@ articles_dir = "articles"
 require_llm = true
 require_embedding = true
 summary_mode = "llm"
-summary_target_chars = 800
+summary_target_chars = 3600
 tags_mode = "llm"
+tag_count = 8
+allowed_categories = [
+  "web_article",
+  "note",
+  "thought",
+  "discussion_summary",
+  "document",
+  "reference",
+  "repo",
+  "paper",
+  "social_post",
+]
 fallback = "fail"
 
 [llm]
@@ -118,6 +130,42 @@ def _extract_markdown_body(content: str) -> str:
     if idx != -1:
         return content[idx + len(marker) :].lstrip("\r\n")
     return content
+
+def _split_tags(tags: Any) -> List[str]:
+    text = comma_join_tags(tags)
+    if not text:
+        return []
+    out: List[str] = []
+    seen = set()
+    for item in text.split(","):
+        s = item.strip()
+        if not s:
+            continue
+        low = s.lower()
+        if low in seen:
+            continue
+        seen.add(low)
+        out.append(s)
+    return out
+
+def _normalize_category(value: str) -> str:
+    return str(value or "").strip().lower()
+
+def _validate_category(value: str, policy) -> Optional[str]:
+    category = _normalize_category(value)
+    if not category:
+        return "category is empty"
+    allowed = set(policy.allowed_categories)
+    if category not in allowed:
+        allowed_text = ", ".join(policy.allowed_categories)
+        return f"category/content_type must be one of: {allowed_text}"
+    return None
+
+def _validate_strict_generated_tags(tags: str, policy) -> Optional[str]:
+    tag_list = _split_tags(tags)
+    if len(tag_list) != int(policy.tag_count):
+        return f"strict ingest requires exactly {policy.tag_count} LLM-generated tags; got {len(tag_list)}"
+    return None
 
 def _open_for_command(db_path: str, *, need_fts: bool, need_vec: bool, args) -> Any:
     tokenizer_ext = getattr(args, "tokenizer_ext", None)
@@ -204,7 +252,7 @@ def cmd_ingest(args) -> int:
     ensure_dir(paths["articles_dir"])
 
     source_url = args.url or "Local"
-    category = args.category or ""
+    category_hint = args.category or ""
     priority = int(args.priority or 0)
     gen_provider = (args.gen_provider or ("llm" if policy.summary_mode == "llm" or policy.tags_mode == "llm" else "openclaw")).lower()
     allow_heuristic = bool(getattr(args, "allow_heuristic", False))
@@ -237,7 +285,8 @@ def cmd_ingest(args) -> int:
         body_md = args.text
 
     # 2) Fields
-    tags = args.tags or ""
+    tags_hint = getattr(args, "tags_hint", None) or args.tags or ""
+    tags = ""
     summary = (args.summary or "").strip()
     summary_generated = False
     title = hint_title or ""
@@ -247,18 +296,22 @@ def cmd_ingest(args) -> int:
     summary_model = ""
     tags_model = ""
     content_type = "note" if args.text else "web_article"
+    category = _normalize_category(category_hint or content_type)
     key_claims_json = "[]"
     entities_json = "[]"
 
     if gen_provider != "off":
-        need_gen = bool(policy.require_llm) or (not title) or (not summary) or (not tags and not args.tags)
+        need_gen = bool(policy.require_llm) or (not title) or (not summary) or not tags_hint
         if need_gen:
             try:
                 gen = generate_fields(
                     body_md,
                     hint_title=title or None,
+                    hint_tags=tags_hint or None,
                     provider=gen_provider,
                     max_summary_chars=max_summary_chars,
+                    tag_count=policy.tag_count,
+                    allowed_content_types=list(policy.allowed_categories),
                     allow_heuristic=allow_heuristic or not policy.require_llm,
                     llm_context_window_chars=cfg.llm.context_window_chars,
                     llm_prompt_reserved_chars=cfg.llm.prompt_reserved_chars,
@@ -270,13 +323,15 @@ def cmd_ingest(args) -> int:
                 if policy.require_llm or not summary:
                     summary = (gen.get("summary") or "").strip()
                     summary_generated = True
-                if policy.require_llm or (not tags and not args.tags):
+                if policy.require_llm or not tags:
                     tags = comma_join_tags(gen.get("tags"))
                 generation_quality = str(gen.get("generation_quality") or ("llm" if gen_provider == "llm" else "heuristic"))
                 if generation_quality == "llm":
                     summary_model = cfg.llm.model
                     tags_model = cfg.llm.model
-                content_type = str(gen.get("content_type") or content_type)
+                content_type = _normalize_category(str(gen.get("content_type") or content_type))
+                if policy.require_llm and generation_quality == "llm":
+                    category = content_type
                 key_claims_json = json.dumps(gen.get("key_claims") or [], ensure_ascii=False)
                 entities_json = json.dumps(gen.get("entities") or [], ensure_ascii=False)
             except Exception as e:
@@ -292,13 +347,32 @@ def cmd_ingest(args) -> int:
         summary = summary.strip()
     else:
         summary = truncate_text(summary, max_chars=max_summary_chars)
+    if not tags and tags_hint and (gen_provider == "off" or generation_quality in {"", "manual"}):
+        tags = tags_hint
     tags = comma_join_tags(tags)
+    if not generation_quality:
+        generation_quality = "manual"
+    if not category:
+        category = _normalize_category(content_type)
+    category_error = _validate_category(category, policy)
+    if category_error:
+        sys.stderr.write(f"ERROR: {category_error}\n")
+        sys.stderr.write("ERROR_KIND: category_invalid\n")
+        sys.stderr.write("NEXT: update [ingest].allowed_categories in clawsqlite.toml, or use one of the configured categories.\n")
+        return 2
 
     if policy.require_llm and generation_quality != "llm" and not allow_heuristic:
         sys.stderr.write("ERROR: strict ingest requires LLM-generated summary and tags.\n")
         sys.stderr.write("ERROR_KIND: llm_required\n")
         sys.stderr.write("NEXT: configure [llm].base_url/model/api_key in clawsqlite.toml, or pass --allow-heuristic.\n")
         return 2
+    if policy.require_llm and generation_quality == "llm" and not allow_heuristic:
+        tag_error = _validate_strict_generated_tags(tags, policy)
+        if tag_error:
+            sys.stderr.write(f"ERROR: {tag_error}\n")
+            sys.stderr.write("ERROR_KIND: tags_invalid\n")
+            sys.stderr.write("NEXT: adjust the LLM prompt/model or [ingest].tag_count in clawsqlite.toml, then retry.\n")
+            return 4
 
     if policy.require_embedding and not allow_missing_embedding and not embedding_enabled():
         missing = ", ".join(_embedding_missing_keys())
@@ -468,6 +542,11 @@ def cmd_ingest(args) -> int:
             "created_at": created_at,
             "category": category,
             "local_file_path": md_path,
+            "config_path": cfg.config_path,
+            "root": paths["root"],
+            "db": paths["db"],
+            "articles_dir": paths["articles_dir"],
+            "generation_quality": generation_quality,
             "embedding_enabled": embed_on,
         }
         if args.json:
@@ -738,7 +817,7 @@ def cmd_search(args) -> int:
         return 0
     except Exception as e:
         sys.stderr.write(f"ERROR: search failed: {e}\n")
-        sys.stderr.write("NEXT: run 'clawsqlite knowledge search --help' to check mode/filters, and verify embedding env vars when using hybrid/vec.\n")
+        sys.stderr.write("NEXT: run 'clawsqlite knowledge search --help' to check mode/filters, and verify [embedding] in clawsqlite.toml when using hybrid/vec.\n")
         return 4
     finally:
         if conn is not None:
@@ -812,8 +891,11 @@ def cmd_update(args) -> int:
                     gen_cache = generate_fields(
                         content,
                         hint_title=title or None,
+                        hint_tags=tags or None,
                         provider=gen_provider,
                         max_summary_chars=max_summary_chars,
+                        tag_count=cfg.ingest.tag_count,
+                        allowed_content_types=list(cfg.ingest.allowed_categories),
                         allow_heuristic=allow_heuristic or not cfg.ingest.require_llm,
                         llm_context_window_chars=cfg.llm.context_window_chars,
                         llm_prompt_reserved_chars=cfg.llm.prompt_reserved_chars,
@@ -1268,8 +1350,11 @@ def cmd_rebuild_quality(args) -> int:
                 gen = generate_fields(
                     body_md,
                     hint_title=(r["title"] or "") or None,
+                    hint_tags=(r["tags"] or "") or None,
                     provider="llm",
                     max_summary_chars=cfg.ingest.summary_target_chars,
+                    tag_count=cfg.ingest.tag_count,
+                    allowed_content_types=list(cfg.ingest.allowed_categories),
                     allow_heuristic=False,
                     llm_context_window_chars=cfg.llm.context_window_chars,
                     llm_prompt_reserved_chars=cfg.llm.prompt_reserved_chars,
@@ -1538,8 +1623,9 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--text", default=None, help="Raw text content to ingest")
     sp.add_argument("--title", default=None, help="Title override")
     sp.add_argument("--summary", default=None, help="Summary override (long summary)")
-    sp.add_argument("--tags", default=None, help="Tags override (comma-separated)")
-    sp.add_argument("--category", default="", help="Category, e.g. web/github/story")
+    sp.add_argument("--tags-hint", default=None, help="Optional tag hints for the generator (comma-separated)")
+    sp.add_argument("--tags", default=None, help="Deprecated alias for --tags-hint; never overrides strict generated tags")
+    sp.add_argument("--category", default="", help="Category hint; strict LLM ingest stores a configured generated category")
     sp.add_argument("--priority", default=0, type=int, help="Priority (0 default)")
     sp.add_argument("--gen-provider", default=None, choices=["openclaw", "llm", "off"], help="Generator provider override (default from clawsqlite.toml)")
     sp.add_argument("--max-summary-chars", default=None, type=int, help="Summary target/limit override (default from clawsqlite.toml)")

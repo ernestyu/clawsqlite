@@ -4,13 +4,8 @@ Field generator for clawsqlite knowledge.
 
 Provider options:
 - openclaw: default. Do NOT call external small LLM. If caller didn't provide fields, use heuristics.
-- llm: call a small LLM via OpenAI-compatible chat completions API (SMALL_LLM_* env) to generate tags.
+- llm: call a configured small LLM via OpenAI-compatible chat completions API to generate fields.
 - off: do nothing.
-
-Global env vars for small LLM:
-- SMALL_LLM_MODEL
-- SMALL_LLM_BASE_URL
-- SMALL_LLM_API_KEY
 """
 from __future__ import annotations
 
@@ -94,7 +89,7 @@ def _small_llm_enabled() -> bool:
 
 
 def small_llm_enabled() -> bool:
-    """Public helper: whether SMALL_LLM_* search/generation path is usable."""
+    """Public helper: whether the configured runtime LLM path is usable."""
     return _small_llm_enabled()
 
 def _call_small_llm_json(prompt: str, *, timeout: int = 60) -> Dict[str, Any]:
@@ -102,7 +97,7 @@ def _call_small_llm_json(prompt: str, *, timeout: int = 60) -> Dict[str, Any]:
     base_url = os.environ.get("SMALL_LLM_BASE_URL")
     api_key = os.environ.get("SMALL_LLM_API_KEY")
     if not (model and base_url and api_key):
-        raise RuntimeError("Small LLM is not enabled: missing SMALL_LLM_MODEL/BASE_URL/API_KEY")
+        raise RuntimeError("Small LLM is not enabled: configured model/base_url/api_key are incomplete")
     url = _chat_url(base_url)
 
     payload = {
@@ -324,22 +319,30 @@ def _normalize_string_list(value: Any, *, max_items: int) -> List[str]:
     return out
 
 
-def _validate_llm_fields(obj: Dict[str, Any], *, fallback_title: str, min_tags: int = 5) -> Dict[str, Any]:
+def _validate_llm_fields(
+    obj: Dict[str, Any],
+    *,
+    fallback_title: str,
+    tag_count: int = 8,
+    allowed_content_types: Optional[List[str]] = None,
+) -> Dict[str, Any]:
     title = str(obj.get("title") or fallback_title or "").strip()
     summary = str(obj.get("summary") or "").strip()
-    tags = _normalize_tags(obj.get("tags", []), max_tags=12)
+    tags = _normalize_tags(obj.get("tags", []), max_tags=max(1, tag_count))
     key_claims = _normalize_string_list(obj.get("key_claims", []), max_items=12)
     entities = _normalize_string_list(obj.get("entities", []), max_items=20)
     content_type = str(obj.get("content_type") or "web_article").strip().lower()
-    if content_type not in _CONTENT_TYPES:
-        content_type = "web_article"
+    allowed = set(allowed_content_types or sorted(_CONTENT_TYPES))
+    if content_type not in allowed:
+        allowed_text = ", ".join(sorted(allowed))
+        raise RuntimeError(f"LLM generation failed validation: content_type must be one of: {allowed_text}")
 
     if not title:
         raise RuntimeError("LLM generation failed validation: title is empty")
     if not summary:
         raise RuntimeError("LLM generation failed validation: summary is empty")
-    if len(tags) < min_tags:
-        raise RuntimeError("LLM generation failed validation: too few tags")
+    if len(tags) != tag_count:
+        raise RuntimeError(f"LLM generation failed validation: expected exactly {tag_count} tags")
 
     return {
         "title": title,
@@ -355,32 +358,44 @@ def _llm_fields_once(
     content: str,
     *,
     hint_title: Optional[str],
+    hint_tags: Optional[str],
     summary_target_chars: int,
+    tag_count: int,
+    allowed_content_types: Optional[List[str]],
     timeout: int,
     source_is_chunk_summaries: bool = False,
 ) -> Dict[str, Any]:
     title_hint = (hint_title or "").strip()
+    tags_hint = (hint_tags or "").strip()
+    allowed_text = ", ".join(allowed_content_types or sorted(_CONTENT_TYPES))
     source_label = "chunk summaries" if source_is_chunk_summaries else "full content"
     prompt = (
         "Extract structured metadata for a long-term personal knowledge base.\n"
         "Use the provided content only; do not invent facts.\n"
+        "Treat title and tag hints as optional hints, not as authoritative final metadata.\n"
         "The summary will be embedded for semantic search, so it must capture the whole piece, not only the beginning.\n"
         "Constraints:\n"
         "- Output STRICT JSON only.\n"
         "- Keys: title, summary, tags, key_claims, entities, content_type.\n"
         f"- summary target length: about {summary_target_chars} characters; concise but information-dense.\n"
-        "- tags: 5 to 12 short tags, sorted by importance descending.\n"
+        f"- tags: exactly {tag_count} short tags, sorted by importance descending.\n"
         "- key_claims: 3 to 8 short claims or takeaways.\n"
         "- entities: important people/projects/products/orgs/concepts.\n"
-        "- content_type must be one of: web_article, note, thought, discussion_summary.\n"
+        f"- content_type must be one of: {allowed_text}.\n"
         "- Do not add extra keys.\n\n"
         f"Title hint: {title_hint}\n"
+        f"Tag hints: {tags_hint}\n"
         f"Input type: {source_label}\n\n"
         "Content:\n"
         f"{content}\n"
     )
     obj = _call_small_llm_json(prompt, timeout=timeout)
-    return _validate_llm_fields(obj, fallback_title=title_hint)
+    return _validate_llm_fields(
+        obj,
+        fallback_title=title_hint,
+        tag_count=tag_count,
+        allowed_content_types=allowed_content_types,
+    )
 
 
 def _llm_chunk_summary(chunk: str, *, index: int, total: int, timeout: int, target_chars: int) -> str:
@@ -401,7 +416,10 @@ def _llm_fields_from_content(
     content: str,
     *,
     hint_title: Optional[str],
+    hint_tags: Optional[str],
     summary_target_chars: int,
+    tag_count: int,
+    allowed_content_types: Optional[List[str]],
     context_window_chars: int,
     prompt_reserved_chars: int,
     chunk_overlap_chars: int,
@@ -413,7 +431,10 @@ def _llm_fields_from_content(
         return _llm_fields_once(
             text,
             hint_title=hint_title,
+            hint_tags=hint_tags,
             summary_target_chars=summary_target_chars,
+            tag_count=tag_count,
+            allowed_content_types=allowed_content_types,
             timeout=timeout,
         )
 
@@ -466,7 +487,10 @@ def _llm_fields_from_content(
     return _llm_fields_once(
         synthesis_input,
         hint_title=hint_title,
+        hint_tags=hint_tags,
         summary_target_chars=summary_target_chars,
+        tag_count=tag_count,
+        allowed_content_types=allowed_content_types,
         timeout=timeout,
         source_is_chunk_summaries=True,
     )
@@ -537,7 +561,7 @@ def generate_search_query_plan(
     """Build search inputs: query_refine + query_tags.
 
     Behavior:
-    - provider=llm and SMALL_LLM_* available: try LLM first.
+    - provider=llm and configured runtime LLM values are complete: try LLM first.
     - otherwise (or on failure): fallback to heuristic extraction.
     """
     text = (query or "").strip()
@@ -584,6 +608,9 @@ def generate_fields(
     hint_title: Optional[str],
     provider: str,
     max_summary_chars: int = 1200,
+    tag_count: int = 8,
+    allowed_content_types: Optional[List[str]] = None,
+    hint_tags: Optional[str] = None,
     allow_heuristic: bool = True,
     llm_context_window_chars: int = 24000,
     llm_prompt_reserved_chars: int = 4000,
@@ -594,6 +621,7 @@ def generate_fields(
     Return dict with keys: title, summary, tags(list).
     """
     provider = (provider or "openclaw").strip().lower()
+    tag_count = max(1, int(tag_count or 8))
 
     if provider == "off":
         return {
@@ -612,7 +640,7 @@ def generate_fields(
     summary = _build_long_summary(clean, target_words=1200, max_chars=max_summary_chars)
 
     if provider == "openclaw":
-        tags = _heuristic_tags(summary)
+        tags = _heuristic_tags(summary, max_tags=tag_count)
         return {
             "title": title,
             "summary": summary,
@@ -629,7 +657,10 @@ def generate_fields(
                 fields = _llm_fields_from_content(
                     clean,
                     hint_title=title or hint_title,
+                    hint_tags=hint_tags,
                     summary_target_chars=max_summary_chars,
+                    tag_count=tag_count,
+                    allowed_content_types=allowed_content_types,
                     context_window_chars=llm_context_window_chars,
                     prompt_reserved_chars=llm_prompt_reserved_chars,
                     chunk_overlap_chars=llm_chunk_overlap_chars,
@@ -643,9 +674,9 @@ def generate_fields(
                 _warn_llm_tags_fallback(str(e))
         else:
             if not allow_heuristic:
-                raise RuntimeError("Small LLM is required but SMALL_LLM_* is incomplete")
-            _warn_llm_tags_fallback("missing SMALL_LLM_*")
-        tags = _heuristic_tags(summary)
+                raise RuntimeError("Small LLM is required but configured runtime values are incomplete")
+            _warn_llm_tags_fallback("missing configured runtime LLM values")
+        tags = _heuristic_tags(summary, max_tags=tag_count)
         return {
             "title": title,
             "summary": summary,

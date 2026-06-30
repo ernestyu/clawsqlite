@@ -33,7 +33,7 @@ class LLMGenerationTests(unittest.TestCase):
             return {
                 "title": "Fitted title",
                 "summary": "Fitted summary",
-                "tags": ["sqlite", "agent", "knowledge", "config", "llm"],
+                "tags": ["sqlite", "agent", "knowledge", "config", "llm", "ingest", "summary", "search"],
                 "key_claims": ["Uses one LLM call."],
                 "entities": ["ClawSQLite"],
                 "content_type": "note",
@@ -54,6 +54,7 @@ class LLMGenerationTests(unittest.TestCase):
         self.assertEqual(fields["summary"], "Fitted summary")
         self.assertEqual(len(prompts), 1)
         self.assertIn("summary target length: about 321 characters", prompts[0])
+        self.assertIn("tags: exactly 8 short tags", prompts[0])
         self.assertNotIn("Summarize one chunk", prompts[0])
 
     def test_llm_generation_chunks_when_content_exceeds_context_budget(self):
@@ -67,7 +68,7 @@ class LLMGenerationTests(unittest.TestCase):
             return {
                 "title": "Chunked title",
                 "summary": "Chunked final summary",
-                "tags": ["sqlite", "agent", "knowledge", "config", "chunking"],
+                "tags": ["sqlite", "agent", "knowledge", "config", "chunking", "summary", "search", "llm"],
                 "key_claims": ["Chunks are synthesized."],
                 "entities": ["ClawSQLite"],
                 "content_type": "web_article",

@@ -2,7 +2,8 @@
 """
 Embedding client for clawsqlite_knowledge.
 
-Uses global env vars:
+The low-level HTTP client reads runtime values populated from the private
+clawsqlite.toml by the Knowledge CLI:
 - EMBEDDING_MODEL
 - EMBEDDING_BASE_URL
 - EMBEDDING_API_KEY

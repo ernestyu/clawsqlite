@@ -12,8 +12,20 @@ articles_dir = "articles"
 require_llm = true
 require_embedding = true
 summary_mode = "llm"
-summary_target_chars = 800
+summary_target_chars = 3600
 tags_mode = "llm"
+tag_count = 8
+allowed_categories = [
+  "web_article",
+  "note",
+  "thought",
+  "discussion_summary",
+  "document",
+  "reference",
+  "repo",
+  "paper",
+  "social_post",
+]
 fallback = "fail"
 
 [llm]

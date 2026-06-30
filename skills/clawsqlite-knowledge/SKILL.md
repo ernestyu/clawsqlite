@@ -42,7 +42,7 @@ Then edit `clawsqlite.toml` directly. It is the private source of truth for:
 - `[llm]` endpoint, model, API key, and context budget
 - `[embedding]` endpoint, model, API key, dimension, and content policy
 - `[scraper]` URL ingest command
-- `[ingest]` strict policy
+- `[ingest]` strict policy, summary target length, tag count, and allowed categories
 
 Do not put real Knowledge runtime configuration in shell environment variables.
 
@@ -69,7 +69,7 @@ Strict URL ingest:
 ```bash
 clawsqlite knowledge ingest \
   --url "https://example.com/article" \
-  --category web \
+  --category web_article \
   --json
 ```
 
@@ -82,6 +82,12 @@ clawsqlite knowledge ingest \
   --category thought \
   --json
 ```
+
+Manual tags are hints only. Use `--tags-hint` when you want to give the
+generator extra context; do not treat it as stored metadata in strict mode.
+Successful JSON output includes `config_path`, `root`, `db`, `articles_dir`,
+`generation_quality`, and `embedding_enabled`; check these fields before telling
+the user where data was written.
 
 Search:
 

@@ -61,8 +61,20 @@ articles_dir = "articles"
 require_llm = true
 require_embedding = true
 summary_mode = "llm"
-summary_target_chars = 800
+summary_target_chars = 3600
 tags_mode = "llm"
+tag_count = 8
+allowed_categories = [
+  "web_article",
+  "note",
+  "thought",
+  "discussion_summary",
+  "document",
+  "reference",
+  "repo",
+  "paper",
+  "social_post",
+]
 fallback = "fail"
 
 [llm]
@@ -138,10 +150,12 @@ LLM 入库会从全文生成结构化字段：
 
 ```toml
 [ingest]
-summary_target_chars = 800
+summary_target_chars = 3600
+tag_count = 8
 ```
 
-这个值不是写死在代码里的，后续可以按模型和知识库风格调整。
+这些值不是写死在代码里的，后续可以按模型和知识库风格调整。
+strict 入库时，最终 tags 必须由 LLM 生成，数量必须等于 `tag_count`。
 
 长文处理使用配置里的上下文预算：
 
@@ -202,8 +216,8 @@ chunk_overlap_chars = 500
 clawsqlite knowledge ingest \
   --text "你好，clawsqlite" \
   --title "测试笔记" \
-  --category test \
-  --tags demo \
+  --category note \
+  --tags-hint demo \
   --gen-provider off \
   --allow-heuristic \
   --allow-missing-embedding \
@@ -217,19 +231,25 @@ clawsqlite knowledge ingest \
 ### 入库
 
 ```bash
-clawsqlite knowledge ingest --url "https://example.com/article" --category web --json
+clawsqlite knowledge ingest --url "https://example.com/article" --category web_article --json
 clawsqlite knowledge ingest --text "一段想法" --category thought --json
 ```
 
 常用参数：
 
 - `--url` / `--text`：二选一
-- `--title` / `--summary` / `--tags` / `--category` / `--priority`
+- `--title` / `--summary` / `--tags-hint` / `--category` / `--priority`
 - `--gen-provider {openclaw,llm,off}`：默认来自配置
 - `--max-summary-chars`：覆盖配置里的 `summary_target_chars`
 - `--scrape-cmd`：覆盖配置里的抓取命令
 - `--update-existing`：URL 已存在时刷新同一条记录
 - `--allow-heuristic` / `--allow-missing-embedding`：显式降级
+
+strict 模式下，人工 tags 只是给 LLM 的提示，不会覆盖最终 tags。最终
+category 必须属于 `[ingest].allowed_categories`；strict LLM 入库会把生成的
+`content_type` 作为存储 category。成功的 JSON 输出会包含 `config_path`、
+`root`、`db`、`articles_dir`、`generation_quality`、`embedding_enabled`，方便
+Agent 核对实际写入位置和生成质量。
 
 ### 搜索
 

@@ -45,6 +45,7 @@ class StrictIngestConfigTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self._env = os.environ.copy()
+        self._generate_fields = kcli.generate_fields
         for key in [
             "SMALL_LLM_MODEL",
             "SMALL_LLM_BASE_URL",
@@ -59,6 +60,7 @@ class StrictIngestConfigTests(unittest.TestCase):
     def tearDown(self) -> None:
         if hasattr(self, "_run_cwd"):
             delattr(self, "_run_cwd")
+        kcli.generate_fields = self._generate_fields
         os.environ.clear()
         os.environ.update(self._env)
 
@@ -215,6 +217,102 @@ class StrictIngestConfigTests(unittest.TestCase):
                 conn.row_factory = sqlite3.Row
                 row = conn.execute("SELECT summary FROM articles WHERE id=1").fetchone()
         self.assertLessEqual(len(row["summary"]), 140)
+
+    def test_strict_ingest_uses_generated_tags_and_category_over_hints(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "kb"
+            config_path = write_knowledge_config(root, require_llm=True, require_embedding=False)
+            self._run_cwd = root
+
+            def fake_generate(*args, **kwargs):
+                self.assertEqual(kwargs["tag_count"], 8)
+                self.assertIn("thought", kwargs["allowed_content_types"])
+                self.assertEqual(kwargs["hint_tags"], "manual,wrong")
+                return {
+                    "title": "Generated title",
+                    "summary": "Generated whole article summary",
+                    "tags": ["sqlite", "agent", "config", "strict", "summary", "embedding", "search", "knowledge"],
+                    "generation_quality": "llm",
+                    "content_type": "thought",
+                    "key_claims": ["Strict generation wins."],
+                    "entities": ["ClawSQLite"],
+                }
+
+            kcli.generate_fields = fake_generate
+            code, out, err = self._run_cli(
+                [
+                    "ingest",
+                    "--text",
+                    "A useful note about SQLite and agents.",
+                    "--title",
+                    "Human hint title",
+                    "--tags-hint",
+                    "manual,wrong",
+                    "--category",
+                    "note",
+                    "--json",
+                ]
+            )
+            self.assertEqual(code, 0, err)
+            payload = json.loads(out)
+            self.assertEqual(payload["category"], "thought")
+            self.assertEqual(payload["generation_quality"], "llm")
+            self.assertEqual(payload["config_path"], str(config_path))
+            self.assertEqual(payload["root"], str(root))
+            self.assertEqual(payload["db"], str(root / "knowledge.sqlite3"))
+            self.assertEqual(payload["articles_dir"], str(root / "articles"))
+            self.assertFalse(payload["embedding_enabled"])
+            with sqlite3.connect(root / "knowledge.sqlite3") as conn:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute("SELECT title, tags, category FROM articles WHERE id=1").fetchone()
+        self.assertEqual(row["title"], "Human hint title")
+        self.assertEqual(row["category"], "thought")
+        self.assertEqual(row["tags"], "sqlite,agent,config,strict,summary,embedding,search,knowledge")
+        self.assertNotIn("manual", row["tags"])
+
+    def test_strict_ingest_rejects_wrong_generated_tag_count(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "kb"
+            config_path = write_knowledge_config(root, require_llm=True, require_embedding=False)
+            self._run_cwd = root
+
+            def fake_generate(*args, **kwargs):
+                return {
+                    "title": "Generated title",
+                    "summary": "Generated summary",
+                    "tags": ["sqlite", "agent"],
+                    "generation_quality": "llm",
+                    "content_type": "note",
+                    "key_claims": [],
+                    "entities": [],
+                }
+
+            kcli.generate_fields = fake_generate
+            code, _, err = self._run_cli(["ingest", "--text", "Body", "--json"])
+        self.assertEqual(code, 4)
+        self.assertIn("ERROR_KIND: tags_invalid", err)
+
+    def test_strict_ingest_rejects_category_outside_allowed_config(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "kb"
+            config_path = write_knowledge_config(root, require_llm=True, require_embedding=False)
+            self._run_cwd = root
+
+            def fake_generate(*args, **kwargs):
+                return {
+                    "title": "Generated title",
+                    "summary": "Generated summary",
+                    "tags": ["sqlite", "agent", "config", "strict", "summary", "embedding", "search", "knowledge"],
+                    "generation_quality": "llm",
+                    "content_type": "misc",
+                    "key_claims": [],
+                    "entities": [],
+                }
+
+            kcli.generate_fields = fake_generate
+            code, _, err = self._run_cli(["ingest", "--text", "Body", "--json"])
+        self.assertEqual(code, 2)
+        self.assertIn("ERROR_KIND: category_invalid", err)
 
     def test_doctor_reports_toml_api_key_completeness(self):
         with _tempdir() as tmpdir:
