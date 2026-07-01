@@ -189,27 +189,10 @@ class AdminCommandTests(unittest.TestCase):
         self.assertIn("[OK] Vec index articles_vec matches base table articles (1 rows)", out)
         self.assertNotIn("no such module: vec0", out)
 
-    def test_admin_index_rebuild_requires_matching_columns_or_explicit_fts_cols(self):
+    def test_admin_index_rebuild_defaults_to_db_backed_fts_columns(self):
         with _tempdir() as tmpdir:
             db_path = tmpdir / "fts.sqlite3"
             self._make_articles_db(db_path)
-
-            stdout = io.StringIO()
-            with contextlib.redirect_stdout(stdout):
-                with self.assertRaises(SystemExit) as cm:
-                    index_cli.main(
-                        [
-                            "rebuild",
-                            "--db",
-                            str(db_path),
-                            "--table",
-                            "articles",
-                            "--fts-table",
-                            "articles_fts",
-                        ]
-                    )
-            self.assertIn("columns are missing: body", str(cm.exception))
-            self.assertIn("clawsqlite knowledge reindex --rebuild --fts", str(cm.exception))
 
             code, out, err = _run(
                 index_cli.main,
@@ -221,8 +204,6 @@ class AdminCommandTests(unittest.TestCase):
                     "articles",
                     "--fts-table",
                     "articles_fts",
-                    "--fts-cols",
-                    "title,tags,summary",
                 ],
             )
             conn = sqlite3.connect(db_path)
@@ -234,6 +215,31 @@ class AdminCommandTests(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("[OK] Rebuilt FTS index articles_fts", out)
         self.assertEqual(count, 1)
+
+    def test_admin_index_rebuild_rejects_explicit_non_db_backed_fts_columns(self):
+        with _tempdir() as tmpdir:
+            db_path = tmpdir / "fts.sqlite3"
+            self._make_articles_db(db_path)
+
+            with self.assertRaises(SystemExit) as cm:
+                index_cli.main(
+                    [
+                        "rebuild",
+                        "--db",
+                        str(db_path),
+                        "--table",
+                        "articles",
+                        "--fts-table",
+                        "articles_fts",
+                        "--fts-cols",
+                        "title,tags,summary,body",
+                    ]
+                )
+
+        msg = str(cm.exception)
+        self.assertIn("requested FTS columns are not present in the base table: body", msg)
+        self.assertIn("DB-backed columns only", msg)
+        self.assertNotIn("knowledge DB body text", msg)
 
     def test_admin_fs_gc_dry_run_and_real_run_handle_rowid(self):
         with _tempdir() as tmpdir:

@@ -115,6 +115,13 @@ def _fts_columns(conn: sqlite3.Connection, fts_table: str) -> list[str]:
     return cols
 
 
+def _db_backed_fts_columns(conn: sqlite3.Connection, *, fts_table: str, base_table: str) -> list[str]:
+    """Return FTS columns that are present in the base DB table, preserving FTS order."""
+
+    base_cols = _table_columns(conn, base_table)
+    return [col for col in _fts_columns(conn, fts_table) if col in base_cols]
+
+
 def _cmd_check(args: argparse.Namespace) -> int:
     conn = _open_db(args.db)
     try:
@@ -169,9 +176,12 @@ def _cmd_rebuild(args: argparse.Namespace) -> int:
         vec = _ident(args.vec_table, label="vec table") if args.vec_table else ""
 
         if fts:
-            cols = _split_cols(args.fts_cols) if args.fts_cols else _fts_columns(conn, fts)
+            cols = _split_cols(args.fts_cols) if args.fts_cols else _db_backed_fts_columns(conn, fts_table=fts, base_table=base)
             if not cols:
-                raise SystemExit(f"ERROR: could not discover columns for FTS table {fts}")
+                raise SystemExit(
+                    f"ERROR: no DB-backed FTS columns found for {fts} from base table {base}\n"
+                    "NEXT: pass --fts-cols with DB-backed columns only, or point --table to a view whose columns match the FTS schema."
+                )
             for col in cols:
                 _ident(col, label="FTS column")
             fts_table_cols = set(_fts_columns(conn, fts))
@@ -187,10 +197,9 @@ def _cmd_rebuild(args: argparse.Namespace) -> int:
                 missing_base_cols.insert(0, id_col)
             if missing_base_cols:
                 sys_msg = (
-                    "ERROR: cannot rebuild FTS from base table because columns are missing: "
+                    "ERROR: cannot rebuild FTS from base table because some requested FTS columns are not present in the base table: "
                     + ", ".join(dict.fromkeys(missing_base_cols))
-                    + "\nNEXT: pass --fts-cols with columns that exist in the base table, "
-                    "create a view with the needed columns, or use 'clawsqlite knowledge reindex --rebuild --fts' for knowledge DB body text."
+                    + "\nNEXT: pass --fts-cols with DB-backed columns only, or point --table to a view whose columns match the FTS schema."
                 )
                 raise SystemExit(sys_msg)
             col_list = ", ".join(cols)
@@ -261,7 +270,13 @@ def build_parser(prog: str = "clawsqlite admin index") -> argparse.ArgumentParse
     p_rebuild.add_argument("--table", help="Base table override (default: articles)")
     p_rebuild.add_argument("--id-col", default="id", help="Primary key column in base table (default: id)")
     p_rebuild.add_argument("--fts-table", help="FTS table name")
-    p_rebuild.add_argument("--fts-cols", help="Comma-separated DB columns to copy into the FTS table; does not read or repair Markdown files")
+    p_rebuild.add_argument(
+        "--fts-cols",
+        help=(
+            "Explicit DB-backed columns to copy into FTS. Default: FTS columns "
+            "that also exist in the base table; never reads or repairs Markdown files."
+        ),
+    )
     p_rebuild.add_argument("--vec-table", help="Vector table name")
     p_rebuild.set_defaults(func=_cmd_rebuild)
 

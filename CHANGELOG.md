@@ -40,6 +40,10 @@ without strict version tagging yet. Entries are grouped by date + topic.
   skipped items, and summary counts.
 - Clarified that `admin index rebuild` is a DB-only/index-only primitive; file
   recovery belongs under `admin fs`.
+- `admin index rebuild` now defaults to DB-backed FTS columns only
+  (FTS columns that also exist in the base table). Non-DB-backed columns such
+  as `body` are ignored by default and only error when explicitly requested via
+  `--fts-cols`.
 - Replaced the internal `SMALL_LLM_*` runtime names with `LLM_BASE_URL`,
   `LLM_MODEL`, and `LLM_API_KEY`. The project no longer keeps a compatibility
   path for the old names.

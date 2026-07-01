@@ -697,9 +697,10 @@ debug/recovery overrides, not the normal path.
   sqlite-vec but `vec0` is unavailable.
 - `admin index rebuild --fts-table ... --fts-cols title,tags,summary` is a
   DB-only/index-only primitive: it rebuilds FTS/vec tables from DB fields and
-  does not read, restore, or repair Markdown files. File consistency belongs
-  under `admin fs`; application-level rebuild workflows should use the
-  `knowledge` wrappers where available.
+  does not read, restore, or repair Markdown files. When `--fts-cols` is not
+  provided, it rebuilds only FTS columns that are also present in the base DB
+  table. File consistency belongs under `admin fs`; application-level rebuild
+  workflows should use the `knowledge` wrappers where available.
 - `admin fs list-orphans --json` returns counts plus classified `FS_ONLY` /
   `DB_ONLY` paths and a flat `items` array for Agent use.
 - `admin fs gc --json --dry-run` previews cleanup as structured data; without
