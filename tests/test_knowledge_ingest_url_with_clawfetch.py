@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Integration test: clawfetch + clawsqlite knowledge ingest (URL).
+"""Integration test: clawfetch + clawsqlite knowledge record ingest (URL).
 
 使用 clawhub-skills/clawfetch 这个 skill 里的 clawfetch CLI 抓取一篇
-真实的微信文章，然后把生成的 markdown 通过 `clawsqlite knowledge ingest`
+真实的微信文章，然后把生成的 markdown 通过 `clawsqlite knowledge record ingest`
 以文本形式写入知识库，验证整个链路：
 
 - clawfetch 抓取 → 标准 metadata + markdown；
@@ -118,6 +118,7 @@ class KnowledgeIngestURLWithClawfetchTests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "ingest",
                 "--text",
                 content,
@@ -142,6 +143,7 @@ class KnowledgeIngestURLWithClawfetchTests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "show",
                 "--id",
                 "1",
@@ -160,6 +162,7 @@ class KnowledgeIngestURLWithClawfetchTests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "export",
                 "--id",
                 "1",

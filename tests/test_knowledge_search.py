@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""More detailed tests for `clawsqlite knowledge search`.
+"""More detailed tests for `clawsqlite knowledge record search`.
 
 覆盖：
 - FTS 模式下基本搜索（包含过滤参数）；
@@ -79,6 +79,7 @@ class KnowledgeSearchTests(unittest.TestCase):
                     "-m",
                     "clawsqlite_cli",
                     "knowledge",
+                    "record",
                     "ingest",
                     "--text",
                     text,
@@ -101,6 +102,7 @@ class KnowledgeSearchTests(unittest.TestCase):
                     "-m",
                     "clawsqlite_cli",
                     "knowledge",
+                    "record",
                     "update",
                     "--id",
                     str(article_id),
@@ -124,6 +126,7 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "delete",
                 "--id",
                 str(r2["id"]),
@@ -137,6 +140,7 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "search",
                 "hello",
                 "--mode",
@@ -200,6 +204,7 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "ingest",
                 "--text",
                 f"body text contains {unique_body_term}",
@@ -221,6 +226,7 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "search",
                 unique_body_term,
                 "--mode",
@@ -247,6 +253,7 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "ingest",
                 "--text",
                 "hello hybrid",
@@ -268,6 +275,7 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "search",
                 "hello",
                 "--mode",

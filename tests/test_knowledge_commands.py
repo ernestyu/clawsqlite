@@ -2,15 +2,15 @@
 """Knowledge-layer CLI tests for clawsqlite.
 
 这些测试比 `test_cli_smoke` 更细一点，专门覆盖
-`clawsqlite knowledge` 这一层的主要命令：
+`clawsqlite knowledge record|maintenance|analysis` 这一层的主要命令：
 
-- ingest（文本）
-- search（基本过滤）
-- show / export
-- update
-- delete（软删 + 硬删）
-- reindex --check
-- maintenance gc（dry-run + 实跑）
+- record ingest（文本）
+- record search（基本过滤）
+- record show / export
+- record update
+- record delete（软删 + 硬删）
+- maintenance reindex --check
+- maintenance cleanup（dry-run + 实跑）
 
 注意：
 - 所有测试都在临时 root 目录下进行，不依赖宿主机器的现有数据；
@@ -88,6 +88,7 @@ class KnowledgeCLITests(unittest.TestCase):
                     "-m",
                     "clawsqlite_cli",
                     "knowledge",
+                    "record",
                     "ingest",
                     "--text",
                     text,
@@ -115,6 +116,7 @@ class KnowledgeCLITests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "search",
                 "hello",
                 "--mode",
@@ -135,6 +137,7 @@ class KnowledgeCLITests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "show",
                 "--id",
                 "1",
@@ -153,6 +156,7 @@ class KnowledgeCLITests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "export",
                 "--id",
                 "1",
@@ -172,6 +176,7 @@ class KnowledgeCLITests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "update",
                 "--id",
                 "1",
@@ -189,6 +194,7 @@ class KnowledgeCLITests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "show",
                 "--id",
                 "1",
@@ -204,6 +210,7 @@ class KnowledgeCLITests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "delete",
                 "--id",
                 "2",
@@ -235,20 +242,21 @@ class KnowledgeCLITests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "maintenance",
                 "reindex",
                 "--check",
                 "--json",
             ]
             self._run(reindex_cmd)
 
-            # 7) maintenance gc（dry-run + 实跑）
+            # 7) maintenance cleanup（dry-run + 实跑）
             maint_dry_cmd = [
                 PYTHON_BIN,
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
                 "maintenance",
-                "gc",
+                "cleanup",
                 "--days",
                 "0",
                 "--dry-run",
@@ -264,7 +272,7 @@ class KnowledgeCLITests(unittest.TestCase):
                 "clawsqlite_cli",
                 "knowledge",
                 "maintenance",
-                "gc",
+                "cleanup",
                 "--days",
                 "0",
                 "--json",
@@ -293,6 +301,7 @@ class KnowledgeCLITests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "ingest",
                 "--url",
                 url,
@@ -334,7 +343,7 @@ class KnowledgeCLITests(unittest.TestCase):
                 "clawsqlite_cli",
                 "knowledge",
                 "maintenance",
-                "prune",
+                "cleanup",
                 "--days",
                 "0",
                 "--json",

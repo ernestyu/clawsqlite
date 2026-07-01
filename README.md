@@ -26,7 +26,7 @@ The knowledge app helps you:
 - Run fast full‑text search over your notes and scraped articles
 - Optionally enable vector search via an external embedding service
 - Generate titles/summaries/tags with a configured small LLM for reliable ingest
-- Keep the KB healthy with explicit maintenance commands (reindex/check/fix + maintenance prune/gc)
+- Keep the KB healthy with explicit maintenance commands (reindex/check/fix + cleanup/backup)
 
 > **Status**: already used in real OpenClaw setups. The schema and CLI are kept small and stable on purpose.
 
@@ -169,9 +169,9 @@ To run a quick self-check of your active config, DB paths, vec0, embedding, and
 small LLM readiness, you can use:
 
 ```bash
-clawsqlite knowledge doctor --json
+clawsqlite knowledge maintenance doctor --json
 # or, from source without installing the package
-python3 -m clawsqlite_knowledge.cli doctor
+python3 -m clawsqlite_knowledge.cli maintenance doctor
 ```
 
 ---
@@ -196,7 +196,7 @@ directory search and no config-path override.
 Create a template:
 
 ```bash
-clawsqlite knowledge init-config --out clawsqlite.toml
+clawsqlite knowledge maintenance init-config --out clawsqlite.toml
 # or copy the checked-in example
 cp clawsqlite.toml.example clawsqlite.toml
 ```
@@ -373,7 +373,7 @@ summarizes chunks, and synthesizes final fields from the chunk summaries.
 Heuristic generation still exists, but it is an explicit degraded path:
 
 ```bash
-clawsqlite knowledge ingest ... --allow-heuristic
+clawsqlite knowledge record ingest ... --allow-heuristic
 ```
 
 Without that flag, strict ingest fails if LLM generation is unavailable or the
@@ -484,7 +484,7 @@ The knowledge app will parse these into `title` and markdown body.
 2. **Create and edit `clawsqlite.toml`**
 
    ```bash
-   clawsqlite knowledge init-config --out clawsqlite.toml
+   clawsqlite knowledge maintenance init-config --out clawsqlite.toml
    ```
 
    Fill in `[knowledge].root`, `[llm]`, and `[embedding]` directly in this
@@ -493,7 +493,7 @@ The knowledge app will parse these into `title` and markdown body.
 3. **First strict ingest (text)** – this also creates the DB and basic tables:
 
    ```bash
-   clawsqlite knowledge ingest \
+   clawsqlite knowledge record ingest \
      --text "Hello clawsqlite. This note should be summarized and embedded." \
      --title "First note" \
      --category note \
@@ -509,7 +509,7 @@ The knowledge app will parse these into `title` and markdown body.
    For a no-network test run, make the degraded path explicit:
 
    ```bash
-   clawsqlite knowledge ingest \
+   clawsqlite knowledge record ingest \
      --text "Hello clawsqlite" \
      --title "First note" \
      --category note \
@@ -522,7 +522,7 @@ The knowledge app will parse these into `title` and markdown body.
 4. **Search it back**:
 
    ```bash
-   clawsqlite knowledge search "Hello" --mode fts --json
+   clawsqlite knowledge record search "Hello" --mode fts --json
    ```
 
    You should see the record you just created.
@@ -532,7 +532,7 @@ The knowledge app will parse these into `title` and markdown body.
 Assuming you have `[scraper].cmd` set in `clawsqlite.toml`:
 
 ```bash
-clawsqlite knowledge ingest \
+clawsqlite knowledge record ingest \
   --url "https://example.com/article" \
   --category web_article \
   --json
@@ -550,7 +550,7 @@ This will:
 If you know a URL’s content has changed and you want to refresh the existing record:
 
 ```bash
-clawsqlite knowledge ingest \
+clawsqlite knowledge record ingest \
   --url "https://example.com/article" \
   --update-existing \
   --json
@@ -577,13 +577,13 @@ most one active record.
 
 All Knowledge commands read `./clawsqlite.toml` from the current component root before resolving
 paths. Common flags include `--json` and `--verbose`.
-Run `clawsqlite knowledge <command> --help` for full details.
+Run `clawsqlite knowledge <group> <command> --help` for full details.
 
-### 6.1 ingest
+### 6.1 record ingest
 
 ```bash
-clawsqlite knowledge ingest --url URL [options]
-clawsqlite knowledge ingest --text TEXT [options]
+clawsqlite knowledge record ingest --url URL [options]
+clawsqlite knowledge record ingest --text TEXT [options]
 ```
 
 Key options:
@@ -604,10 +604,10 @@ and belong to `[ingest].allowed_categories`. Successful JSON output includes
 `embedding_runtime_enabled`, and `embedding_required` so Agents can audit where
 the record was written and whether vectors were actually used.
 
-### 6.2 doctor
+### 6.2 maintenance doctor
 
 ```bash
-clawsqlite knowledge doctor --json
+clawsqlite knowledge maintenance doctor --json
 ```
 
 By default doctor performs lightweight config/schema checks only. It reports
@@ -615,10 +615,10 @@ whether `[llm]` and `[embedding]` fields are complete without making provider
 HTTP calls. Use `--check-llm` and/or `--check-embedding` only when you explicitly
 want heavier roundtrip checks.
 
-### 6.3 search
+### 6.3 record search
 
 ```bash
-clawsqlite knowledge search "query" --mode hybrid --topk 20 --json
+clawsqlite knowledge record search "query" --mode hybrid --topk 20 --json
 ```
 
 Modes:
@@ -634,7 +634,7 @@ Other flags:
 - `--gen-provider` – set to `llm` to enable the small LLM configured in `clawsqlite.toml`
 - Filters: `--category`, `--tag`, `--since`, `--priority`, `--include-deleted`
 
-### 6.4 show / export / update / delete
+### 6.4 record show / export / update / delete
 
 - `show` – dump one record (optionally with full markdown content)
 - `export` – write a record to a `.md` or `.json` file
@@ -656,23 +656,23 @@ All read/update/delete style commands **check that the DB file exists** before o
 For one record, use `update --regen`:
 
 ```bash
-clawsqlite knowledge update --id 12 --regen summary --json
-clawsqlite knowledge update --id 12 --regen tags --json
-clawsqlite knowledge update --id 12 --regen embedding --json
-clawsqlite knowledge update --id 12 --regen all --json
+clawsqlite knowledge record update --id 12 --regen summary --json
+clawsqlite knowledge record update --id 12 --regen tags --json
+clawsqlite knowledge record update --id 12 --regen embedding --json
+clawsqlite knowledge record update --id 12 --regen all --json
 ```
 
 For batch repair of missing derived fields/index rows, use:
 
 ```bash
-clawsqlite knowledge reindex --fix-missing --json
+clawsqlite knowledge maintenance reindex --fix-missing --json
 ```
 
 `generation_quality` is provenance metadata, not a separate top-level command
 surface. Future bulk upgrade policies should be added under explicit repair or
 reindex semantics rather than through a standalone quality rebuild command.
 
-### 6.6 reindex
+### 6.6 maintenance reindex
 
 Maintenance operations:
 
@@ -680,7 +680,7 @@ Maintenance operations:
 - `reindex --fix-missing` – regen missing fields/indexes using the configured generator; strict config requires LLM unless `--allow-heuristic` is explicit
 - `reindex --rebuild --fts` – rebuild FTS index (via `clawsqlite admin index rebuild`)
 - `reindex --rebuild --vec` – clear vec index **only** (no embedding). Refresh
-  embeddings through `knowledge update --regen embedding` for one record or
+  embeddings through `knowledge record update --regen embedding` for one record or
   derived-data repair flows for batches.
 
 The check output includes flags like `vec_available` and
@@ -753,7 +753,7 @@ clawsqlite admin fs gc --table articles --path-col local_file_path \
 ### 6.8 `report-interest`
 
 ```bash
-clawsqlite knowledge report-interest --days 7 --lang zh --no-pdf
+clawsqlite knowledge analysis report-interest --days 7 --lang zh --no-pdf
 ```
 
 This command is optional analysis/reporting functionality. It lazy-loads
@@ -769,7 +769,7 @@ analysis dependencies, so missing `numpy` will not prevent core commands like
 #### 6.9.1 Build command
 
 ```bash
-clawsqlite knowledge build-interest-clusters \
+clawsqlite knowledge analysis build-interest-clusters \
   --algo kmeans++ \
   --use-pca \
   --pca-explained-variance-threshold 0.95 \
@@ -780,7 +780,7 @@ clawsqlite knowledge build-interest-clusters \
 You can switch backend:
 
 ```bash
-clawsqlite knowledge build-interest-clusters \
+clawsqlite knowledge analysis build-interest-clusters \
   --algo hierarchical \
   --hierarchical-linkage average \
   --hierarchical-distance-threshold 0.20
@@ -862,7 +862,7 @@ file.
 为了调参和观察兴趣簇结构，可使用内置分析命令：
 
 ```bash
-clawsqlite knowledge inspect-interest-clusters \
+clawsqlite knowledge analysis inspect-interest-clusters \
   --vec-dim 1024
 ```
 
@@ -887,7 +887,7 @@ clawsqlite knowledge inspect-interest-clusters \
 可以加 `--no-plot` 仅打印数值统计，不生成图片：
 
 ```bash
-clawsqlite knowledge inspect-interest-clusters \
+clawsqlite knowledge analysis inspect-interest-clusters \
   --vec-dim 1024 \
   --no-plot
 ```
@@ -905,11 +905,11 @@ clawsqlite knowledge inspect-interest-clusters \
 ### 6.10 maintenance
 
 ```bash
-clawsqlite knowledge maintenance prune --days 3 --dry-run
+clawsqlite knowledge maintenance cleanup --days 3 --dry-run
 ```
 
 This scans for orphaned files, old `.bak_*` backups, and broken DB paths.
-Use `--dry-run` to preview deletions; `maintenance gc` is an alias of `prune`.
+Use `--dry-run` to preview deletions. Deprecated `maintenance prune` and `maintenance gc` aliases still resolve to `cleanup` during migration.
 
 ---
 

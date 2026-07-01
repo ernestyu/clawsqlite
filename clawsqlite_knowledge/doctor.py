@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Self-check utilities for clawsqlite knowledge base.
 
-`clawsqlite knowledge doctor` 会运行一组检查，输出一份 JSON 报告，
+`clawsqlite knowledge maintenance doctor` 会运行一组检查，输出一份 JSON 报告，
 帮助你快速判断：
 
 - clawsqlite.toml 中的 root / DB 是否指向有效的知识库；
@@ -63,7 +63,7 @@ def _check_kb_paths(config: Optional[KnowledgeConfig] = None) -> CheckResult:
             ),
             next=(
                 "Create or fix clawsqlite.toml ([knowledge].root/[knowledge].db), "
-                "then run 'clawsqlite knowledge ingest' to initialize the database."
+                "then run 'clawsqlite knowledge record ingest' to initialize the database."
             ),
             details={"root": root, "db": db_path},
         )
@@ -77,7 +77,7 @@ def _check_kb_paths(config: Optional[KnowledgeConfig] = None) -> CheckResult:
             ),
             next=(
                 "Point [knowledge].db in clawsqlite.toml to an existing knowledge DB, "
-                "or run a first ingest via 'clawsqlite knowledge ingest' to create it."
+                "or run a first ingest via 'clawsqlite knowledge record ingest' to create it."
             ),
             details={"root": root, "db": db_path},
         )
@@ -151,7 +151,7 @@ def _check_db_schema(config: Optional[KnowledgeConfig] = None) -> CheckResult:
                 ),
                 next=(
                     "Ensure you're pointing to a clawsqlite knowledge DB. If this is an older "
-                    "schema, run 'clawsqlite knowledge reindex --rebuild --fts' to migrate."
+                    "schema, run 'clawsqlite knowledge maintenance reindex --rebuild --fts' to migrate."
                 ),
                 details={"missing_tables": sorted(missing), "tables": sorted(tables)},
             )
@@ -208,7 +208,7 @@ def _check_vec_extension(config: Optional[KnowledgeConfig] = None) -> CheckResul
                     "Vec tables are not available in this DB (articles_vec/articles_tag_vec missing)."
                 ),
                 next=(
-                    "Run 'clawsqlite knowledge reindex --rebuild --vec' to create vec tables, and "
+                    "Run 'clawsqlite knowledge maintenance reindex --rebuild --vec' to create vec tables, and "
                     "ensure vec0 is available."
                 ),
             )

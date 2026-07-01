@@ -65,13 +65,13 @@ Do not put real Knowledge runtime configuration in shell environment variables.
 Status check:
 
 ```bash
-clawsqlite knowledge doctor --json
+clawsqlite knowledge maintenance doctor --json
 ```
 
 Strict URL ingest:
 
 ```bash
-clawsqlite knowledge ingest \
+clawsqlite knowledge record ingest \
   --url "https://example.com/article" \
   --category web_article \
   --json
@@ -80,7 +80,7 @@ clawsqlite knowledge ingest \
 Strict text ingest:
 
 ```bash
-clawsqlite knowledge ingest \
+clawsqlite knowledge record ingest \
   --text "A thought worth saving." \
   --title "A saved thought" \
   --category thought \
@@ -97,7 +97,7 @@ check these fields before telling the user where data was written.
 Doctor is lightweight by default:
 
 ```bash
-clawsqlite knowledge doctor --json
+clawsqlite knowledge maintenance doctor --json
 ```
 
 Only pass `--check-llm` or `--check-embedding` when the user explicitly wants a
@@ -106,19 +106,19 @@ provider roundtrip check.
 Search:
 
 ```bash
-clawsqlite knowledge search "sqlite agent knowledge" --mode hybrid --topk 5 --json
+clawsqlite knowledge record search "sqlite agent knowledge" --mode hybrid --topk 5 --json
 ```
 
 Show one record:
 
 ```bash
-clawsqlite knowledge show --id 12 --full --json
+clawsqlite knowledge record show --id 12 --full --json
 ```
 
 Explicit degraded ingest, only when the user requested it:
 
 ```bash
-clawsqlite knowledge ingest \
+clawsqlite knowledge record ingest \
   --text "Local no-network test." \
   --title "Test" \
   --gen-provider off \

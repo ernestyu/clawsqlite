@@ -6,9 +6,9 @@ cd "$SKILL_ROOT"
 
 if [ ! -f clawsqlite.toml ]; then
   if command -v clawsqlite >/dev/null 2>&1; then
-    clawsqlite knowledge init-config --out clawsqlite.toml
+    clawsqlite knowledge maintenance init-config --out clawsqlite.toml
   elif [ -f ../../clawsqlite_cli.py ]; then
-    python3 -m clawsqlite_cli knowledge init-config --out clawsqlite.toml
+    python3 -m clawsqlite_cli knowledge maintenance init-config --out clawsqlite.toml
   else
     cat >&2 <<'EOF'
 ERROR: clawsqlite CLI was not found.

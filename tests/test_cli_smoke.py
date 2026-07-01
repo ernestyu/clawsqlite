@@ -24,6 +24,7 @@ import subprocess
 import sys
 import contextlib
 import shutil
+import tarfile
 import unittest
 import uuid
 from pathlib import Path
@@ -102,6 +103,7 @@ class CLISmokeTests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "ingest",
                 "--text",
                 "hello clawsqlite",
@@ -126,6 +128,7 @@ class CLISmokeTests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "search",
                 "hello",
                 "--mode",
@@ -146,6 +149,7 @@ class CLISmokeTests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "show",
                 "--id",
                 "1",
@@ -163,6 +167,7 @@ class CLISmokeTests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "export",
                 "--id",
                 "1",
@@ -182,6 +187,7 @@ class CLISmokeTests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "record",
                 "update",
                 "--id",
                 "1",
@@ -199,6 +205,7 @@ class CLISmokeTests(unittest.TestCase):
                 "-m",
                 "clawsqlite_cli",
                 "knowledge",
+                "maintenance",
                 "reindex",
                 "--check",
                 "--json",
@@ -212,7 +219,7 @@ class CLISmokeTests(unittest.TestCase):
                 "clawsqlite_cli",
                 "knowledge",
                 "maintenance",
-                "gc",
+                "cleanup",
                 "--days",
                 "0",
                 "--dry-run",
@@ -228,7 +235,7 @@ class CLISmokeTests(unittest.TestCase):
                 "clawsqlite_cli",
                 "knowledge",
                 "maintenance",
-                "gc",
+                "cleanup",
                 "--days",
                 "0",
                 "--json",
@@ -237,7 +244,31 @@ class CLISmokeTests(unittest.TestCase):
             maint2 = json.loads(p.stdout)
             self.assertEqual(maint2["dry_run"], False)
 
-            # 8) Admin: db schema should work on the configured component DB
+            # 8) Knowledge-level corpus backup should include DB and articles.
+            backup_path = root / "knowledge-backup.tar.gz"
+            backup_cmd = [
+                PYTHON_BIN,
+                "-m",
+                "clawsqlite_cli",
+                "knowledge",
+                "maintenance",
+                "backup",
+                "--out",
+                str(backup_path),
+                "--json",
+            ]
+            p = self._run(backup_cmd)
+            backup = json.loads(p.stdout)
+            self.assertTrue(Path(backup["out"]).exists())
+            self.assertIn("db", backup["includes"])
+            self.assertIn("articles", backup["includes"])
+            with tarfile.open(backup_path, "r:gz") as tar:
+                names = tar.getnames()
+            self.assertIn("manifest.json", names)
+            self.assertTrue(any(name.startswith("db/") for name in names))
+            self.assertTrue(any(name.startswith("articles/") for name in names))
+
+            # 9) Admin: db schema should work on the configured component DB
             db_schema_cmd = [
                 PYTHON_BIN,
                 "-m",
@@ -270,10 +301,14 @@ class CLISmokeTests(unittest.TestCase):
 
     def test_removed_knowledge_implementation_commands_are_not_exposed(self):
         p_help = self._run([PYTHON_BIN, "-m", "clawsqlite_cli", "knowledge", "--help"])
+        self.assertIn("record", p_help.stdout)
+        self.assertIn("maintenance", p_help.stdout)
+        self.assertIn("analysis", p_help.stdout)
         self.assertNotIn("embed-from-summary", p_help.stdout)
         self.assertNotIn("rebuild-quality", p_help.stdout)
+        self.assertNotIn("ingest       Ingest", p_help.stdout)
 
-        p_ingest_help = self._run([PYTHON_BIN, "-m", "clawsqlite_cli", "knowledge", "ingest", "--help"])
+        p_ingest_help = self._run([PYTHON_BIN, "-m", "clawsqlite_cli", "knowledge", "record", "ingest", "--help"])
         self.assertNotIn("--tags-hint", p_ingest_help.stdout)
 
         p_embed = self._run([PYTHON_BIN, "-m", "clawsqlite_cli", "knowledge", "embed-from-summary"], expect_ok=False)
@@ -283,6 +318,23 @@ class CLISmokeTests(unittest.TestCase):
         p_quality = self._run([PYTHON_BIN, "-m", "clawsqlite_cli", "knowledge", "rebuild-quality"], expect_ok=False)
         self.assertNotEqual(p_quality.returncode, 0)
         self.assertIn("invalid choice", p_quality.stderr)
+
+    def test_deprecated_flat_knowledge_command_rewrites_with_warning(self):
+        with _tempdir() as tmpdir:
+            self._run_cwd = tmpdir
+            config_path = tmpdir / "clawsqlite.toml"
+            proc = self._run([
+                PYTHON_BIN,
+                "-m",
+                "clawsqlite_cli",
+                "knowledge",
+                "init-config",
+                "--out",
+                str(config_path),
+            ])
+            self.assertTrue(config_path.exists())
+            self.assertIn("deprecated command path", proc.stderr)
+            self.assertIn("clawsqlite knowledge maintenance init-config", proc.stderr)
 
 
 if __name__ == "__main__":  # pragma: no cover
