@@ -45,6 +45,18 @@ def _run_catching_system_exit(func, argv):
     return int(code), stdout.getvalue(), stderr.getvalue()
 
 
+def _vec_ext_path() -> Path | None:
+    candidates = []
+    env_path = os.environ.get("CLAWSQLITE_VEC_EXT")
+    if env_path:
+        candidates.append(Path(env_path))
+    candidates.append(Path("/app/node_modules/sqlite-vec-linux-x64/vec0.so"))
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
 @contextlib.contextmanager
 def _cwd(path: Path):
     old = Path.cwd()
@@ -111,6 +123,71 @@ class AdminCommandTests(unittest.TestCase):
         self.assertIn("[OK] FTS index articles_fts", out)
         self.assertIn("[WARN] Vec index articles_vec could not be checked", out)
         self.assertIn("NEXT: load sqlite-vec", out)
+
+    def test_admin_index_attempts_to_load_configured_vec_extension(self):
+        class FakeConnection:
+            def __init__(self) -> None:
+                self.enabled = False
+                self.loaded: list[str] = []
+
+            def enable_load_extension(self, enabled: bool) -> None:
+                self.enabled = enabled
+
+            def load_extension(self, path: str) -> None:
+                self.loaded.append(path)
+
+        fake = FakeConnection()
+        os.environ["CLAWSQLITE_TOKENIZER_EXT"] = "none"
+        os.environ["CLAWSQLITE_VEC_EXT"] = "/tmp/example-vec0.so"
+
+        index_cli._enable_extensions(fake)  # type: ignore[arg-type]
+
+        self.assertTrue(fake.enabled)
+        self.assertEqual(fake.loaded, ["/tmp/example-vec0.so"])
+
+    def test_top_level_admin_index_check_reads_real_vec_table_when_extension_exists(self):
+        vec_ext = _vec_ext_path()
+        if vec_ext is None:
+            self.skipTest("sqlite-vec extension is not available in this environment")
+
+        with _tempdir() as tmpdir:
+            root = tmpdir / "component"
+            write_knowledge_config(root)
+            db_path = root / "knowledge.sqlite3"
+            os.environ["CLAWSQLITE_VEC_EXT"] = str(vec_ext)
+            os.environ["CLAWSQLITE_TOKENIZER_EXT"] = "none"
+            os.environ["CLAWSQLITE_VEC_DIM"] = "4"
+
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.enable_load_extension(True)
+                try:
+                    conn.load_extension(str(vec_ext))
+                except Exception as e:
+                    self.skipTest(f"sqlite-vec extension exists but cannot be loaded here: {e}")
+                conn.execute("CREATE TABLE articles(id INTEGER PRIMARY KEY, title TEXT, tags TEXT, summary TEXT)")
+                conn.execute("INSERT INTO articles(id, title, tags, summary) VALUES(1, 'Alpha', 'tag1', 'hello alpha')")
+                conn.execute("CREATE VIRTUAL TABLE articles_fts USING fts5(title, tags, summary, body)")
+                conn.execute("INSERT INTO articles_fts(rowid, title, tags, summary, body) VALUES(1, 'Alpha', 'tag1', 'hello alpha', '')")
+                conn.execute("CREATE VIRTUAL TABLE articles_vec USING vec0(id INTEGER PRIMARY KEY, embedding float[4])")
+                conn.execute(
+                    "INSERT INTO articles_vec(id, embedding) VALUES(?, ?)",
+                    (1, embedmod.floats_to_f32_blob([1.0, 0.0, 0.0, 0.0], dim=4)),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            with _cwd(root):
+                code, out, err = _run_catching_system_exit(
+                    top_cli_main,
+                    ["admin", "index", "check", "--table", "articles", "--fts-table", "articles_fts", "--vec-table", "articles_vec"],
+                )
+
+        self.assertEqual(code, 0, err)
+        self.assertIn("[OK] FTS index articles_fts", out)
+        self.assertIn("[OK] Vec index articles_vec matches base table articles (1 rows)", out)
+        self.assertNotIn("no such module: vec0", out)
 
     def test_admin_index_rebuild_requires_matching_columns_or_explicit_fts_cols(self):
         with _tempdir() as tmpdir:

@@ -48,31 +48,42 @@ def _require(value: str, label: str) -> str:
 
 
 def _enable_extensions(conn: sqlite3.Connection) -> None:
-    """Best-effort enabling of extensions (libsimple / vec0, etc.).
+    """Best-effort enabling of tokenizer and vec extensions.
 
     This keeps plumbing close to the knowledge app semantics without
-    hard-coding any app-specific paths. For now we only handle the
-    FTS simple tokenizer, following the same env/defaults as
-    clawsqlite_knowledge:
+    hard-coding any app-specific paths. The admin index connection must be able
+    to read the same virtual tables that admin embed can write.
 
     - CLAWSQLITE_TOKENIZER_EXT overrides the path;
     - otherwise default to /usr/local/lib/libsimple.so.
+    - CLAWSQLITE_VEC_EXT points at sqlite-vec's vec0 extension when vec checks
+      need to inspect an existing vec virtual table.
 
     Errors are swallowed; if the extension cannot be loaded, SQLite's
-    builtin tokenizer behavior is left as-is.
+    builtin tokenizer behavior is left as-is, and vec checks will report the
+    underlying SQLite error with a recovery hint.
     """
     try:
         conn.enable_load_extension(True)
     except Exception:
         return
-    ext = os.environ.get("CLAWSQLITE_TOKENIZER_EXT") or "/usr/local/lib/libsimple.so"
-    if not ext or ext.lower() == "none":
-        return
-    try:
-        conn.load_extension(ext)
-    except Exception:
-        # Fallback: leave FTS in builtin tokenizer mode.
-        return
+
+    tokenizer_ext = os.environ.get("CLAWSQLITE_TOKENIZER_EXT") or "/usr/local/lib/libsimple.so"
+    if tokenizer_ext and tokenizer_ext.lower() != "none":
+        try:
+            conn.load_extension(tokenizer_ext)
+        except Exception:
+            # Fallback: leave FTS in builtin tokenizer mode.
+            pass
+
+    vec_ext = os.environ.get("CLAWSQLITE_VEC_EXT")
+    if vec_ext and vec_ext.lower() != "none":
+        try:
+            conn.load_extension(vec_ext)
+        except Exception:
+            # The check command will surface vec table access failures with a
+            # NEXT hint; keep FTS-only checks usable.
+            pass
 
 
 def _open_db(path: str) -> sqlite3.Connection:

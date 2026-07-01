@@ -23,6 +23,10 @@ without strict version tagging yet. Entries are grouped by date + topic.
   use explicit `--fts-cols`, filesystem GC handles rowid aliases correctly,
   inline `admin db exec` queries can print TSV/JSON results, and embedding
   service failures are wrapped with operator-facing `ERROR`/`NEXT` hints.
+- `admin index check` now loads `CLAWSQLITE_VEC_EXT` on its SQLite connection,
+  matching the vec0 extension path used by `admin embed column`, so configured
+  `articles_vec` tables can be checked instead of falling back to
+  `no such module: vec0`.
 - Replaced the internal `SMALL_LLM_*` runtime names with `LLM_BASE_URL`,
   `LLM_MODEL`, and `LLM_API_KEY`. The project no longer keeps a compatibility
   path for the old names.
