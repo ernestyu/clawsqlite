@@ -4,7 +4,7 @@
 Namespaces:
 
 - `clawsqlite knowledge ...` – knowledge base application (Markdown + SQLite)
-- `clawsqlite admin ...`     – administrative / low-level maintenance commands
+- `clawsqlite admin ...`     – maintenance commands for the configured component
 
 设计原则：
 - 顶层只负责选择 namespace（knowledge / admin），
@@ -24,7 +24,7 @@ def _print_top_level_help() -> None:
     parser = argparse.ArgumentParser(prog="clawsqlite", description="ClawSQLite CLI")
     sub = parser.add_subparsers(dest="ns")
     sub.add_parser("knowledge", help="Knowledge base application")
-    sub.add_parser("admin", help="Administrative / low-level maintenance commands")
+    sub.add_parser("admin", help="Maintenance commands for the configured knowledge component")
     parser.print_help()
 
 
@@ -32,10 +32,10 @@ def _print_admin_help() -> None:
     parser = argparse.ArgumentParser(
         prog="clawsqlite admin",
         description=(
-            "Administrative / low-level maintenance commands. These commands are "
-            "intended for advanced users, operators, and recovery or diagnostic "
-            "workflows. Normal knowledge-base usage should prefer "
-            "'clawsqlite knowledge ...'."
+            "Administrative maintenance commands for the current knowledge "
+            "component. These commands read the same clawsqlite.toml as "
+            "'clawsqlite knowledge ...' and use its root/db/articles/runtime "
+            "settings by default. Path options are explicit debug overrides."
         ),
     )
     sub = parser.add_subparsers(dest="admin_ns")
@@ -46,6 +46,62 @@ def _print_admin_help() -> None:
     parser.print_help()
 
 
+def _has_option(argv: List[str], option: str) -> bool:
+    return any(x == option or x.startswith(option + "=") for x in argv)
+
+
+def _append_default(argv: List[str], option: str, value: str) -> List[str]:
+    if not value or _has_option(argv, option):
+        return argv
+    return argv + [option, value]
+
+
+def _admin_argv_with_config_defaults(ns: str, argv: List[str], cfg) -> List[str]:
+    if not argv:
+        return argv
+    cmd = argv[0]
+    out = list(argv)
+
+    if ns == "db":
+        out = _append_default(out, "--db", cfg.db)
+    elif ns == "index":
+        out = _append_default(out, "--db", cfg.db)
+        out = _append_default(out, "--table", "articles")
+        if cmd in {"check", "rebuild", "search"}:
+            out = _append_default(out, "--fts-table", "articles_fts")
+        if cmd == "check":
+            out = _append_default(out, "--vec-table", "articles_vec")
+    elif ns == "fs":
+        out = _append_default(out, "--root", cfg.articles_dir)
+        out = _append_default(out, "--db", cfg.db)
+        out = _append_default(out, "--table", "articles")
+        out = _append_default(out, "--path-col", "local_file_path")
+    elif ns == "embed":
+        out = _append_default(out, "--db", cfg.db)
+        if cmd == "column":
+            out = _append_default(out, "--table", "articles")
+            out = _append_default(out, "--id-col", "id")
+            out = _append_default(out, "--text-col", "summary")
+            out = _append_default(out, "--vec-table", "articles_vec")
+            out = _append_default(out, "--where", "deleted_at IS NULL AND summary IS NOT NULL AND trim(summary) != ''")
+
+    return out
+
+
+def _load_admin_config():
+    try:
+        from clawsqlite_knowledge.config import apply_config_env, load_knowledge_config
+
+        cfg = load_knowledge_config()
+        apply_config_env(cfg)
+        return cfg
+    except Exception as e:
+        sys.stderr.write(f"ERROR: admin requires clawsqlite.toml in the current component root: {e}\n")
+        sys.stderr.write("ERROR_KIND: config_required\n")
+        sys.stderr.write("NEXT: run from the directory that contains clawsqlite.toml, or create one with 'clawsqlite knowledge init-config'.\n")
+        return None
+
+
 def _dispatch_admin(argv: List[str]) -> int:
     if not argv or argv[0] in {"-h", "--help"}:
         _print_admin_help()
@@ -53,6 +109,18 @@ def _dispatch_admin(argv: List[str]) -> int:
 
     ns = argv[0]
     remainder = argv[1:]
+    if ns not in {"db", "index", "fs", "embed"}:
+        sys.stderr.write(f"ERROR: unknown admin namespace {ns!r}\n")
+        sys.stderr.write("NEXT: run 'clawsqlite admin --help' to see supported administrative namespaces.\n")
+        return 2
+
+    if any(x in {"-h", "--help"} for x in remainder):
+        cfg = None
+    else:
+        cfg = _load_admin_config()
+        if cfg is None:
+            return 2
+        remainder = _admin_argv_with_config_defaults(ns, remainder, cfg)
 
     if ns == "db":
         from clawsqlite_plumbing import db_cli
@@ -74,9 +142,7 @@ def _dispatch_admin(argv: List[str]) -> int:
 
         return int(embed_cli.main(remainder, prog="clawsqlite admin embed"))
 
-    sys.stderr.write(f"ERROR: unknown admin namespace {ns!r}\n")
-    sys.stderr.write("NEXT: run 'clawsqlite admin --help' to see supported administrative namespaces.\n")
-    return 2
+    raise AssertionError(f"unreachable admin namespace: {ns!r}")
 
 
 def main(argv: Optional[List[str]] = None) -> int:

@@ -251,7 +251,7 @@ class CLISmokeTests(unittest.TestCase):
             ]
             self._run(embed_cmd, expect_ok=False)
 
-            # 9) Admin: db schema should work on the same DB
+            # 9) Admin: db schema should work on the configured component DB
             db_schema_cmd = [
                 PYTHON_BIN,
                 "-m",
@@ -259,8 +259,6 @@ class CLISmokeTests(unittest.TestCase):
                 "admin",
                 "db",
                 "schema",
-                "--db",
-                str(db_path),
             ]
             self._run(db_schema_cmd)
 
@@ -271,7 +269,8 @@ class CLISmokeTests(unittest.TestCase):
         self.assertNotIn("db         Low-level", p.stdout)
 
         p_admin = self._run([PYTHON_BIN, "-m", "clawsqlite_cli", "admin", "--help"])
-        self.assertIn("advanced users", p_admin.stdout)
+        self.assertIn("current knowledge component", p_admin.stdout)
+        self.assertIn("same clawsqlite.toml", p_admin.stdout)
         self.assertIn("db", p_admin.stdout)
         self.assertIn("index", p_admin.stdout)
         self.assertIn("fs", p_admin.stdout)

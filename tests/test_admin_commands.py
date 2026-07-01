@@ -11,8 +11,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from clawsqlite_cli import main as top_cli_main
 from clawsqlite_plumbing import db_cli, embed_cli, fs_cli, index_cli
 from clawsqlite_knowledge import embed as embedmod
+from tests.helpers import write_knowledge_config
 
 
 @contextlib.contextmanager
@@ -30,6 +32,27 @@ def _run(func, argv):
     with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
         code = func(argv)
     return int(code), stdout.getvalue(), stderr.getvalue()
+
+
+def _run_catching_system_exit(func, argv):
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        try:
+            code = func(argv)
+        except SystemExit as e:
+            code = e.code if isinstance(e.code, int) else 2
+    return int(code), stdout.getvalue(), stderr.getvalue()
+
+
+@contextlib.contextmanager
+def _cwd(path: Path):
+    old = Path.cwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(old)
 
 
 class AdminCommandTests(unittest.TestCase):
@@ -259,6 +282,168 @@ class AdminCommandTests(unittest.TestCase):
         self.assertIn("n\n1\n", out)
         self.assertEqual(json_code, 0, json_err)
         self.assertEqual(json.loads(json_out), [{"n": 1}])
+
+    def test_top_level_admin_requires_component_config_before_paths(self):
+        with _tempdir() as tmpdir:
+            with _cwd(tmpdir):
+                code, out, err = _run_catching_system_exit(top_cli_main, ["admin", "db", "schema"])
+
+        self.assertEqual(code, 2)
+        self.assertEqual(out, "")
+        self.assertIn("ERROR_KIND: config_required", err)
+        self.assertIn("clawsqlite.toml", err)
+
+    def test_top_level_admin_reads_config_db_by_default(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "component"
+            write_knowledge_config(root)
+            db_path = root / "knowledge.sqlite3"
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.execute("CREATE TABLE t(x INTEGER)")
+                conn.execute("INSERT INTO t(x) VALUES(1)")
+                conn.commit()
+            finally:
+                conn.close()
+
+            with _cwd(root):
+                code, out, err = _run_catching_system_exit(
+                    top_cli_main,
+                    ["admin", "db", "exec", "--sql", "SELECT COUNT(*) AS n FROM t", "--json"],
+                )
+
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out), [{"n": 1}])
+
+    def test_top_level_admin_explicit_db_overrides_config_db(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "component"
+            write_knowledge_config(root)
+            configured_db = root / "knowledge.sqlite3"
+            override_db = tmpdir / "override.sqlite3"
+
+            for db_path, values in ((configured_db, [1]), (override_db, [1, 2])):
+                conn = sqlite3.connect(db_path)
+                try:
+                    conn.execute("CREATE TABLE t(x INTEGER)")
+                    conn.executemany("INSERT INTO t(x) VALUES(?)", [(x,) for x in values])
+                    conn.commit()
+                finally:
+                    conn.close()
+
+            with _cwd(root):
+                code, out, err = _run_catching_system_exit(
+                    top_cli_main,
+                    [
+                        "admin",
+                        "db",
+                        "exec",
+                        "--db",
+                        str(override_db),
+                        "--sql",
+                        "SELECT COUNT(*) AS n FROM t",
+                        "--json",
+                    ],
+                )
+
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out), [{"n": 2}])
+
+    def test_top_level_admin_index_uses_config_defaults(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "component"
+            write_knowledge_config(root)
+            db_path = root / "knowledge.sqlite3"
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.execute("CREATE TABLE articles(id INTEGER PRIMARY KEY, title TEXT, tags TEXT, summary TEXT)")
+                conn.execute("INSERT INTO articles(title, tags, summary) VALUES('Alpha', 'tag1', 'hello alpha')")
+                conn.execute("CREATE VIRTUAL TABLE articles_fts USING fts5(title, tags, summary, body)")
+                conn.execute("INSERT INTO articles_fts(rowid, title, tags, summary, body) VALUES(1, 'Alpha', 'tag1', 'hello alpha', '')")
+                conn.commit()
+            finally:
+                conn.close()
+
+            with _cwd(root):
+                code, out, err = _run_catching_system_exit(top_cli_main, ["admin", "index", "check"])
+
+        self.assertEqual(code, 0, err)
+        self.assertIn("[OK] FTS index articles_fts", out)
+        self.assertIn("Vec index articles_vec could not be checked", out)
+
+    def test_top_level_admin_fs_uses_config_defaults(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "component"
+            write_knowledge_config(root)
+            articles_dir = root / "articles"
+            articles_dir.mkdir(parents=True, exist_ok=True)
+            (articles_dir / "live.md").write_text("live", encoding="utf-8")
+            db_path = root / "knowledge.sqlite3"
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.execute("CREATE TABLE articles(id INTEGER PRIMARY KEY, local_file_path TEXT)")
+                conn.execute("INSERT INTO articles(local_file_path) VALUES('live.md')")
+                conn.commit()
+            finally:
+                conn.close()
+
+            with _cwd(root):
+                code, out, err = _run_catching_system_exit(
+                    top_cli_main,
+                    ["admin", "fs", "list-orphans", "--json"],
+                )
+            payload = json.loads(out)
+
+        self.assertEqual(code, 0, err)
+        self.assertEqual(payload["summary"]["fs_only"], 0)
+        self.assertEqual(payload["summary"]["db_only"], 0)
+
+    def test_top_level_admin_help_does_not_require_config(self):
+        with _tempdir() as tmpdir:
+            with _cwd(tmpdir):
+                code, out, err = _run_catching_system_exit(top_cli_main, ["admin", "--help"])
+
+        self.assertEqual(code, 0, err)
+        self.assertIn("same clawsqlite.toml", out)
+        self.assertIn("db", out)
+
+    def test_top_level_admin_embed_uses_config_runtime_defaults(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "component"
+            write_knowledge_config(root)
+            db_path = root / "knowledge.sqlite3"
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.execute("CREATE TABLE articles(id INTEGER PRIMARY KEY, summary TEXT, deleted_at TEXT)")
+                conn.execute("CREATE TABLE articles_vec(id INTEGER PRIMARY KEY, embedding BLOB)")
+                conn.execute("INSERT INTO articles(summary, deleted_at) VALUES('hello summary', NULL)")
+                conn.commit()
+            finally:
+                conn.close()
+
+            def fake_get_embedding(text: str, *, timeout: int = 300):
+                self.assertEqual(os.environ.get("EMBEDDING_MODEL"), "test-embedding")
+                self.assertEqual(os.environ.get("EMBEDDING_API_KEY"), "test-embedding-key")
+                self.assertEqual(os.environ.get("CLAWSQLITE_VEC_DIM"), "4")
+                return [1.0, 0.0, 0.0, 0.0]
+
+            embedmod.get_embedding = fake_get_embedding
+
+            with _cwd(root):
+                code, out, err = _run_catching_system_exit(
+                    top_cli_main,
+                    ["admin", "embed", "column", "--limit", "1"],
+                )
+
+            conn = sqlite3.connect(db_path)
+            try:
+                rows = list(conn.execute("SELECT id, length(embedding) FROM articles_vec"))
+            finally:
+                conn.close()
+
+        self.assertEqual(code, 0, err)
+        self.assertIn("[OK] embed-column", out)
+        self.assertEqual(rows, [(1, 16)])
 
     def test_admin_embed_column_wraps_embedding_errors(self):
         with _tempdir() as tmpdir:

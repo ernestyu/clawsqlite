@@ -14,6 +14,10 @@ without strict version tagging yet. Entries are grouped by date + topic.
 - Top-level CLI now exposes `clawsqlite knowledge ...` and
   `clawsqlite admin ...`; low-level DB/index/fs/embed primitives moved under
   `clawsqlite admin db/index/fs/embed ...`.
+- `clawsqlite admin ...` now shares the same component-root `clawsqlite.toml`
+  as `clawsqlite knowledge ...`. Admin DB/root/table flags are explicit
+  debug/recovery overrides; the normal path uses the configured knowledge DB,
+  articles directory, and runtime service settings.
 - Admin commands now fail more cleanly: vec0-dependent index checks/rebuilds
   warn instead of tracebacking when sqlite-vec is unavailable, FTS rebuild can
   use explicit `--fts-cols`, filesystem GC handles rowid aliases correctly,

@@ -4,11 +4,14 @@
 
 `clawsqlite` 是一个围绕 SQLite 打造的 CLI 工具箱。它有两层：
 
-- `clawsqlite admin ...`：通用 SQLite / FTS / 向量 / 文件系统基础命令，不读取知识库配置，面向管理员、维护、诊断和恢复。
+- `clawsqlite admin ...`：当前 knowledge component 的管理员维护面，读取同一份 `clawsqlite.toml`，面向诊断、维护和恢复。
 - `clawsqlite knowledge ...`：面向文章、笔记、想法入库的知识库应用，读取 `clawsqlite.toml`。
 
-这一层次很重要：底层 admin 命令应该能服务任何 SQLite 数据库；Knowledge
-只负责“网页/想法入库、检索、维护”这一类知识库工作流。
+这一层次很重要：`sqlite3` 才是系统级任意 SQLite 工具；`clawsqlite admin`
+不是第二个 sqlite3，而是当前知识库 component 的维护接口。它和
+Knowledge 共享同一个 component root、同一个 `clawsqlite.toml`、同一个
+root / db / articles_dir / 运行配置。`--db`、`--root` 等路径参数只作为
+明确的调试或恢复覆盖，不是常规入口。
 
 ---
 

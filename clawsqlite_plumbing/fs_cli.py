@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Administrative filesystem / DB consistency maintenance primitives.
+"""Filesystem / DB consistency maintenance for the knowledge component.
 
-Helpers for applications that pair a SQLite DB with a filesystem tree.
-They assume:
+The top-level `clawsqlite admin fs ...` command injects root/db/table/path
+defaults from clawsqlite.toml. Explicit flags remain available as recovery or
+debug overrides. Internally these helpers assume:
 
 - a root directory `--root` where content files live,
 - a DB table `--table` with a column `--path-col` storing relative paths.
@@ -21,15 +22,23 @@ from typing import List, Optional
 def _open_db(path: str) -> sqlite3.Connection:
     if not path:
         print("ERROR: --db is required")
-        print("NEXT: pass --db /path/to/your.db (or use 'clawsqlite knowledge' if you meant the knowledge DB)")
+        print("NEXT: run through 'clawsqlite admin fs ...' from the component root so clawsqlite.toml can provide [knowledge].db, or pass --db as an explicit recovery override")
         raise SystemExit(2)
     if not os.path.exists(path):
         print(f"ERROR: db not found at {path}")
-        print("NEXT: check the path, or run 'clawsqlite knowledge ... --root <dir>' to let clawsqlite manage the DB")
+        print("NEXT: check [knowledge].db in clawsqlite.toml, or pass --db as an explicit recovery override")
         raise SystemExit(2)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _require(value: str, label: str) -> str:
+    if not value:
+        raise SystemExit(
+            f"ERROR: {label} is required (normally provided by clawsqlite.toml through 'clawsqlite admin')"
+        )
+    return value
 
 
 def _scan_fs(root: str) -> set[str]:
@@ -99,12 +108,14 @@ def _print_mismatches(payload: dict, *, json_out: bool) -> None:
 
 
 def _cmd_list_orphans(args: argparse.Namespace) -> int:
-    root = args.root
+    root = _require(args.root, "--root")
+    table = _require(args.table, "--table")
+    path_col = _require(args.path_col, "--path-col")
     conn = _open_db(args.db)
     try:
         fs_paths = _scan_fs(root)
         db_paths = set()
-        for row in conn.execute(f"SELECT {args.path_col} AS p FROM {args.table}"):
+        for row in conn.execute(f"SELECT {path_col} AS p FROM {table}"):
             p = _normalize_db_path(root, row["p"] or "")
             if p:
                 db_paths.add(p)
@@ -118,12 +129,14 @@ def _cmd_list_orphans(args: argparse.Namespace) -> int:
 
 
 def _cmd_gc(args: argparse.Namespace) -> int:
-    root = args.root
+    root = _require(args.root, "--root")
+    table = _require(args.table, "--table")
+    path_col = _require(args.path_col, "--path-col")
     conn = _open_db(args.db)
     try:
         fs_paths = _scan_fs(root)
         db_rows = []
-        for row in conn.execute(f"SELECT rowid AS _rowid, {args.path_col} AS p FROM {args.table}"):
+        for row in conn.execute(f"SELECT rowid AS _rowid, {path_col} AS p FROM {table}"):
             db_rows.append((row["_rowid"], _normalize_db_path(root, row["p"] or "")))
 
         db_paths = {p for _, p in db_rows if p}
@@ -153,7 +166,7 @@ def _cmd_gc(args: argparse.Namespace) -> int:
                     if args.dry_run:
                         print(f"[DRY_RUN][DELETE_DB] rowid={rowid} path={rel}")
                     else:
-                        conn.execute(f"DELETE FROM {args.table} WHERE rowid=?", (rowid,))
+                        conn.execute(f"DELETE FROM {table} WHERE rowid=?", (rowid,))
                         print(f"[DELETE_DB] rowid={rowid} path={rel}")
             if not args.dry_run:
                 conn.commit()
@@ -167,24 +180,27 @@ def _cmd_gc(args: argparse.Namespace) -> int:
 
 
 def build_parser(prog: str = "clawsqlite admin fs") -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog=prog, description="Administrative filesystem + DB consistency maintenance commands")
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description="Filesystem + DB consistency maintenance commands for the current configured knowledge component",
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     # list-orphans
     p_list = sub.add_parser("list-orphans", help="List FS/DB mismatches")
-    p_list.add_argument("--root", required=True, help="Content root directory")
-    p_list.add_argument("--db", required=True, help="SQLite DB path")
-    p_list.add_argument("--table", required=True, help="Table that stores file paths")
-    p_list.add_argument("--path-col", required=True, help="Column name that stores relative paths")
+    p_list.add_argument("--root", help="Content root override (default: [knowledge].articles_dir from clawsqlite.toml)")
+    p_list.add_argument("--db", help="SQLite DB path override (default: [knowledge].db from clawsqlite.toml)")
+    p_list.add_argument("--table", help="Table override (default: articles)")
+    p_list.add_argument("--path-col", help="Path column override (default: local_file_path)")
     p_list.add_argument("--json", action="store_true", help="Print mismatch summary and paths as JSON")
     p_list.set_defaults(func=_cmd_list_orphans)
 
     # gc
     p_gc = sub.add_parser("gc", help="Garbage-collect FS/DB orphans")
-    p_gc.add_argument("--root", required=True, help="Content root directory")
-    p_gc.add_argument("--db", required=True, help="SQLite DB path")
-    p_gc.add_argument("--table", required=True, help="Table that stores file paths")
-    p_gc.add_argument("--path-col", required=True, help="Column name that stores relative paths")
+    p_gc.add_argument("--root", help="Content root override (default: [knowledge].articles_dir from clawsqlite.toml)")
+    p_gc.add_argument("--db", help="SQLite DB path override (default: [knowledge].db from clawsqlite.toml)")
+    p_gc.add_argument("--table", help="Table override (default: articles)")
+    p_gc.add_argument("--path-col", help="Path column override (default: local_file_path)")
     p_gc.add_argument("--delete-fs-orphans", action="store_true", help="Delete files not referenced by DB")
     p_gc.add_argument("--delete-db-orphans", action="store_true", help="Delete DB rows whose files are missing")
     p_gc.add_argument("--dry-run", action="store_true", help="Only print actions, do not modify FS/DB")

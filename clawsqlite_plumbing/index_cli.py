@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Administrative FTS / vector index maintenance primitives.
+"""FTS / vector index maintenance primitives for the knowledge component.
 
-These commands operate on generic FTS / vector indexes for a given base
-table. They only know about:
+The top-level `clawsqlite admin index ...` command injects the DB path and
+knowledge table defaults from clawsqlite.toml. Explicit table/path flags remain
+available as recovery or debug overrides. Internally these primitives only know
+about:
 
 - base table name (`--table`),
 - optional FTS virtual table (`--fts-table`),
@@ -37,6 +39,14 @@ def _split_cols(value: str) -> list[str]:
     return cols
 
 
+def _require(value: str, label: str) -> str:
+    if not value:
+        raise SystemExit(
+            f"ERROR: {label} is required (normally provided by clawsqlite.toml through 'clawsqlite admin')"
+        )
+    return value
+
+
 def _enable_extensions(conn: sqlite3.Connection) -> None:
     """Best-effort enabling of extensions (libsimple / vec0, etc.).
 
@@ -68,11 +78,11 @@ def _enable_extensions(conn: sqlite3.Connection) -> None:
 def _open_db(path: str) -> sqlite3.Connection:
     if not path:
         print("ERROR: --db is required")
-        print("NEXT: pass --db /path/to/your.db (or use 'clawsqlite knowledge' if you meant the knowledge DB)")
+        print("NEXT: run through 'clawsqlite admin index ...' from the component root so clawsqlite.toml can provide [knowledge].db, or pass --db as an explicit recovery override")
         raise SystemExit(2)
     if not os.path.exists(path):
         print(f"ERROR: db not found at {path}")
-        print("NEXT: check the path, or run 'clawsqlite knowledge ... --root <dir>' to let clawsqlite manage the DB")
+        print("NEXT: check [knowledge].db in clawsqlite.toml, or pass --db as an explicit recovery override")
         raise SystemExit(2)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
@@ -97,7 +107,7 @@ def _fts_columns(conn: sqlite3.Connection, fts_table: str) -> list[str]:
 def _cmd_check(args: argparse.Namespace) -> int:
     conn = _open_db(args.db)
     try:
-        base = _ident(args.table, label="base table")
+        base = _ident(_require(args.table, "--table"), label="base table")
         id_col = _ident(args.id_col, label="id column")
         fts = _ident(args.fts_table, label="FTS table") if args.fts_table else ""
         vec = _ident(args.vec_table, label="vec table") if args.vec_table else ""
@@ -142,7 +152,7 @@ def _cmd_check(args: argparse.Namespace) -> int:
 def _cmd_rebuild(args: argparse.Namespace) -> int:
     conn = _open_db(args.db)
     try:
-        base = _ident(args.table, label="base table")
+        base = _ident(_require(args.table, "--table"), label="base table")
         id_col = _ident(args.id_col, label="id column")
         fts = _ident(args.fts_table, label="FTS table") if args.fts_table else ""
         vec = _ident(args.vec_table, label="vec table") if args.vec_table else ""
@@ -207,7 +217,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
         limit = int(args.limit or 20)
 
         if not fts:
-            raise SystemExit("ERROR: --fts-table is required for index search")
+            raise SystemExit("ERROR: --fts-table is required (normally provided by clawsqlite.toml through 'clawsqlite admin')")
 
         sql = f"SELECT rowid, bm25({fts}) AS score FROM {fts} WHERE {fts} MATCH ? ORDER BY score LIMIT ?"
         for row in conn.execute(sql, (query, limit)):
@@ -219,13 +229,16 @@ def _cmd_search(args: argparse.Namespace) -> int:
 
 
 def build_parser(prog: str = "clawsqlite admin index") -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog=prog, description="Administrative FTS / vector index maintenance commands")
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description="FTS / vector index maintenance commands for the current configured knowledge component",
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     # check
     p_check = sub.add_parser("check", help="Check FTS/vec index consistency")
-    p_check.add_argument("--db", required=True, help="SQLite DB path")
-    p_check.add_argument("--table", required=True, help="Base table name")
+    p_check.add_argument("--db", help="SQLite DB path override (default: [knowledge].db from clawsqlite.toml)")
+    p_check.add_argument("--table", help="Base table override (default: articles)")
     p_check.add_argument("--id-col", default="id", help="Primary key column in base table (default: id)")
     p_check.add_argument("--fts-table", help="FTS table name")
     p_check.add_argument("--vec-table", help="Vector table name")
@@ -233,8 +246,8 @@ def build_parser(prog: str = "clawsqlite admin index") -> argparse.ArgumentParse
 
     # rebuild
     p_rebuild = sub.add_parser("rebuild", help="Rebuild FTS/vec indexes from base table")
-    p_rebuild.add_argument("--db", required=True, help="SQLite DB path")
-    p_rebuild.add_argument("--table", required=True, help="Base table name")
+    p_rebuild.add_argument("--db", help="SQLite DB path override (default: [knowledge].db from clawsqlite.toml)")
+    p_rebuild.add_argument("--table", help="Base table override (default: articles)")
     p_rebuild.add_argument("--id-col", default="id", help="Primary key column in base table (default: id)")
     p_rebuild.add_argument("--fts-table", help="FTS table name")
     p_rebuild.add_argument("--fts-cols", help="Comma-separated base-table columns to copy into the FTS table")
@@ -243,9 +256,9 @@ def build_parser(prog: str = "clawsqlite admin index") -> argparse.ArgumentParse
 
     # search (optional plumbing primitive)
     p_search = sub.add_parser("search", help="Low-level FTS search; returns rowid+score JSON lines")
-    p_search.add_argument("--db", required=True, help="SQLite DB path")
-    p_search.add_argument("--table", required=True, help="Base table name")
-    p_search.add_argument("--fts-table", required=True, help="FTS table name")
+    p_search.add_argument("--db", help="SQLite DB path override (default: [knowledge].db from clawsqlite.toml)")
+    p_search.add_argument("--table", help="Base table override (default: articles)")
+    p_search.add_argument("--fts-table", help="FTS table override (default: articles_fts)")
     p_search.add_argument("--query", required=True, help="Search query string")
     p_search.add_argument("--limit", type=int, default=20, help="Max results")
     p_search.set_defaults(func=_cmd_search)

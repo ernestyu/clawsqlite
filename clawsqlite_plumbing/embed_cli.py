@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Administrative low-level embedding primitives for clawsqlite.
+"""Embedding maintenance primitives for the configured knowledge component.
 
-These commands operate on a generic pattern:
+The top-level `clawsqlite admin embed ...` command injects DB/table/vector
+defaults and embedding runtime settings from clawsqlite.toml. Explicit flags
+remain available as recovery or debug overrides. Internally these commands
+operate on a simple pattern:
 
 - base table with an integer id column (e.g. `id`)
 - a text column (e.g. `summary`) to be embedded
@@ -12,9 +15,7 @@ These commands operate on a generic pattern:
       );
 
 The actual embedding API (OpenAI-compatible) is delegated to
-`clawsqlite_knowledge.embed` for now so existing env conventions
-(EMBEDDING_MODEL/BASE_URL/API_KEY) are reused. In the future this can be
-split into a separate package.
+`clawsqlite_knowledge.embed`; `clawsqlite admin` applies the config first.
 """
 from __future__ import annotations
 
@@ -28,11 +29,11 @@ from typing import List, Optional
 def _open_db(path: str) -> sqlite3.Connection:
     if not path:
         print("ERROR: --db is required")
-        print("NEXT: pass --db /path/to/your.db (or use 'clawsqlite knowledge' if you meant the knowledge DB)")
+        print("NEXT: run through 'clawsqlite admin embed ...' from the component root so clawsqlite.toml can provide [knowledge].db, or pass --db as an explicit recovery override")
         raise SystemExit(2)
     if not os.path.exists(path):
         print(f"ERROR: db not found at {path}")
-        print("NEXT: check the path, or run 'clawsqlite knowledge ... --root <dir>' to let clawsqlite manage the DB")
+        print("NEXT: check [knowledge].db in clawsqlite.toml, or pass --db as an explicit recovery override")
         raise SystemExit(2)
     conn = sqlite3.connect(path)
     try:
@@ -46,6 +47,14 @@ def _open_db(path: str) -> sqlite3.Connection:
     return conn
 
 
+def _require(value: str, label: str) -> str:
+    if not value:
+        raise SystemExit(
+            f"ERROR: {label} is required (normally provided by clawsqlite.toml through 'clawsqlite admin')"
+        )
+    return value
+
+
 def _cmd_embed_column(args: argparse.Namespace) -> int:
     # Deferred import to avoid hard dependency when knowledge app is absent.
     try:
@@ -55,10 +64,10 @@ def _cmd_embed_column(args: argparse.Namespace) -> int:
 
     conn = _open_db(args.db)
     try:
-        table = args.table
-        id_col = args.id_col
-        text_col = args.text_col
-        vec_table = args.vec_table
+        table = _require(args.table, "--table")
+        id_col = _require(args.id_col, "--id-col")
+        text_col = _require(args.text_col, "--text-col")
+        vec_table = _require(args.vec_table, "--vec-table")
         where_clause = args.where or ""
         limit = args.limit
         offset = args.offset
@@ -111,7 +120,10 @@ def _cmd_embed_column(args: argparse.Namespace) -> int:
 
 
 def build_parser(prog: str = "clawsqlite admin embed") -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog=prog, description="Administrative low-level embedding primitive commands")
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description="Embedding maintenance commands for the current configured knowledge component",
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_col = sub.add_parser(
@@ -119,11 +131,11 @@ def build_parser(prog: str = "clawsqlite admin embed") -> argparse.ArgumentParse
         help=("Embed a text column into a vec table using the configured embedding service. "
               "This is a low-level primitive; applications should wrap it."),
     )
-    p_col.add_argument("--db", required=True, help="SQLite DB path")
-    p_col.add_argument("--table", required=True, help="Base table name")
-    p_col.add_argument("--id-col", required=True, help="Primary key column name in base table")
-    p_col.add_argument("--text-col", required=True, help="Text column to embed")
-    p_col.add_argument("--vec-table", required=True, help="Vector index table name")
+    p_col.add_argument("--db", help="SQLite DB path override (default: [knowledge].db from clawsqlite.toml)")
+    p_col.add_argument("--table", help="Base table override (default: articles)")
+    p_col.add_argument("--id-col", help="Primary key column override (default: id)")
+    p_col.add_argument("--text-col", help="Text column override (default: summary)")
+    p_col.add_argument("--vec-table", help="Vector table override (default: articles_vec)")
     p_col.add_argument("--where", help="Optional SQL WHERE clause (without 'WHERE')")
     p_col.add_argument("--limit", type=int, help="Optional LIMIT for batching")
     p_col.add_argument("--offset", type=int, help="Optional OFFSET for batching")

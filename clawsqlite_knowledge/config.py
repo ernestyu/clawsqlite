@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """Knowledge-app configuration for clawsqlite.
 
-This module is intentionally owned by `clawsqlite_knowledge`, not plumbing.
-Plumbing commands stay generic and do not read clawsqlite.toml.
+This module is intentionally owned by the knowledge component. The top-level
+`clawsqlite admin ...` namespace also reads this config so maintenance commands
+share the same component root, DB path, and runtime settings as knowledge.
 """
 from __future__ import annotations
 

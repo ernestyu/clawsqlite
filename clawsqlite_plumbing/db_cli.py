@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Administrative SQLite DB maintenance primitives.
+"""SQLite DB maintenance primitives for the configured knowledge component.
 
-All commands here are schema-agnostic: they operate on an arbitrary
-SQLite database file and do not assume KB-specific tables.
+The top-level `clawsqlite admin db ...` command injects the DB path from
+clawsqlite.toml by default. Explicit `--db` remains available as a recovery or
+debug override.
 """
 from __future__ import annotations
 
@@ -19,11 +20,11 @@ from typing import Optional
 def _open_db(path: str) -> sqlite3.Connection:
     if not path:
         print("ERROR: --db is required")
-        print("NEXT: pass --db /path/to/your.db (or use 'clawsqlite knowledge' if you meant the knowledge DB)")
+        print("NEXT: run through 'clawsqlite admin db ...' from the component root so clawsqlite.toml can provide [knowledge].db, or pass --db as an explicit recovery override")
         raise SystemExit(2)
     if not os.path.exists(path):
         print(f"ERROR: db not found at {path}")
-        print("NEXT: check the path, or run 'clawsqlite knowledge ... --root <dir>' to let clawsqlite manage the DB")
+        print("NEXT: check [knowledge].db in clawsqlite.toml, or pass --db as an explicit recovery override")
         raise SystemExit(2)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
@@ -105,7 +106,7 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
 def _cmd_backup(args: argparse.Namespace) -> int:
     src = args.db
     if not src:
-        raise SystemExit("ERROR: --db is required")
+        raise SystemExit("ERROR: --db is required (normally provided by clawsqlite.toml through 'clawsqlite admin')")
     if not os.path.exists(src):
         raise SystemExit(f"ERROR: db not found at {src}")
 
@@ -132,18 +133,21 @@ def _cmd_backup(args: argparse.Namespace) -> int:
 
 
 def build_parser(prog: str = "clawsqlite admin db") -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog=prog, description="Administrative SQLite database maintenance commands")
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description="SQLite database maintenance commands for the current configured knowledge component",
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     # schema
     p_schema = sub.add_parser("schema", help="Print DB schema")
-    p_schema.add_argument("--db", required=True, help="SQLite DB path")
+    p_schema.add_argument("--db", help="SQLite DB path override (default: [knowledge].db from clawsqlite.toml)")
     p_schema.add_argument("--table", help="Optional table name to filter")
     p_schema.set_defaults(func=_cmd_schema)
 
     # exec
     p_exec = sub.add_parser("exec", help="Execute SQL text or file; inline SELECT/PRAGMA prints results")
-    p_exec.add_argument("--db", required=True, help="SQLite DB path")
+    p_exec.add_argument("--db", help="SQLite DB path override (default: [knowledge].db from clawsqlite.toml)")
     p_exec.add_argument("--sql", help="Inline SQL text")
     p_exec.add_argument("--file", help="Path to .sql file")
     p_exec.add_argument("--json", action="store_true", help="Print inline SELECT/PRAGMA results as a JSON array")
@@ -151,17 +155,17 @@ def build_parser(prog: str = "clawsqlite admin db") -> argparse.ArgumentParser:
 
     # vacuum
     p_vac = sub.add_parser("vacuum", help="Run VACUUM on DB")
-    p_vac.add_argument("--db", required=True, help="SQLite DB path")
+    p_vac.add_argument("--db", help="SQLite DB path override (default: [knowledge].db from clawsqlite.toml)")
     p_vac.set_defaults(func=_cmd_vacuum)
 
     # analyze (optional but cheap)
     p_an = sub.add_parser("analyze", help="Run ANALYZE on DB")
-    p_an.add_argument("--db", required=True, help="SQLite DB path")
+    p_an.add_argument("--db", help="SQLite DB path override (default: [knowledge].db from clawsqlite.toml)")
     p_an.set_defaults(func=_cmd_analyze)
 
     # backup
     p_bk = sub.add_parser("backup", help="Backup DB to a file or directory")
-    p_bk.add_argument("--db", required=True, help="Source SQLite DB path")
+    p_bk.add_argument("--db", help="Source SQLite DB path override (default: [knowledge].db from clawsqlite.toml)")
     p_bk.add_argument("--out", required=True, help="Destination path or directory")
     p_bk.add_argument("--add-timestamp", action="store_true", help="Append UTC timestamp when --out is a directory")
     p_bk.set_defaults(func=_cmd_backup)

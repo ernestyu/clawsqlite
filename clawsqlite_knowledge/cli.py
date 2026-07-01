@@ -35,7 +35,7 @@ from .search import hybrid_search
 from . import reindex as reindex_mod
 from . import interest as interest_mod
 
-# Admin layer (generic db/index/fs/embed helpers)
+# Admin layer helpers used by knowledge-level maintenance wrappers.
 try:
     from clawsqlite_plumbing import db_cli as _db_plumbing_cli
 except Exception:  # pragma: no cover
@@ -45,7 +45,8 @@ _WARNED_FTS_FALLBACK = False
 
 
 CONFIG_TEMPLATE = """# clawsqlite knowledge configuration.
-# This file is owned by the knowledge app. Plumbing commands do not read it.
+# This private file is the single local config source for both
+# `clawsqlite knowledge ...` and `clawsqlite admin ...`.
 
 [knowledge]
 root = "{root}"

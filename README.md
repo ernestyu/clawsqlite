@@ -9,8 +9,8 @@ application is a local Markdown + SQLite knowledge base.
 This repo currently focuses on the **knowledge** app:
 
 - commands are exposed under `clawsqlite knowledge ...` for users/skills.
-- low-level SQLite/FTS/filesystem/embedding primitives are exposed under
-  `clawsqlite admin ...` for advanced maintenance and recovery workflows.
+- SQLite/FTS/filesystem/embedding maintenance commands are exposed under
+  `clawsqlite admin ...` for the current configured knowledge component.
 
 Naming note: `clawsqlite_knowledge` is the Python package that implements the
 Knowledge app. `skills/clawsqlite-knowledge` is only a thin OpenClaw/ClawHub
@@ -43,7 +43,7 @@ The knowledge app helps you:
   - Markdown files include a small METADATA header + MARKDOWN body section
 - **Project config**
   - All data lives under a single root directory
-  - Knowledge commands read `clawsqlite.toml` first; admin commands stay generic and do not read it
+  - Knowledge and admin commands read the same component-root `clawsqlite.toml`
   - DB and articles dir default to `<root>/knowledge.sqlite3` and `<root>/articles`
 - **Embeddings + LLM**
   - Embeddings: OpenAI‑compatible `/v1/embeddings` API
@@ -65,7 +65,7 @@ The knowledge app helps you:
       so that many partial tag hits don’t overpower the semantic channels
 - **CLI first**
   - Simple subcommands: `ingest`, `search`, `show`, `export`, `update`, `delete`, `reindex`, `doctor`
-  - Low-level primitives live under `clawsqlite admin db/index/fs/embed ...`
+  - Maintenance primitives live under `clawsqlite admin db/index/fs/embed ...`
 
 ---
 
@@ -683,8 +683,13 @@ actually usable for the current DB.
 
 ### 6.7 admin primitives
 
-Low-level maintenance primitives live under `clawsqlite admin ...` and do not
-read `clawsqlite.toml`.
+Maintenance primitives live under `clawsqlite admin ...`. They are the
+administrator surface for the current knowledge component, not a replacement
+for the system `sqlite3` tool. By default, admin commands read the same
+component-root `clawsqlite.toml` as `clawsqlite knowledge ...` and use its
+`[knowledge].db`, `[knowledge].articles_dir`, and runtime service settings.
+Flags such as `--db`, `--root`, `--table`, and `--path-col` are explicit
+debug/recovery overrides, not the normal path.
 
 - `admin db exec --sql "SELECT ..." --json` prints query rows as JSON; without
   `--json`, inline queries print TSV. Non-query SQL still runs as a script.

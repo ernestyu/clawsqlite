@@ -1,5 +1,6 @@
 # clawsqlite knowledge configuration.
-# This file is owned by the knowledge app. Plumbing commands do not read it.
+# This private file is the single local config source for both
+# `clawsqlite knowledge ...` and `clawsqlite admin ...`.
 
 [knowledge]
 root = "./knowledge_data"
