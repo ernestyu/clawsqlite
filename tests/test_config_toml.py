@@ -8,6 +8,7 @@ import unittest
 import uuid
 from pathlib import Path
 
+from clawsqlite_knowledge import db as dbmod
 from clawsqlite_knowledge.config import ConfigError, apply_config_env, find_config_path, load_knowledge_config
 from tests.helpers import write_knowledge_config
 
@@ -40,10 +41,12 @@ def _cwd(path: Path):
 class KnowledgeConfigTomlTests(unittest.TestCase):
     def setUp(self) -> None:
         self._env = os.environ.copy()
+        self._find_vec0_so = dbmod._find_vec0_so
 
     def tearDown(self) -> None:
         os.environ.clear()
         os.environ.update(self._env)
+        dbmod._find_vec0_so = self._find_vec0_so
 
     def test_find_config_uses_only_current_component_root(self):
         with _tempdir() as tmpdir:
@@ -91,6 +94,32 @@ class KnowledgeConfigTomlTests(unittest.TestCase):
 
             self.assertEqual(os.environ["LLM_API_KEY"], "llm-from-toml")
             self.assertEqual(os.environ["EMBEDDING_API_KEY"], "embedding-from-toml")
+
+    def test_apply_config_env_auto_discovers_vec_extension_for_admin(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "kb"
+            write_knowledge_config(root)
+            dbmod._find_vec0_so = lambda: "/app/node_modules/sqlite-vec-linux-x64/vec0.so"  # type: ignore[assignment]
+            os.environ.pop("CLAWSQLITE_VEC_EXT", None)
+
+            with _cwd(root):
+                cfg = load_knowledge_config()
+            apply_config_env(cfg)
+
+            self.assertEqual(os.environ["CLAWSQLITE_VEC_EXT"], "/app/node_modules/sqlite-vec-linux-x64/vec0.so")
+
+    def test_apply_config_env_preserves_explicit_vec_extension_override(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "kb"
+            write_knowledge_config(root)
+            dbmod._find_vec0_so = lambda: "/app/node_modules/sqlite-vec-linux-x64/vec0.so"  # type: ignore[assignment]
+            os.environ["CLAWSQLITE_VEC_EXT"] = "/debug/vec0.so"
+
+            with _cwd(root):
+                cfg = load_knowledge_config()
+            apply_config_env(cfg)
+
+            self.assertEqual(os.environ["CLAWSQLITE_VEC_EXT"], "/debug/vec0.so")
 
     def test_config_clears_stale_runtime_keys_when_api_keys_missing(self):
         with _tempdir() as tmpdir:

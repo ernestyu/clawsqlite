@@ -27,6 +27,11 @@ without strict version tagging yet. Entries are grouped by date + topic.
   matching the vec0 extension path used by `admin embed column`, so configured
   `articles_vec` tables can be checked instead of falling back to
   `no such module: vec0`.
+- Admin config application now auto-discovers `vec0.so` using the same
+  `/app/node_modules/**/vec0.so` search path as the Knowledge DB layer and
+  exposes it to admin plumbing, so `admin index check` and
+  `admin embed column` work from `clawsqlite.toml` defaults without manually
+  exporting `CLAWSQLITE_VEC_EXT`.
 - Replaced the internal `SMALL_LLM_*` runtime names with `LLM_BASE_URL`,
   `LLM_MODEL`, and `LLM_API_KEY`. The project no longer keeps a compatibility
   path for the old names.

@@ -406,6 +406,18 @@ def apply_config_env(config: KnowledgeConfig) -> None:
         os.environ["CLAWSQLITE_VEC_DIM"] = str(config.embedding.dim)
     else:
         os.environ.pop("CLAWSQLITE_VEC_DIM", None)
+    vec_ext = os.environ.get("CLAWSQLITE_VEC_EXT") or ""
+    if not vec_ext:
+        try:
+            from .db import _find_vec0_so
+
+            vec_ext = _find_vec0_so() or ""
+        except Exception:
+            vec_ext = ""
+    if vec_ext:
+        os.environ["CLAWSQLITE_VEC_EXT"] = vec_ext
+    else:
+        os.environ.pop("CLAWSQLITE_VEC_EXT", None)
     embedding_api_key = config.embedding.resolved_api_key
     if embedding_api_key:
         os.environ["EMBEDDING_API_KEY"] = embedding_api_key
