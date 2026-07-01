@@ -125,7 +125,7 @@ class KnowledgeIngestURLWithClawfetchTests(unittest.TestCase):
                 "微信文章: Ground Station 项目",
                 "--category",
                 "web",
-                "--tags",
+                "--tags-hint",
                 "wechat,ground-station",
                 "--gen-provider",
                 "off",

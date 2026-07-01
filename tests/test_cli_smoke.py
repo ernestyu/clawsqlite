@@ -109,7 +109,7 @@ class CLISmokeTests(unittest.TestCase):
                 "Hello",
                 "--category",
                 "test",
-                "--tags",
+                "--tags-hint",
                 "demo",
                 "--gen-provider",
                 "off",

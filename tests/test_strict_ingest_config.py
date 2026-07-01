@@ -47,9 +47,9 @@ class StrictIngestConfigTests(unittest.TestCase):
         self._env = os.environ.copy()
         self._generate_fields = kcli.generate_fields
         for key in [
-            "SMALL_LLM_MODEL",
-            "SMALL_LLM_BASE_URL",
-            "SMALL_LLM_API_KEY",
+            "LLM_MODEL",
+            "LLM_BASE_URL",
+            "LLM_API_KEY",
             "EMBEDDING_MODEL",
             "EMBEDDING_BASE_URL",
             "EMBEDDING_API_KEY",
@@ -98,7 +98,7 @@ class StrictIngestConfigTests(unittest.TestCase):
                     "Strict note",
                     "--summary",
                     "Manual summary",
-                    "--tags",
+                    "--tags-hint",
                     "sqlite,agent",
                     "--gen-provider",
                     "openclaw",
@@ -127,7 +127,7 @@ class StrictIngestConfigTests(unittest.TestCase):
                     "Strict note",
                     "--summary",
                     "Manual summary",
-                    "--tags",
+                    "--tags-hint",
                     "sqlite,agent",
                     "--json",
                 ]
@@ -179,7 +179,7 @@ class StrictIngestConfigTests(unittest.TestCase):
                     "Embedding strict note",
                     "--summary",
                     "Manual summary",
-                    "--tags",
+                    "--tags-hint",
                     "sqlite,agent",
                     "--gen-provider",
                     "off",
@@ -262,7 +262,8 @@ class StrictIngestConfigTests(unittest.TestCase):
             self.assertEqual(payload["root"], str(root))
             self.assertEqual(payload["db"], str(root / "knowledge.sqlite3"))
             self.assertEqual(payload["articles_dir"], str(root / "articles"))
-            self.assertFalse(payload["embedding_enabled"])
+            self.assertIn("embedding_runtime_enabled", payload)
+            self.assertFalse(payload["embedding_required"])
             with sqlite3.connect(root / "knowledge.sqlite3") as conn:
                 conn.row_factory = sqlite3.Row
                 row = conn.execute("SELECT title, tags, category FROM articles WHERE id=1").fetchone()

@@ -209,6 +209,8 @@ class ReportConfig:
 @dataclass(frozen=True)
 class KnowledgeConfig:
     config_path: str
+    config_resolution_mode: str
+    config_source_reason: str
     root: str
     db: str
     articles_dir: str
@@ -358,6 +360,8 @@ def load_knowledge_config(
 
     return KnowledgeConfig(
         config_path=str(cfg_path.resolve()),
+        config_resolution_mode="component_root_config",
+        config_source_reason=f"loaded {CONFIG_FILENAME} from the current component root",
         root=str(root),
         db=db_path,
         articles_dir=articles_dir,
@@ -373,21 +377,21 @@ def load_knowledge_config(
 
 
 def apply_config_env(config: KnowledgeConfig) -> None:
-    """Expose service config to existing env-based HTTP clients."""
+    """Expose TOML service config to low-level HTTP clients."""
 
     if config.llm.base_url:
-        os.environ["SMALL_LLM_BASE_URL"] = config.llm.base_url
+        os.environ["LLM_BASE_URL"] = config.llm.base_url
     else:
-        os.environ.pop("SMALL_LLM_BASE_URL", None)
+        os.environ.pop("LLM_BASE_URL", None)
     if config.llm.model:
-        os.environ["SMALL_LLM_MODEL"] = config.llm.model
+        os.environ["LLM_MODEL"] = config.llm.model
     else:
-        os.environ.pop("SMALL_LLM_MODEL", None)
+        os.environ.pop("LLM_MODEL", None)
     llm_api_key = config.llm.resolved_api_key
     if llm_api_key:
-        os.environ["SMALL_LLM_API_KEY"] = llm_api_key
+        os.environ["LLM_API_KEY"] = llm_api_key
     else:
-        os.environ.pop("SMALL_LLM_API_KEY", None)
+        os.environ.pop("LLM_API_KEY", None)
 
     if config.embedding.base_url:
         os.environ["EMBEDDING_BASE_URL"] = config.embedding.base_url

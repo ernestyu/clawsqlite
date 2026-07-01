@@ -84,20 +84,20 @@ def _chat_url(base_url: str) -> str:
         return base + "/chat/completions"
     return base + "/v1/chat/completions" if base.startswith("http") else base + "/chat/completions"
 
-def _small_llm_enabled() -> bool:
-    return bool(os.environ.get("SMALL_LLM_MODEL") and os.environ.get("SMALL_LLM_BASE_URL") and os.environ.get("SMALL_LLM_API_KEY"))
+def _llm_enabled() -> bool:
+    return bool(os.environ.get("LLM_MODEL") and os.environ.get("LLM_BASE_URL") and os.environ.get("LLM_API_KEY"))
 
 
-def small_llm_enabled() -> bool:
+def llm_enabled() -> bool:
     """Public helper: whether the configured runtime LLM path is usable."""
-    return _small_llm_enabled()
+    return _llm_enabled()
 
-def _call_small_llm_json(prompt: str, *, timeout: int = 60) -> Dict[str, Any]:
-    model = os.environ.get("SMALL_LLM_MODEL")
-    base_url = os.environ.get("SMALL_LLM_BASE_URL")
-    api_key = os.environ.get("SMALL_LLM_API_KEY")
+def _call_llm_json(prompt: str, *, timeout: int = 60) -> Dict[str, Any]:
+    model = os.environ.get("LLM_MODEL")
+    base_url = os.environ.get("LLM_BASE_URL")
+    api_key = os.environ.get("LLM_API_KEY")
     if not (model and base_url and api_key):
-        raise RuntimeError("Small LLM is not enabled: configured model/base_url/api_key are incomplete")
+        raise RuntimeError("LLM is not enabled: configured model/base_url/api_key are incomplete")
     url = _chat_url(base_url)
 
     payload = {
@@ -122,9 +122,9 @@ def _call_small_llm_json(prompt: str, *, timeout: int = 60) -> Dict[str, Any]:
             err_body = e.read().decode("utf-8", errors="replace")
         except Exception:
             pass
-        raise RuntimeError(f"Small LLM HTTPError: {e.code} {e.reason} {err_body}")
+        raise RuntimeError(f"LLM HTTPError: {e.code} {e.reason} {err_body}")
     except Exception as e:
-        raise RuntimeError(f"Small LLM request failed: {e}")
+        raise RuntimeError(f"LLM request failed: {e}")
 
     try:
         obj = json.loads(body)
@@ -136,7 +136,7 @@ def _call_small_llm_json(prompt: str, *, timeout: int = 60) -> Dict[str, Any]:
             content = re.sub(r"\n```$", "", content).strip()
         return json.loads(content)
     except Exception as e:
-        raise RuntimeError(f"Small LLM parse failed: {e}; body={body[:300]}")
+        raise RuntimeError(f"LLM parse failed: {e}; body={body[:300]}")
 
 def _heuristic_title(content: str, hint_title: Optional[str] = None) -> str:
     if hint_title and hint_title.strip():
@@ -385,12 +385,18 @@ def _llm_fields_once(
     tag_count: int,
     allowed_content_types: Optional[List[str]],
     timeout: int,
+    preserve_short_content: bool = False,
     source_is_chunk_summaries: bool = False,
 ) -> Dict[str, Any]:
     title_hint = (hint_title or "").strip()
     tags_hint = (hint_tags or "").strip()
     allowed_text = ", ".join(allowed_content_types or sorted(_CONTENT_TYPES))
     source_label = "chunk summaries" if source_is_chunk_summaries else "full content"
+    short_rule = (
+        "- For short direct notes, summary should preserve the original content instead of paraphrasing away details.\n"
+        if preserve_short_content
+        else "- For web articles and scraped pages, summarize the content even when the cleaned input is short.\n"
+    )
     prompt = (
         "Extract structured metadata for a long-term personal knowledge base.\n"
         "Use the provided content only; do not invent facts.\n"
@@ -401,7 +407,7 @@ def _llm_fields_once(
         "- Keys: title, summary, tags, category, content_type, key_claims, entities.\n"
         "- title: one line, specific, 2 to 120 characters; never output generic titles like untitled.\n"
         f"- summary target length: about {summary_target_chars} characters; concise but information-dense.\n"
-        "- If the input content is already shorter than the summary target, summary should preserve the original content instead of paraphrasing away details.\n"
+        f"{short_rule}"
         f"- tags: exactly {tag_count} short tags, sorted by importance descending.\n"
         "- tags must be a JSON array of strings, not a comma-separated string.\n"
         "- key_claims: 3 to 8 short claims or takeaways.\n"
@@ -416,7 +422,7 @@ def _llm_fields_once(
         "Content:\n"
         f"{content}\n"
     )
-    obj = _call_small_llm_json(prompt, timeout=timeout)
+    obj = _call_llm_json(prompt, timeout=timeout)
     return _validate_llm_fields(
         obj,
         fallback_title=title_hint,
@@ -432,7 +438,7 @@ def _llm_chunk_summary(chunk: str, *, index: int, total: int, timeout: int, targ
         f"Target summary length: about {target_chars} characters.\n"
         f"Chunk {index} of {total}:\n{chunk}\n"
     )
-    obj = _call_small_llm_json(prompt, timeout=timeout)
+    obj = _call_llm_json(prompt, timeout=timeout)
     summary = str(obj.get("summary") or "").strip()
     if not summary:
         raise RuntimeError(f"LLM chunk summary failed validation: chunk {index}")
@@ -451,6 +457,7 @@ def _llm_fields_from_content(
     prompt_reserved_chars: int,
     chunk_overlap_chars: int,
     timeout: int,
+    preserve_short_content: bool = False,
 ) -> Dict[str, Any]:
     budget = max(1000, int(context_window_chars) - int(prompt_reserved_chars))
     text = (content or "").strip()
@@ -463,6 +470,7 @@ def _llm_fields_from_content(
             tag_count=tag_count,
             allowed_content_types=allowed_content_types,
             timeout=timeout,
+            preserve_short_content=preserve_short_content,
         )
 
     chunks = _chunk_text(text, chunk_chars=budget, overlap_chars=chunk_overlap_chars)
@@ -519,6 +527,7 @@ def _llm_fields_from_content(
         tag_count=tag_count,
         allowed_content_types=allowed_content_types,
         timeout=timeout,
+        preserve_short_content=False,
         source_is_chunk_summaries=True,
     )
 
@@ -562,7 +571,7 @@ def _llm_refine_and_keywords_for_query(
     min_k: int = 8,
     max_k: int = 12,
 ) -> Dict[str, Any]:
-    """Use SMALL_LLM to produce query_refine + query_tags for retrieval."""
+    """Use the configured LLM to produce query_refine + query_tags for retrieval."""
     prompt = (
         "Rewrite the user query for retrieval and extract important search tags.\n"
         "Constraints:\n"
@@ -572,7 +581,7 @@ def _llm_refine_and_keywords_for_query(
         "- Output STRICT JSON only with keys: query_refine, query_tags\n\n"
         f"User query:\n{query}\n"
     )
-    obj = _call_small_llm_json(prompt)
+    obj = _call_llm_json(prompt)
     query_refine = str(obj.get("query_refine", "") or "").strip()
     query_tags = _normalize_tags(obj.get("query_tags", []), max_tags=max_k)
     return {"query_refine": query_refine, "query_tags": query_tags}
@@ -601,7 +610,7 @@ def generate_search_query_plan(
     if min_k > max_k:
         min_k = max_k
 
-    if provider == "llm" and _small_llm_enabled():
+    if provider == "llm" and _llm_enabled():
         try:
             llm_out = _llm_refine_and_keywords_for_query(
                 text,
@@ -643,6 +652,8 @@ def generate_fields(
     llm_prompt_reserved_chars: int = 4000,
     llm_chunk_overlap_chars: int = 500,
     llm_timeout_seconds: int = 60,
+    source_kind: str = "",
+    source_content_type: str = "",
 ) -> Dict[str, Any]:
     """
     Return dict with keys: title, summary, tags(list).
@@ -666,7 +677,14 @@ def generate_fields(
     clean = _strip_metadata_for_generation(content)
     title = _heuristic_title(clean, hint_title=hint_title)
     summary = _build_long_summary(clean, target_words=1200, max_chars=max_summary_chars)
-    short_summary_passthrough = bool(clean and len(clean) <= max_summary_chars)
+    source_kind_norm = (source_kind or "").strip().lower()
+    source_content_type_norm = (source_content_type or "").strip().lower()
+    passthrough_types = {"note", "thought", "discussion_summary"}
+    short_summary_passthrough = bool(
+        clean
+        and len(clean) <= max_summary_chars
+        and (source_kind_norm == "text" or source_content_type_norm in passthrough_types)
+    )
 
     if provider == "openclaw":
         tags = _heuristic_tags(summary, max_tags=tag_count)
@@ -682,7 +700,7 @@ def generate_fields(
         }
 
     if provider == "llm":
-        if _small_llm_enabled():
+        if _llm_enabled():
             try:
                 fields = _llm_fields_from_content(
                     clean,
@@ -695,6 +713,7 @@ def generate_fields(
                     prompt_reserved_chars=llm_prompt_reserved_chars,
                     chunk_overlap_chars=llm_chunk_overlap_chars,
                     timeout=llm_timeout_seconds,
+                    preserve_short_content=short_summary_passthrough,
                 )
                 if short_summary_passthrough:
                     fields["summary"] = clean
@@ -706,7 +725,7 @@ def generate_fields(
                 _warn_llm_tags_fallback(str(e))
         else:
             if not allow_heuristic:
-                raise RuntimeError("Small LLM is required but configured runtime values are incomplete")
+                raise RuntimeError("LLM is required but configured runtime values are incomplete")
             _warn_llm_tags_fallback("missing configured runtime LLM values")
         tags = _heuristic_tags(summary, max_tags=tag_count)
         return {
@@ -727,14 +746,14 @@ def generate_keywords_for_search(query: str, *, provider: str, max_k: int = 10) 
     Generate keywords for FTS query expansion.
 
     For provider=openclaw/off: use query_v4 extraction.
-    For provider=llm: use small LLM if enabled.
+    For provider=llm: use the configured LLM if enabled.
     """
     provider = (provider or "openclaw").strip().lower()
     if provider in ("off", "openclaw"):
         return _heuristic_keywords_for_query(query, max_k=max_k)
 
     if provider == "llm":
-        if not _small_llm_enabled():
+        if not _llm_enabled():
             return _heuristic_keywords_for_query(query, max_k=max_k)
         plan = generate_search_query_plan(
             query,

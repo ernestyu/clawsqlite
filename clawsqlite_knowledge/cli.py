@@ -354,7 +354,7 @@ def cmd_ingest(args) -> int:
         body_md = args.text
 
     # 2) Fields
-    tags_hint = getattr(args, "tags_hint", None) or args.tags or ""
+    tags_hint = getattr(args, "tags_hint", None) or ""
     tags = ""
     summary = (args.summary or "").strip()
     summary_generated = False
@@ -386,6 +386,8 @@ def cmd_ingest(args) -> int:
                     llm_prompt_reserved_chars=cfg.llm.prompt_reserved_chars,
                     llm_chunk_overlap_chars=cfg.llm.chunk_overlap_chars,
                     llm_timeout_seconds=cfg.llm.timeout_seconds,
+                    source_kind="text" if args.text else "url",
+                    source_content_type=content_type,
                 )
                 gen_title = (gen.get("title") or "").strip()
                 if policy.require_llm:
@@ -637,7 +639,8 @@ def cmd_ingest(args) -> int:
             "db": paths["db"],
             "articles_dir": paths["articles_dir"],
             "generation_quality": generation_quality,
-            "embedding_enabled": embed_on,
+            "embedding_runtime_enabled": embed_on,
+            "embedding_required": bool(policy.require_embedding),
         }
         if args.json:
             _print(out, True)
@@ -991,6 +994,8 @@ def cmd_update(args) -> int:
                         llm_prompt_reserved_chars=cfg.llm.prompt_reserved_chars,
                         llm_chunk_overlap_chars=cfg.llm.chunk_overlap_chars,
                         llm_timeout_seconds=cfg.llm.timeout_seconds,
+                        source_kind="stored",
+                        source_content_type=category,
                     )
                 return gen_cache
 
@@ -1452,6 +1457,8 @@ def cmd_rebuild_quality(args) -> int:
                     llm_prompt_reserved_chars=cfg.llm.prompt_reserved_chars,
                     llm_chunk_overlap_chars=cfg.llm.chunk_overlap_chars,
                     llm_timeout_seconds=cfg.llm.timeout_seconds,
+                    source_kind="stored",
+                    source_content_type=str(r["content_type"] or r["category"] or ""),
                 )
                 title = (gen.get("title") or r["title"] or "").strip() or "untitled"
                 summary = (gen.get("summary") or "").strip()
@@ -1716,7 +1723,6 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--title", default=None, help="Title override")
     sp.add_argument("--summary", default=None, help="Summary override (long summary)")
     sp.add_argument("--tags-hint", default=None, help="Optional tag hints for the generator (comma-separated)")
-    sp.add_argument("--tags", default=None, help="Deprecated alias for --tags-hint; never overrides strict generated tags")
     sp.add_argument("--category", default="", help="Category hint; strict LLM ingest stores a configured generated category")
     sp.add_argument("--priority", default=0, type=int, help="Priority (0 default)")
     sp.add_argument("--gen-provider", default=None, choices=["openclaw", "llm", "off"], help="Generator provider override (default from clawsqlite.toml)")

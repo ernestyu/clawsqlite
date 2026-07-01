@@ -86,7 +86,7 @@ class KnowledgeSearchTests(unittest.TestCase):
                     title,
                     "--category",
                     category,
-                    "--tags",
+                    "--tags-hint",
                     tags,
                     "--gen-provider",
                     "off",
@@ -191,7 +191,7 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "Unrelated title",
                 "--category",
                 "test",
-                "--tags",
+                "--tags-hint",
                 "metadataonly",
                 "--gen-provider",
                 "off",
@@ -224,7 +224,7 @@ class KnowledgeSearchTests(unittest.TestCase):
         with _tempdir() as tmpdir:
             root = Path(tmpdir) / "kb_root"
             root.mkdir(parents=True, exist_ok=True)
-            config_path = write_knowledge_config(root)
+            config_path = write_knowledge_config(root, embedding_api_key="")
             self._run_cwd = root
 
             # 简单入一条数据
@@ -240,7 +240,7 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "Hybrid",
                 "--category",
                 "test",
-                "--tags",
+                "--tags-hint",
                 "hybrid",
                 "--gen-provider",
                 "off",

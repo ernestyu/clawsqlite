@@ -27,6 +27,9 @@ def write_knowledge_config(
     ),
     llm_api_key: str = "test-small-llm-key",
     embedding_api_key: str = "test-embedding-key",
+    embedding_base_url: str = "http://127.0.0.1:9/v1",
+    embedding_model: str = "test-embedding",
+    embedding_dim: int = 4,
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     config_path = root / "clawsqlite.toml"
@@ -55,10 +58,10 @@ context_window_chars = 4000
 prompt_reserved_chars = 1000
 
 [embedding]
-base_url = "http://127.0.0.1:9/v1"
-model = "test-embedding"
+base_url = "{embedding_base_url}"
+model = "{embedding_model}"
 api_key = "{embedding_api_key}"
-dim = 4
+dim = {embedding_dim}
 """.lstrip(),
         encoding="utf-8",
     )

@@ -92,8 +92,8 @@ generator extra context; do not treat it as stored metadata in strict mode.
 Likewise, `--title` and `--category` are hints during strict LLM ingest. The
 stored title, tags, category, and content type must come from the configured LLM.
 Successful JSON output includes `config_path`, `root`, `db`, `articles_dir`,
-`generation_quality`, and `embedding_enabled`; check these fields before telling
-the user where data was written.
+`generation_quality`, `embedding_runtime_enabled`, and `embedding_required`;
+check these fields before telling the user where data was written.
 
 Doctor is lightweight by default:
 

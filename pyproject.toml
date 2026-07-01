@@ -36,6 +36,9 @@ analysis = [
 plot = [
   "matplotlib>=3.7",
 ]
+dev = [
+  "pytest>=8",
+]
 
 [project.urls]
 Homepage = "https://github.com/ernestyu/clawsqlite"
@@ -49,5 +52,6 @@ packages = ["clawsqlite_knowledge", "clawsqlite_plumbing"]
 py-modules = ["clawsqlite_cli"]
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 testpaths = ["tests"]
 

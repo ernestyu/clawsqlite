@@ -319,26 +319,26 @@ def _llm_missing_config(config: Optional[KnowledgeConfig] = None) -> List[str]:
         return missing
 
     missing = []
-    if not os.environ.get("SMALL_LLM_BASE_URL"):
+    if not os.environ.get("LLM_BASE_URL"):
         missing.append("[llm].base_url")
-    if not os.environ.get("SMALL_LLM_MODEL"):
+    if not os.environ.get("LLM_MODEL"):
         missing.append("[llm].model")
-    if not os.environ.get("SMALL_LLM_API_KEY"):
+    if not os.environ.get("LLM_API_KEY"):
         missing.append("[llm].api_key")
     return missing
 
 
 def _check_llm_config(config: Optional[KnowledgeConfig] = None) -> CheckResult:
     missing = _llm_missing_config(config)
-    base = config.llm.base_url if config is not None else os.environ.get("SMALL_LLM_BASE_URL")
-    model = config.llm.model if config is not None else os.environ.get("SMALL_LLM_MODEL")
-    key = config.llm.resolved_api_key if config is not None else os.environ.get("SMALL_LLM_API_KEY")
+    base = config.llm.base_url if config is not None else os.environ.get("LLM_BASE_URL")
+    model = config.llm.model if config is not None else os.environ.get("LLM_MODEL")
+    key = config.llm.resolved_api_key if config is not None else os.environ.get("LLM_API_KEY")
 
     if len(missing) == 3:
         return CheckResult(
             name="llm_config",
             ok=False,
-            message="Small LLM not configured ([llm].base_url/model/api_key all empty).",
+            message="LLM not configured ([llm].base_url/model/api_key all empty).",
             next=(
                 "If you want LLM-based summaries/tags/query_refine, set "
                 "[llm].base_url/model/api_key in clawsqlite.toml."
@@ -349,7 +349,7 @@ def _check_llm_config(config: Optional[KnowledgeConfig] = None) -> CheckResult:
         return CheckResult(
             name="llm_config",
             ok=False,
-            message="Small LLM config is partially set: missing " + ", ".join(sorted(missing)),
+            message="LLM config is partially set: missing " + ", ".join(sorted(missing)),
             next="Set all of [llm].base_url, [llm].model, and [llm].api_key in clawsqlite.toml or clear them all.",
             details={
                 "base_url": base,
@@ -362,7 +362,7 @@ def _check_llm_config(config: Optional[KnowledgeConfig] = None) -> CheckResult:
     return CheckResult(
         name="llm_config",
         ok=True,
-        message=f"Small LLM configured: model={model!r}, base_url={base!r}",
+        message=f"LLM configured: model={model!r}, base_url={base!r}",
         details={"base_url": base, "model": model},
     )
 
@@ -379,9 +379,9 @@ def _check_llm_roundtrip(config: Optional[KnowledgeConfig] = None) -> CheckResul
         )
 
     try:
-        from .generator import _call_small_llm_json
+        from .generator import _call_llm_json
 
-        obj = _call_small_llm_json(
+        obj = _call_llm_json(
             "Return STRICT JSON only: {\"ok\": true, \"service\": \"clawsqlite-doctor\"}",
             timeout=config.llm.timeout_seconds if config is not None else 30,
         )
@@ -396,14 +396,14 @@ def _check_llm_roundtrip(config: Optional[KnowledgeConfig] = None) -> CheckResul
         return CheckResult(
             name="llm_roundtrip",
             ok=True,
-            message="Small LLM service reachable and returned valid JSON.",
+            message="LLM service reachable and returned valid JSON.",
             details={"response": obj},
         )
     except Exception as e:
         return CheckResult(
             name="llm_roundtrip",
             ok=False,
-            message=f"Small LLM request failed: {e}",
+            message=f"LLM request failed: {e}",
             next="Verify [llm].base_url/model/api_key in clawsqlite.toml and network reachability.",
         )
 
@@ -414,22 +414,22 @@ def _check_capability_mode(config: Optional[KnowledgeConfig] = None) -> CheckRes
     embedding_ok = not missing
 
     if config is not None:
-        small_llm_base = config.llm.base_url
-        small_llm_model = config.llm.model
-        small_llm_key = config.llm.resolved_api_key
+        llm_base = config.llm.base_url
+        llm_model = config.llm.model
+        llm_key = config.llm.resolved_api_key
     else:
-        small_llm_base = os.environ.get("SMALL_LLM_BASE_URL") or ""
-        small_llm_model = os.environ.get("SMALL_LLM_MODEL") or ""
-        small_llm_key = os.environ.get("SMALL_LLM_API_KEY") or ""
-    small_llm_ok = bool(small_llm_base and small_llm_model and small_llm_key)
+        llm_base = os.environ.get("LLM_BASE_URL") or ""
+        llm_model = os.environ.get("LLM_MODEL") or ""
+        llm_key = os.environ.get("LLM_API_KEY") or ""
+    llm_ok = bool(llm_base and llm_model and llm_key)
 
-    if embedding_ok and small_llm_ok:
+    if embedding_ok and llm_ok:
         mode = 1
         desc = "Mode1: LLM + Embedding (full hybrid scoring)."
-    elif small_llm_ok and not embedding_ok:
+    elif llm_ok and not embedding_ok:
         mode = 2
         desc = "Mode2: LLM + no Embedding (FTS + lexical tags only)."
-    elif embedding_ok and not small_llm_ok:
+    elif embedding_ok and not llm_ok:
         mode = 3
         desc = "Mode3: no LLM + Embedding (vec + FTS + lexical tags)."
     else:
@@ -443,7 +443,7 @@ def _check_capability_mode(config: Optional[KnowledgeConfig] = None) -> CheckRes
         details={
             "mode": mode,
             "embedding_ok": embedding_ok,
-            "small_llm_ok": small_llm_ok,
+            "llm_ok": llm_ok,
         },
     )
 
@@ -489,6 +489,8 @@ def _config_report(config: Optional[KnowledgeConfig]) -> Dict[str, Any]:
     return {
         "active_config": {
             "config_path": config.config_path,
+            "config_resolution_mode": config.config_resolution_mode,
+            "config_source_reason": config.config_source_reason,
             "root": config.root,
             "db": config.db,
             "articles_dir": config.articles_dir,

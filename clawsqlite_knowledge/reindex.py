@@ -33,7 +33,7 @@ def check(conn, *, embed_on: bool) -> Dict[str, Any]:
         "fts_missing": fts_missing,
         "vec_missing": vec_missing,
         "vec_available": vec_available,
-        "embedding_enabled": embed_on,
+        "embedding_runtime_enabled": embed_on,
     }
 
 def fix_missing(
@@ -98,6 +98,8 @@ def fix_missing(
                     llm_prompt_reserved_chars=llm_prompt_reserved_chars,
                     llm_chunk_overlap_chars=llm_chunk_overlap_chars,
                     llm_timeout_seconds=llm_timeout_seconds,
+                    source_kind="stored",
+                    source_content_type=str(r["content_type"] or r["category"] or ""),
                 )
                 new_title = title or (gen.get("title") or "").strip()
                 new_summary = summary or (gen.get("summary") or "").strip()

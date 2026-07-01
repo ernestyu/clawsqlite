@@ -12,17 +12,17 @@ class LLMGenerationTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self._env = os.environ.copy()
-        self._call_small_llm_json = genmod._call_small_llm_json
+        self._call_llm_json = genmod._call_llm_json
 
     def tearDown(self) -> None:
         os.environ.clear()
         os.environ.update(self._env)
-        genmod._call_small_llm_json = self._call_small_llm_json
+        genmod._call_llm_json = self._call_llm_json
 
     def _enable_fake_llm(self) -> None:
-        os.environ["SMALL_LLM_MODEL"] = "test-llm"
-        os.environ["SMALL_LLM_BASE_URL"] = "http://127.0.0.1:9/v1"
-        os.environ["SMALL_LLM_API_KEY"] = "test-key"
+        os.environ["LLM_MODEL"] = "test-llm"
+        os.environ["LLM_BASE_URL"] = "http://127.0.0.1:9/v1"
+        os.environ["LLM_API_KEY"] = "test-key"
 
     def test_llm_generation_uses_single_call_when_content_fits_context(self):
         self._enable_fake_llm()
@@ -40,13 +40,14 @@ class LLMGenerationTests(unittest.TestCase):
                 "content_type": "note",
             }
 
-        genmod._call_small_llm_json = fake_call
+        genmod._call_llm_json = fake_call
         fields = genmod.generate_fields(
             "short article body",
             hint_title=None,
             provider="llm",
             max_summary_chars=321,
             allow_heuristic=False,
+            source_kind="text",
             llm_context_window_chars=5000,
             llm_prompt_reserved_chars=1000,
         )
@@ -77,7 +78,7 @@ class LLMGenerationTests(unittest.TestCase):
                 "content_type": "web_article",
             }
 
-        genmod._call_small_llm_json = fake_call
+        genmod._call_llm_json = fake_call
         content = "x" * 2600
         fields = genmod.generate_fields(
             content,
@@ -112,7 +113,7 @@ class LLMGenerationTests(unittest.TestCase):
                 "content_type": "note",
             }
 
-        genmod._call_small_llm_json = fake_call
+        genmod._call_llm_json = fake_call
         with self.assertRaises(RuntimeError):
             genmod.generate_fields(
                 "short article body",
@@ -121,8 +122,8 @@ class LLMGenerationTests(unittest.TestCase):
                 allow_heuristic=False,
             )
 
-    def test_llm_required_raises_when_small_llm_env_is_missing(self):
-        for key in ["SMALL_LLM_MODEL", "SMALL_LLM_BASE_URL", "SMALL_LLM_API_KEY"]:
+    def test_llm_required_raises_when_llm_env_is_missing(self):
+        for key in ["LLM_MODEL", "LLM_BASE_URL", "LLM_API_KEY"]:
             os.environ.pop(key, None)
 
         with self.assertRaises(RuntimeError):
@@ -132,6 +133,33 @@ class LLMGenerationTests(unittest.TestCase):
                 provider="llm",
                 allow_heuristic=False,
             )
+
+    def test_short_web_article_does_not_passthrough_summary(self):
+        self._enable_fake_llm()
+
+        def fake_call(prompt: str, *, timeout: int = 60):
+            return {
+                "title": "Web title",
+                "summary": "Generated web summary",
+                "tags": ["sqlite", "agent", "knowledge", "config", "llm", "ingest", "summary", "search"],
+                "key_claims": ["Web articles should be summarized."],
+                "entities": ["ClawSQLite"],
+                "category": "web_article",
+                "content_type": "web_article",
+            }
+
+        genmod._call_llm_json = fake_call
+        fields = genmod.generate_fields(
+            "short web article body",
+            hint_title=None,
+            provider="llm",
+            max_summary_chars=321,
+            allow_heuristic=False,
+            source_kind="url",
+            source_content_type="web_article",
+        )
+
+        self.assertEqual(fields["summary"], "Generated web summary")
 
 
 if __name__ == "__main__":  # pragma: no cover

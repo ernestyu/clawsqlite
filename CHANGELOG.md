@@ -7,6 +7,34 @@ without strict version tagging yet. Entries are grouped by date + topic.
 
 ---
 
+## 2026-07-01 – Strict Config Contract Closure
+
+### Changed
+
+- Replaced the internal `SMALL_LLM_*` runtime names with `LLM_BASE_URL`,
+  `LLM_MODEL`, and `LLM_API_KEY`. The project no longer keeps a compatibility
+  path for the old names.
+- Tightened short-summary passthrough: direct text and short
+  `note`/`thought`/`discussion_summary` content can preserve cleaned text, while
+  URL/web-article ingest still asks the LLM to summarize.
+- Removed `--tags` from `knowledge ingest`; manual ingest tags are now expressed
+  only as `--tags-hint`. The `update --tags` patch operation remains separate.
+- Replaced ingest JSON `embedding_enabled` with clearer
+  `embedding_runtime_enabled` and `embedding_required` fields.
+- Doctor config output now reports why the active `clawsqlite.toml` was chosen
+  through `config_resolution_mode` and `config_source_reason`.
+- Added pytest configuration and a development optional dependency so running
+  `pytest` from the repository root is a supported test path.
+
+### Tests
+
+- Fixed tests that confused `require_embedding = false` with embedding runtime
+  availability.
+- Added coverage for short URL/web-article summary behavior and config
+  resolution metadata.
+
+---
+
 ## 2026-06-30 – Single Config File Cleanup
 
 ### Removed

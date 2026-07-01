@@ -71,9 +71,9 @@ class TagScoringTests(unittest.TestCase):
         self.assertEqual(generate_keywords_for_search("", provider="openclaw", max_k=10), [])
 
     def test_generate_keywords_for_search_llm_fallback(self):
-        os.environ.pop("SMALL_LLM_MODEL", None)
-        os.environ.pop("SMALL_LLM_BASE_URL", None)
-        os.environ.pop("SMALL_LLM_API_KEY", None)
+        os.environ.pop("LLM_MODEL", None)
+        os.environ.pop("LLM_BASE_URL", None)
+        os.environ.pop("LLM_API_KEY", None)
         kws = generate_keywords_for_search("alpha beta", provider="llm", max_k=10)
         self.assertEqual(kws, ["alpha", "beta"])
 

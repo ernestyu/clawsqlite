@@ -95,7 +95,7 @@ class KnowledgeCLITests(unittest.TestCase):
                     title,
                     "--category",
                     "test",
-                    "--tags",
+                    "--tags-hint",
                     "demo",
                     "--gen-provider",
                     "off",

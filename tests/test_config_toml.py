@@ -61,6 +61,8 @@ class KnowledgeConfigTomlTests(unittest.TestCase):
             with _cwd(root):
                 cfg = load_knowledge_config()
             self.assertEqual(cfg.root, str(root))
+            self.assertEqual(cfg.config_resolution_mode, "component_root_config")
+            self.assertIn("current component root", cfg.config_source_reason)
             self.assertEqual(cfg.db, str(root / "knowledge.sqlite3"))
             self.assertEqual(cfg.articles_dir, str(root / "articles"))
             self.assertTrue(cfg.ingest.require_llm)
@@ -80,14 +82,14 @@ class KnowledgeConfigTomlTests(unittest.TestCase):
                 llm_api_key="llm-from-toml",
                 embedding_api_key="embedding-from-toml",
             )
-            os.environ["SMALL_LLM_API_KEY"] = "stale-env-llm"
+            os.environ["LLM_API_KEY"] = "stale-env-llm"
             os.environ["EMBEDDING_API_KEY"] = "stale-env-embedding"
 
             with _cwd(root):
                 cfg = load_knowledge_config()
             apply_config_env(cfg)
 
-            self.assertEqual(os.environ["SMALL_LLM_API_KEY"], "llm-from-toml")
+            self.assertEqual(os.environ["LLM_API_KEY"], "llm-from-toml")
             self.assertEqual(os.environ["EMBEDDING_API_KEY"], "embedding-from-toml")
 
     def test_config_clears_stale_runtime_keys_when_api_keys_missing(self):
@@ -98,14 +100,14 @@ class KnowledgeConfigTomlTests(unittest.TestCase):
                 llm_api_key="",
                 embedding_api_key="",
             )
-            os.environ["SMALL_LLM_API_KEY"] = "stale-env-llm"
+            os.environ["LLM_API_KEY"] = "stale-env-llm"
             os.environ["EMBEDDING_API_KEY"] = "stale-env-embedding"
 
             with _cwd(root):
                 cfg = load_knowledge_config()
             apply_config_env(cfg)
 
-            self.assertNotIn("SMALL_LLM_API_KEY", os.environ)
+            self.assertNotIn("LLM_API_KEY", os.environ)
             self.assertNotIn("EMBEDDING_API_KEY", os.environ)
 
     def test_search_interest_and_report_config_apply_to_runtime(self):
