@@ -79,7 +79,7 @@ class StrictIngestConfigTests(unittest.TestCase):
     def test_missing_config_fails_before_guessing_paths(self):
         with _isolated_tempdir() as tmpdir:
             self._run_cwd = tmpdir
-            code, _, err = self._run_cli(["doctor"])
+            code, _, err = self._run_cli(["maintenance", "doctor"])
         self.assertEqual(code, 2)
         self.assertIn("ERROR_KIND: config_required", err)
         self.assertIn("clawsqlite.toml", err)
@@ -91,6 +91,7 @@ class StrictIngestConfigTests(unittest.TestCase):
             self._run_cwd = root
             code, _, err = self._run_cli(
                 [
+                    "record",
                     "ingest",
                     "--text",
                     "A useful note about SQLite and agents.",
@@ -118,6 +119,7 @@ class StrictIngestConfigTests(unittest.TestCase):
             self._run_cwd = root
             code, _, err = self._run_cli(
                 [
+                    "record",
                     "ingest",
                     "--text",
                     "A useful note about SQLite and agents.",
@@ -138,6 +140,7 @@ class StrictIngestConfigTests(unittest.TestCase):
             self._run_cwd = root
             code, _, err = self._run_cli(
                 [
+                    "record",
                     "ingest",
                     "--text",
                     "SQLite agents need stable configuration before they write knowledge.",
@@ -168,6 +171,7 @@ class StrictIngestConfigTests(unittest.TestCase):
             self._run_cwd = root
             code, _, err = self._run_cli(
                 [
+                    "record",
                     "ingest",
                     "--text",
                     "Manual note with summary and tags.",
@@ -196,6 +200,7 @@ class StrictIngestConfigTests(unittest.TestCase):
             text = " ".join([f"paragraph{i}" for i in range(120)])
             code, _, err = self._run_cli(
                 [
+                    "record",
                     "ingest",
                     "--text",
                     text,
@@ -236,6 +241,7 @@ class StrictIngestConfigTests(unittest.TestCase):
             kcli.generate_fields = fake_generate
             code, out, err = self._run_cli(
                 [
+                    "record",
                     "ingest",
                     "--text",
                     "A useful note about SQLite and agents.",
@@ -283,7 +289,7 @@ class StrictIngestConfigTests(unittest.TestCase):
                 }
 
             kcli.generate_fields = fake_generate
-            code, _, err = self._run_cli(["ingest", "--text", "Body", "--json"])
+            code, _, err = self._run_cli(["record", "ingest", "--text", "Body", "--json"])
         self.assertEqual(code, 4)
         self.assertIn("ERROR_KIND: tags_invalid", err)
 
@@ -306,7 +312,7 @@ class StrictIngestConfigTests(unittest.TestCase):
                 }
 
             kcli.generate_fields = fake_generate
-            code, _, err = self._run_cli(["ingest", "--text", "Body", "--json"])
+            code, _, err = self._run_cli(["record", "ingest", "--text", "Body", "--json"])
         self.assertEqual(code, 2)
         self.assertIn("ERROR_KIND: category_invalid", err)
 
@@ -329,7 +335,7 @@ class StrictIngestConfigTests(unittest.TestCase):
                 }
 
             kcli.generate_fields = fake_generate
-            code, _, err = self._run_cli(["ingest", "--text", "Body", "--json"])
+            code, _, err = self._run_cli(["record", "ingest", "--text", "Body", "--json"])
         self.assertEqual(code, 4)
         self.assertIn("ERROR_KIND: title_invalid", err)
 
@@ -338,7 +344,7 @@ class StrictIngestConfigTests(unittest.TestCase):
             root = tmpdir / "kb"
             config_path = write_knowledge_config(root, require_llm=True, require_embedding=True)
             self._run_cwd = root
-            code, out, err = self._run_cli(["doctor", "--json"])
+            code, out, err = self._run_cli(["maintenance", "doctor", "--json"])
 
         self.assertEqual(code, 0, err)
         report = json.loads(out)
@@ -359,7 +365,7 @@ class StrictIngestConfigTests(unittest.TestCase):
             root = tmpdir / "kb"
             config_path = write_knowledge_config(root, require_llm=True, require_embedding=True, llm_api_key="")
             self._run_cwd = root
-            code, out, err = self._run_cli(["doctor", "--check-llm", "--json"])
+            code, out, err = self._run_cli(["maintenance", "doctor", "--check-llm", "--json"])
 
         self.assertEqual(code, 0, err)
         report = json.loads(out)
@@ -375,6 +381,7 @@ class StrictIngestConfigTests(unittest.TestCase):
             self._run_cwd = root
             code, _, err = self._run_cli(
                 [
+                    "record",
                     "ingest",
                     "--text",
                     "Seed record for reindex strict policy.",
@@ -390,6 +397,7 @@ class StrictIngestConfigTests(unittest.TestCase):
 
             code, _, err = self._run_cli(
                 [
+                    "maintenance",
                     "reindex",
                     "--fix-missing",
                     "--gen-provider",

@@ -103,6 +103,17 @@ dim = 1024
 timeout_seconds = 300
 content = "summary"
 
+[backup]
+provider = "s3"
+
+[backup.s3]
+bucket = "your-private-backup-bucket"
+prefix = "clawsqlite/backups"
+endpoint_url = "https://s3.example.com"
+region = "auto"
+access_key_id = ""      # 在私有 clawsqlite.toml 中填入真实 key
+secret_access_key = ""  # 在私有 clawsqlite.toml 中填入真实 secret
+
 [scraper]
 # cmd = "node /path/to/scrape.js"
 
@@ -379,9 +390,15 @@ clawsqlite knowledge maintenance reindex --fix-missing --json
 ```bash
 clawsqlite knowledge maintenance reindex --check --json
 clawsqlite knowledge maintenance cleanup --days 3 --dry-run
+clawsqlite knowledge maintenance backup --dry-run --json
+clawsqlite knowledge maintenance backup --json
 ```
 
 `reindex --fix-missing` 会按配置里的生成器补缺失字段；严格配置下同样要求 LLM，除非显式加 `--allow-heuristic`。
+
+`backup` 从 `clawsqlite.toml` 的 `[backup]` / `[backup.s3]` 读取远端对象存储配置，
+把配置中的 DB 和 `articles/` 打成一个归档包后上传到 S3/S3-compatible 存储。
+`--dry-run` 只验证配置和归档，不上传。它不是本地 `--out` 导出命令。
 
 ---
 

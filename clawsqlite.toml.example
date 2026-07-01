@@ -108,3 +108,18 @@ merge_alpha = 0.40
 
 [report]
 lang = "en"
+
+[backup]
+# `knowledge maintenance backup` uses this configured remote target.
+# It creates one archive containing the configured DB and articles/ directory,
+# then uploads it to S3 or an S3-compatible object store.
+provider = "s3"
+
+[backup.s3]
+bucket = "your-private-backup-bucket"
+prefix = "clawsqlite/backups"
+endpoint_url = "https://s3.example.com"
+region = "auto"
+access_key_id = ""
+secret_access_key = ""
+session_token = ""

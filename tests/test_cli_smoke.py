@@ -24,7 +24,6 @@ import subprocess
 import sys
 import contextlib
 import shutil
-import tarfile
 import unittest
 import uuid
 from pathlib import Path
@@ -244,8 +243,8 @@ class CLISmokeTests(unittest.TestCase):
             maint2 = json.loads(p.stdout)
             self.assertEqual(maint2["dry_run"], False)
 
-            # 8) Knowledge-level corpus backup should include DB and articles.
-            backup_path = root / "knowledge-backup.tar.gz"
+            # 8) Knowledge-level corpus backup is config-driven and can be
+            # dry-run without touching the configured S3 target.
             backup_cmd = [
                 PYTHON_BIN,
                 "-m",
@@ -253,20 +252,17 @@ class CLISmokeTests(unittest.TestCase):
                 "knowledge",
                 "maintenance",
                 "backup",
-                "--out",
-                str(backup_path),
+                "--dry-run",
                 "--json",
             ]
             p = self._run(backup_cmd)
             backup = json.loads(p.stdout)
-            self.assertTrue(Path(backup["out"]).exists())
+            self.assertTrue(backup["dry_run"])
+            self.assertFalse(backup["uploaded"])
+            self.assertEqual(backup["provider"], "s3")
+            self.assertEqual(backup["bucket"], "test-bucket")
             self.assertIn("db", backup["includes"])
             self.assertIn("articles", backup["includes"])
-            with tarfile.open(backup_path, "r:gz") as tar:
-                names = tar.getnames()
-            self.assertIn("manifest.json", names)
-            self.assertTrue(any(name.startswith("db/") for name in names))
-            self.assertTrue(any(name.startswith("articles/") for name in names))
 
             # 9) Admin: db schema should work on the configured component DB
             db_schema_cmd = [
@@ -311,6 +307,11 @@ class CLISmokeTests(unittest.TestCase):
         p_ingest_help = self._run([PYTHON_BIN, "-m", "clawsqlite_cli", "knowledge", "record", "ingest", "--help"])
         self.assertNotIn("--tags-hint", p_ingest_help.stdout)
 
+        p_backup_help = self._run([PYTHON_BIN, "-m", "clawsqlite_cli", "knowledge", "maintenance", "backup", "--help"])
+        self.assertIn("--dry-run", p_backup_help.stdout)
+        self.assertNotIn("--out", p_backup_help.stdout)
+        self.assertNotIn("--db-only", p_backup_help.stdout)
+
         p_embed = self._run([PYTHON_BIN, "-m", "clawsqlite_cli", "knowledge", "embed-from-summary"], expect_ok=False)
         self.assertNotEqual(p_embed.returncode, 0)
         self.assertIn("invalid choice", p_embed.stderr)
@@ -319,22 +320,34 @@ class CLISmokeTests(unittest.TestCase):
         self.assertNotEqual(p_quality.returncode, 0)
         self.assertIn("invalid choice", p_quality.stderr)
 
-    def test_deprecated_flat_knowledge_command_rewrites_with_warning(self):
+    def test_legacy_flat_knowledge_commands_fail_without_rewrite(self):
         with _tempdir() as tmpdir:
             self._run_cwd = tmpdir
-            config_path = tmpdir / "clawsqlite.toml"
-            proc = self._run([
-                PYTHON_BIN,
-                "-m",
-                "clawsqlite_cli",
-                "knowledge",
-                "init-config",
-                "--out",
-                str(config_path),
-            ])
-            self.assertTrue(config_path.exists())
-            self.assertIn("deprecated command path", proc.stderr)
-            self.assertIn("clawsqlite knowledge maintenance init-config", proc.stderr)
+            for cmd, replacement in [
+                ("init-config", "clawsqlite knowledge maintenance init-config"),
+                ("ingest", "clawsqlite knowledge record ingest"),
+                ("search", "clawsqlite knowledge record search"),
+                ("show", "clawsqlite knowledge record show"),
+                ("export", "clawsqlite knowledge record export"),
+                ("update", "clawsqlite knowledge record update"),
+                ("delete", "clawsqlite knowledge record delete"),
+                ("doctor", "clawsqlite knowledge maintenance doctor"),
+                ("reindex", "clawsqlite knowledge maintenance reindex"),
+                ("build-interest-clusters", "clawsqlite knowledge analysis build-interest-clusters"),
+                ("inspect-interest-clusters", "clawsqlite knowledge analysis inspect-interest-clusters"),
+                ("report-interest", "clawsqlite knowledge analysis report-interest"),
+            ]:
+                proc = self._run([
+                    PYTHON_BIN,
+                    "-m",
+                    "clawsqlite_cli",
+                    "knowledge",
+                    cmd,
+                    "--help",
+                ], expect_ok=False)
+                self.assertEqual(proc.returncode, 2)
+                self.assertIn("legacy flat knowledge commands are no longer supported", proc.stderr)
+                self.assertIn(replacement, proc.stderr)
 
 
 if __name__ == "__main__":  # pragma: no cover

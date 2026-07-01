@@ -208,6 +208,23 @@ class ReportConfig:
 
 
 @dataclass(frozen=True)
+class BackupS3Config:
+    bucket: str = ""
+    prefix: str = ""
+    endpoint_url: str = ""
+    region: str = ""
+    access_key_id: str = ""
+    secret_access_key: str = ""
+    session_token: str = ""
+
+
+@dataclass(frozen=True)
+class BackupConfig:
+    provider: str = "s3"
+    s3: BackupS3Config = field(default_factory=BackupS3Config)
+
+
+@dataclass(frozen=True)
 class KnowledgeConfig:
     config_path: str
     config_resolution_mode: str
@@ -223,6 +240,7 @@ class KnowledgeConfig:
     search: SearchConfig
     interest: InterestConfig
     report: ReportConfig
+    backup: BackupConfig
 
 
 def find_config_path(start: Optional[Path] = None) -> Optional[Path]:
@@ -270,6 +288,7 @@ def load_knowledge_config(
     search = data.get("search") or {}
     interest = data.get("interest") or {}
     report = data.get("report") or {}
+    backup = data.get("backup") or {}
 
     root_text = str(knowledge.get("root") or "").strip()
     if not root_text:
@@ -359,6 +378,20 @@ def load_knowledge_config(
         lang=_choice_value(report.get("lang"), "en", {"en", "zh"}, name="[report].lang"),
     )
 
+    backup_s3 = backup.get("s3") or {}
+    backup_cfg = BackupConfig(
+        provider=_choice_value(backup.get("provider"), "s3", {"s3"}, name="[backup].provider"),
+        s3=BackupS3Config(
+            bucket=str(backup_s3.get("bucket") or "").strip(),
+            prefix=str(backup_s3.get("prefix") or "").strip().strip("/"),
+            endpoint_url=str(backup_s3.get("endpoint_url") or backup_s3.get("endpoint") or "").strip(),
+            region=str(backup_s3.get("region") or "").strip(),
+            access_key_id=str(backup_s3.get("access_key_id") or "").strip(),
+            secret_access_key=str(backup_s3.get("secret_access_key") or "").strip(),
+            session_token=str(backup_s3.get("session_token") or "").strip(),
+        ),
+    )
+
     return KnowledgeConfig(
         config_path=str(cfg_path.resolve()),
         config_resolution_mode="component_root_config",
@@ -374,6 +407,7 @@ def load_knowledge_config(
         search=search_cfg,
         interest=interest_cfg,
         report=report_cfg,
+        backup=backup_cfg,
     )
 
 

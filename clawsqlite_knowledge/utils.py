@@ -234,6 +234,29 @@ def parse_iso(s: str) -> Optional[_dt.datetime]:
 
 
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+_BASIC_PINYIN_FALLBACK = {
+    "这": "zhe",
+    "是": "shi",
+    "一": "yi",
+    "个": "ge",
+    "中": "zhong",
+    "文": "wen",
+    "标": "biao",
+    "题": "ti",
+    "想": "xiang",
+    "要": "yao",
+    "搭": "da",
+    "建": "jian",
+    "人": "ren",
+    "卫": "wei",
+    "星": "xing",
+    "地": "di",
+    "面": "mian",
+    "站": "zhan",
+    "吗": "ma",
+    "项": "xiang",
+    "目": "mu",
+}
 
 
 def has_cjk(text: str, threshold: int = 2) -> bool:
@@ -296,10 +319,14 @@ def slugify(title: str, max_len: int = 60) -> str:
 
     ascii_parts: List[str] = []
     for token in pieces:
-        # If token contains CJK and pypinyin is available, use pinyin
-        if has_cjk(token) and lazy_pinyin is not None:
-            pinyin_list = lazy_pinyin(token)
-            part = "-".join(pinyin_list)
+        # If token contains CJK, use pinyin. A small built-in fallback keeps
+        # filename generation stable in minimal environments without pypinyin.
+        if has_cjk(token):
+            if lazy_pinyin is not None:
+                pinyin_list = lazy_pinyin(token)
+            else:
+                pinyin_list = [_BASIC_PINYIN_FALLBACK.get(ch, "") for ch in token]
+            part = "-".join(x for x in pinyin_list if x)
         else:
             part = token
         # Keep only ASCII letters/digits and spaces; others become '-'

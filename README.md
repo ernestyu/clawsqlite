@@ -77,6 +77,7 @@ The knowledge app expects an environment similar to the OpenClaw container:
 - Python dependencies:
   - `jieba` (optional but strongly recommended for Chinese tag extraction)
   - `pypinyin` (optional; used to generate pinyin slugs for CJK titles)
+  - `boto3` (required for `knowledge maintenance backup` S3 uploads)
 - sqlite extensions (optional but recommended):
   - `libsimple.so` (tokenizer `simple`) for better CJK tokenization
   - `vec0.so` from [sqlite-vec](https://github.com/asg017/sqlite-vec)
@@ -243,6 +244,17 @@ model = "your-embedding-model"
 api_key = ""  # fill in the real key in your private clawsqlite.toml
 dim = 1024
 content = "summary"
+
+[backup]
+provider = "s3"
+
+[backup.s3]
+bucket = "your-private-backup-bucket"
+prefix = "clawsqlite/backups"
+endpoint_url = "https://s3.example.com"
+region = "auto"
+access_key_id = ""      # fill in the real key in your private clawsqlite.toml
+secret_access_key = ""  # fill in the real secret in your private clawsqlite.toml
 
 [fts]
 jieba = "auto"
@@ -906,10 +918,18 @@ clawsqlite knowledge analysis inspect-interest-clusters \
 
 ```bash
 clawsqlite knowledge maintenance cleanup --days 3 --dry-run
+clawsqlite knowledge maintenance backup --dry-run --json
+clawsqlite knowledge maintenance backup --json
 ```
 
-This scans for orphaned files, old `.bak_*` backups, and broken DB paths.
-Use `--dry-run` to preview deletions. Deprecated `maintenance prune` and `maintenance gc` aliases still resolve to `cleanup` during migration.
+`cleanup` scans for orphaned files, old `.bak_*` backups, and broken DB paths.
+Use `--dry-run` to preview deletions.
+
+`backup` reads `[backup]` / `[backup.s3]` from `clawsqlite.toml`, creates one
+archive containing the configured DB and `articles/`, then uploads it to the
+configured S3/S3-compatible target. `--dry-run` validates and packages the
+archive without uploading. There is intentionally no `--out` local-export
+primary path; backup is config-driven remote corpus backup.
 
 ---
 

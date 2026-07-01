@@ -18,6 +18,9 @@ from clawsqlite_knowledge.utils import tag_match_score
 class TagScoringTests(unittest.TestCase):
     def setUp(self) -> None:
         self._env = os.environ.copy()
+        for key in list(os.environ):
+            if key.startswith("CLAWSQLITE_SCORE_WEIGHTS"):
+                os.environ.pop(key, None)
 
     def tearDown(self) -> None:
         os.environ.clear()

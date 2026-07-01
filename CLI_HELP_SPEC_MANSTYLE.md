@@ -4,60 +4,60 @@
 
 `clawsqlite knowledge` is the knowledge-base layer for storing articles, notes,
 and discussion summaries in SQLite plus Markdown files. It reads
-`clawsqlite.toml` on startup. Generic plumbing commands such as
-`clawsqlite db`, `clawsqlite index`, `clawsqlite fs`, and `clawsqlite embed`
-remain configuration-agnostic.
+`clawsqlite.toml` from the current component root before running commands.
+
+The command surface is grouped into three required groups:
+
+- `record` for knowledge records.
+- `maintenance` for health checks, repair, cleanup, and configured S3 backup.
+- `analysis` for clustering and reports.
+
+Legacy flat commands are intentionally unsupported. Use
+`clawsqlite knowledge record ingest`, not `clawsqlite knowledge ingest`.
 
 ## Configuration
 
-Knowledge commands read only `./clawsqlite.toml` from the current component root.
-They do not search parent directories, and this file is the only Knowledge
-configuration source.
+Knowledge commands read only `./clawsqlite.toml` from the current component
+root. This file is the local private source of truth.
 
 Create a template:
 
 ```bash
-clawsqlite knowledge init-config --out clawsqlite.toml
+clawsqlite knowledge maintenance init-config --out clawsqlite.toml
 ```
 
-`[knowledge]` controls root, DB, and Markdown paths. `[ingest]` controls strict
-ingest policy and `summary_target_chars`. `[llm]` controls the small LLM,
-including context-budget chunking. `[embedding]` controls the embedding endpoint
-and vector dimension.
+`[knowledge]` controls root, DB, and Markdown paths. `[ingest]`, `[llm]`,
+`[embedding]`, `[search]`, `[interest]`, and `[report]` control the knowledge
+runtime. `[backup]` / `[backup.s3]` controls remote S3 backup.
 
 ## Commands
 
-`init-config`
-: Create a `clawsqlite.toml` template.
-
-`doctor`
-: Report active config, DB status, schema health, vec availability, embedding
-  readiness, and LLM readiness. Use `--allow-missing-config` only for diagnostics.
-
-`ingest`
+`record ingest`
 : Insert or refresh a URL/text record. Default strict mode fails when configured
-  LLM or embedding requirements are not met. Use `--allow-heuristic` and
-  `--allow-missing-embedding` only for explicit degraded runs.
+  LLM or embedding requirements are not met.
 
-`search`
-: Search the KB in `hybrid`, `fts`, or `vec` mode. `hybrid` falls back to FTS
-  when embeddings are unavailable; `vec` fails fast.
+`record search`
+: Search the KB in `hybrid`, `fts`, or `vec` mode.
 
-`show`, `export`, `update`, `delete`
-: Inspect and maintain individual rows. `update --regen` uses the configured
-  generation defaults and needs `--allow-heuristic` for degraded regeneration
-  under strict config.
+`record show`, `record export`, `record update`, `record delete`
+: Inspect and maintain individual records.
 
-`rebuild-quality`
-: Upgrade old heuristic/manual rows by regenerating LLM-quality metadata,
-  Markdown headers, FTS rows, and embeddings.
+`maintenance doctor`
+: Report active config, DB status, schema health, vec availability, embedding
+  readiness, and LLM readiness.
 
-`reindex`, `embed-from-summary`, `maintenance`
-: Repair or rebuild indexes and clean Markdown storage. `reindex --fix-missing`
-  uses the configured generator and requires `--allow-heuristic` for degraded
-  generation under strict config.
+`maintenance reindex`
+: Check, fix, or rebuild derived DB indexes.
 
-`build-interest-clusters`, `inspect-interest-clusters`, `report-interest`
+`maintenance cleanup`
+: Clean orphan files, old backup files, and broken DB paths.
+
+`maintenance backup`
+: Package the configured DB and `articles/` directory into one archive and
+  upload it to the S3/S3-compatible target defined in `clawsqlite.toml`.
+  `--dry-run` validates and packages without uploading.
+
+`analysis build-interest-clusters`, `analysis inspect-interest-clusters`, `analysis report-interest`
 : Optional analysis helpers over existing vectors.
 
 ## Error Contract
@@ -65,10 +65,11 @@ and vector dimension.
 Important `ERROR_KIND` values:
 
 - `config_required`: no usable `clawsqlite.toml` was found.
+- `legacy_flat_command`: a removed flat command was used.
 - `llm_required`: strict config requires LLM generation.
 - `llm_generation_failed`: LLM call or output validation failed.
 - `embedding_required`: strict config requires embeddings.
-- `fts_tokenizer_fallback`: FTS is usable but CJK recall may be weaker.
+- `backup_config_required`: S3 backup configuration is incomplete.
 
-Agents should report these errors rather than guessing paths or inventing
-metadata.
+Agents should report these errors rather than guessing paths, inventing
+metadata, or retrying removed command paths.

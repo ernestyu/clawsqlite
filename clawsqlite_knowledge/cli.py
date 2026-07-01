@@ -17,12 +17,13 @@ import json
 import os
 import re
 import sys
+import tempfile
 import datetime as _dt
 from typing import Any, Dict, List, Optional
 
 from . import db as dbmod
 from .utils import now_iso_z, truncate_text, comma_join_tags, resolve_interest_params
-from .config import ConfigError, KnowledgeConfig, apply_config_env, load_knowledge_config
+from .config import BackupS3Config, ConfigError, KnowledgeConfig, apply_config_env, load_knowledge_config
 from .storage import (
     ensure_dir,
     article_abspath,
@@ -153,6 +154,18 @@ merge_alpha = 0.40
 
 [report]
 lang = "en"
+
+[backup]
+provider = "s3"
+
+[backup.s3]
+bucket = ""
+prefix = "clawsqlite/backups"
+endpoint_url = ""
+region = ""
+access_key_id = ""
+secret_access_key = ""
+session_token = ""
 """
 
 
@@ -1286,48 +1299,142 @@ def cmd_maintenance(args) -> int:
 
 
 def cmd_backup(args) -> int:
-    paths = _resolve_paths(args)
-    out = os.path.abspath(os.path.expanduser(args.out))
-    ts = _dt.datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
-    if os.path.isdir(out) or out.endswith(os.sep):
-        ensure_dir(out)
-        out_path = os.path.join(out, f"clawsqlite-knowledge-{ts}.tar.gz")
-    else:
-        out_path = out
-        ensure_dir(os.path.dirname(out_path) or ".")
+    cfg = _get_config(args)
+    if cfg.backup.provider != "s3":
+        sys.stderr.write("ERROR: unsupported backup provider; only [backup].provider = \"s3\" is supported.\n")
+        return 2
+    missing = _missing_s3_backup_fields(cfg.backup.s3)
+    if missing:
+        sys.stderr.write(f"ERROR: backup S3 config is incomplete: missing {', '.join(missing)}.\n")
+        sys.stderr.write("ERROR_KIND: backup_config_required\n")
+        sys.stderr.write("NEXT: fill [backup.s3].bucket/prefix/endpoint_url/region/access_key_id/secret_access_key in clawsqlite.toml.\n")
+        return 2
 
+    paths = _resolve_paths(args)
+    ts = _dt.datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
+    object_name = f"clawsqlite-knowledge-{ts}.tar.gz"
+    object_key = "/".join(part for part in [cfg.backup.s3.prefix, object_name] if part)
+
+    fd, archive_path = tempfile.mkstemp(prefix="clawsqlite-knowledge-", suffix=".tar.gz")
+    os.close(fd)
+    try:
+        manifest = _create_backup_archive(
+            archive_path=archive_path,
+            paths=paths,
+            config=cfg,
+            created_at=ts,
+            object_key=object_key,
+        )
+        size_bytes = os.path.getsize(archive_path)
+
+        result: Dict[str, Any] = {
+            "ok": True,
+            "dry_run": bool(getattr(args, "dry_run", False)),
+            "provider": cfg.backup.provider,
+            "bucket": cfg.backup.s3.bucket,
+            "prefix": cfg.backup.s3.prefix,
+            "endpoint_url": cfg.backup.s3.endpoint_url,
+            "region": cfg.backup.s3.region,
+            "object_key": object_key,
+            "archive_size_bytes": size_bytes,
+            **manifest,
+        }
+        if getattr(args, "dry_run", False):
+            result["uploaded"] = False
+        else:
+            upload_result = _upload_backup_to_s3(archive_path, cfg.backup.s3, object_key)
+            result["uploaded"] = True
+            result["upload"] = upload_result
+        _print(result, bool(getattr(args, "json", False)))
+        return 0
+    except ConfigError as e:
+        sys.stderr.write(f"ERROR: {e}\n")
+        sys.stderr.write("ERROR_KIND: backup_failed\n")
+        sys.stderr.write("NEXT: check [backup.s3] in clawsqlite.toml and rerun 'clawsqlite knowledge maintenance backup --dry-run'.\n")
+        return 2
+    except Exception as e:
+        sys.stderr.write(f"ERROR: backup failed: {e}\n")
+        sys.stderr.write("NEXT: verify S3 connectivity and [backup.s3] credentials in clawsqlite.toml.\n")
+        return 4
+    finally:
+        try:
+            os.remove(archive_path)
+        except OSError:
+            pass
+
+
+def _missing_s3_backup_fields(s3: BackupS3Config) -> List[str]:
+    required = {
+        "bucket": s3.bucket,
+        "prefix": s3.prefix,
+        "endpoint_url": s3.endpoint_url,
+        "region": s3.region,
+        "access_key_id": s3.access_key_id,
+        "secret_access_key": s3.secret_access_key,
+    }
+    return [key for key, value in required.items() if not str(value or "").strip()]
+
+
+def _create_backup_archive(
+    *,
+    archive_path: str,
+    paths: Dict[str, str],
+    config: KnowledgeConfig,
+    created_at: str,
+    object_key: str,
+) -> Dict[str, Any]:
     db_path = paths["db"]
     articles_dir = paths["articles_dir"]
+    if not os.path.exists(db_path):
+        raise ConfigError(f"configured DB does not exist: {db_path}")
+    if not os.path.isdir(articles_dir):
+        raise ConfigError(f"configured articles_dir does not exist: {articles_dir}")
+
     manifest = {
-        "created_at": ts,
-        "config_path": _get_config(args).config_path,
+        "created_at": created_at,
+        "config_path": config.config_path,
         "root": paths["root"],
         "db": db_path,
         "articles_dir": articles_dir,
-        "includes": [],
+        "object_key": object_key,
+        "includes": ["db", "articles"],
     }
 
-    with tarfile.open(out_path, "w:gz") as tar:
-        if os.path.exists(db_path):
-            tar.add(db_path, arcname=os.path.join("db", os.path.basename(db_path)))
-            manifest["includes"].append("db")
-        else:
-            manifest["db_missing"] = True
-        if os.path.isdir(articles_dir) and not getattr(args, "db_only", False):
-            tar.add(articles_dir, arcname="articles")
-            manifest["includes"].append("articles")
-        elif getattr(args, "db_only", False):
-            manifest["articles_skipped"] = True
-        else:
-            manifest["articles_missing"] = True
+    with tarfile.open(archive_path, "w:gz") as tar:
+        tar.add(db_path, arcname=os.path.join("db", os.path.basename(db_path)))
+        tar.add(articles_dir, arcname="articles")
         data = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
         info = tarfile.TarInfo("manifest.json")
         info.size = len(data)
         tar.addfile(info, io.BytesIO(data))
+    return manifest
 
-    result = {"ok": True, "out": out_path, **manifest}
-    _print(result, bool(getattr(args, "json", False)))
-    return 0
+
+def _upload_backup_to_s3(archive_path: str, s3: BackupS3Config, object_key: str) -> Dict[str, Any]:
+    try:
+        import boto3  # type: ignore
+    except Exception as e:
+        raise RuntimeError("boto3 is required for S3 backup; install clawsqlite with its runtime dependencies") from e
+
+    session_kwargs: Dict[str, Any] = {
+        "aws_access_key_id": s3.access_key_id,
+        "aws_secret_access_key": s3.secret_access_key,
+        "region_name": s3.region,
+    }
+    if s3.session_token:
+        session_kwargs["aws_session_token"] = s3.session_token
+    session = boto3.session.Session(**session_kwargs)
+    client_kwargs: Dict[str, Any] = {}
+    if s3.endpoint_url:
+        client_kwargs["endpoint_url"] = s3.endpoint_url
+    client = session.client("s3", **client_kwargs)
+    client.upload_file(archive_path, s3.bucket, object_key)
+    return {
+        "bucket": s3.bucket,
+        "key": object_key,
+        "endpoint_url": s3.endpoint_url,
+        "region": s3.region,
+    }
 
 
 def cmd_reindex(args) -> int:
@@ -1530,23 +1637,17 @@ def cmd_report_interest(args) -> int:
         return 4
 
 
-def _mark_deprecated(sp: argparse.ArgumentParser, replacement: str) -> None:
-    sp.set_defaults(_deprecated_replacement=replacement)
-
-
-def _add_init_config_parser(sub, *, name: str = "init-config", help_text: str = "Create a clawsqlite.toml template for the knowledge app", deprecated: Optional[str] = None) -> argparse.ArgumentParser:
-    sp = sub.add_parser(name, help=argparse.SUPPRESS if deprecated else help_text)
+def _add_init_config_parser(sub, *, name: str = "init-config", help_text: str = "Create a clawsqlite.toml template for the knowledge app") -> argparse.ArgumentParser:
+    sp = sub.add_parser(name, help=help_text)
     _add_common_flags(sp)
     sp.add_argument("--out", default=None, help="Output config path (default: ./clawsqlite.toml)")
     sp.add_argument("--force", action="store_true", help="Overwrite an existing config file")
     sp.set_defaults(func=cmd_init_config, cmd_leaf="init-config", requires_config=False)
-    if deprecated:
-        _mark_deprecated(sp, deprecated)
     return sp
 
 
-def _add_ingest_parser(sub, *, name: str = "ingest", deprecated: Optional[str] = None) -> argparse.ArgumentParser:
-    sp = sub.add_parser(name, help=argparse.SUPPRESS if deprecated else "Ingest a URL or a text into the KB")
+def _add_ingest_parser(sub, *, name: str = "ingest") -> argparse.ArgumentParser:
+    sp = sub.add_parser(name, help="Ingest a URL or a text into the KB")
     _add_common_flags(sp)
     g = sp.add_mutually_exclusive_group(required=True)
     g.add_argument("--url", default=None, help="URL to ingest")
@@ -1562,13 +1663,11 @@ def _add_ingest_parser(sub, *, name: str = "ingest", deprecated: Optional[str] =
     sp.add_argument("--allow-heuristic", action="store_true", help="Explicitly allow heuristic generation when LLM generation is unavailable")
     sp.add_argument("--allow-missing-embedding", action="store_true", help="Explicitly allow ingest without vector embeddings")
     sp.set_defaults(func=cmd_ingest, cmd_leaf="ingest")
-    if deprecated:
-        _mark_deprecated(sp, deprecated)
     return sp
 
 
-def _add_search_parser(sub, *, name: str = "search", deprecated: Optional[str] = None) -> argparse.ArgumentParser:
-    sp = sub.add_parser(name, help=argparse.SUPPRESS if deprecated else "Search the KB (fts/vec/hybrid)")
+def _add_search_parser(sub, *, name: str = "search") -> argparse.ArgumentParser:
+    sp = sub.add_parser(name, help="Search the KB (fts/vec/hybrid)")
     _add_common_flags(sp)
     sp.add_argument("query", help="Query text")
     sp.add_argument("--mode", default="hybrid", choices=["hybrid", "fts", "vec"], help="Search mode")
@@ -1583,37 +1682,31 @@ def _add_search_parser(sub, *, name: str = "search", deprecated: Optional[str] =
     sp.add_argument("--include-deleted", action="store_true", help="Include deleted items")
     sp.add_argument("--explain", action="store_true", help="Include query plan and score breakdown in JSON output")
     sp.set_defaults(func=cmd_search, cmd_leaf="search")
-    if deprecated:
-        _mark_deprecated(sp, deprecated)
     return sp
 
 
-def _add_show_parser(sub, *, name: str = "show", deprecated: Optional[str] = None) -> argparse.ArgumentParser:
-    sp = sub.add_parser(name, help=argparse.SUPPRESS if deprecated else "Show one record")
+def _add_show_parser(sub, *, name: str = "show") -> argparse.ArgumentParser:
+    sp = sub.add_parser(name, help="Show one record")
     _add_common_flags(sp)
     sp.add_argument("--id", required=True, help="Article id")
     sp.add_argument("--full", action="store_true", help="Include markdown content")
     sp.set_defaults(func=cmd_show, cmd_leaf="show")
-    if deprecated:
-        _mark_deprecated(sp, deprecated)
     return sp
 
 
-def _add_export_parser(sub, *, name: str = "export", deprecated: Optional[str] = None) -> argparse.ArgumentParser:
-    sp = sub.add_parser(name, help=argparse.SUPPRESS if deprecated else "Export one record to file")
+def _add_export_parser(sub, *, name: str = "export") -> argparse.ArgumentParser:
+    sp = sub.add_parser(name, help="Export one record to file")
     _add_common_flags(sp)
     sp.add_argument("--id", required=True, help="Article id")
     sp.add_argument("--format", default="md", choices=["md", "json"], help="Export format")
     sp.add_argument("--out", required=True, help="Output file path")
     sp.add_argument("--full", action="store_true", help="Export full markdown content")
     sp.set_defaults(func=cmd_export, cmd_leaf="export")
-    if deprecated:
-        _mark_deprecated(sp, deprecated)
     return sp
 
 
-def _add_update_parser(sub, *, name: str = "update", deprecated: Optional[str] = None) -> argparse.ArgumentParser:
-    sp = sub.add_parser(name, help=argparse.SUPPRESS if deprecated else "Update one record (patch or regen)")
+def _add_update_parser(sub, *, name: str = "update") -> argparse.ArgumentParser:
+    sp = sub.add_parser(name, help="Update one record (patch or regen)")
     _add_common_flags(sp)
     sp.add_argument("--id", required=True, help="Article id")
     sp.add_argument("--title", default=None, help="Patch: new title")
@@ -1631,36 +1724,30 @@ def _add_update_parser(sub, *, name: str = "update", deprecated: Optional[str] =
     sp.add_argument("--max-summary-chars", default=None, type=int, help="Summary target/limit override (default from clawsqlite.toml)")
     sp.add_argument("--allow-heuristic", action="store_true", help="Explicitly allow heuristic generation when LLM generation is unavailable")
     sp.set_defaults(func=cmd_update, cmd_leaf="update")
-    if deprecated:
-        _mark_deprecated(sp, deprecated)
     return sp
 
 
-def _add_delete_parser(sub, *, name: str = "delete", deprecated: Optional[str] = None) -> argparse.ArgumentParser:
-    sp = sub.add_parser(name, help=argparse.SUPPRESS if deprecated else "Delete one record (soft by default)")
+def _add_delete_parser(sub, *, name: str = "delete") -> argparse.ArgumentParser:
+    sp = sub.add_parser(name, help="Delete one record (soft by default)")
     _add_common_flags(sp)
     sp.add_argument("--id", required=True, help="Article id")
     sp.add_argument("--hard", action="store_true", help="Hard delete (remove db row)")
     sp.add_argument("--remove-file", action="store_true", help="When hard delete, permanently remove markdown file (no backup)")
     sp.set_defaults(func=cmd_delete, cmd_leaf="delete")
-    if deprecated:
-        _mark_deprecated(sp, deprecated)
     return sp
 
 
-def _add_doctor_parser(sub, *, name: str = "doctor", deprecated: Optional[str] = None) -> argparse.ArgumentParser:
-    sp = sub.add_parser(name, help=argparse.SUPPRESS if deprecated else "Self-check knowledge DB/env, output JSON report")
+def _add_doctor_parser(sub, *, name: str = "doctor") -> argparse.ArgumentParser:
+    sp = sub.add_parser(name, help="Self-check knowledge DB/env, output JSON report")
     _add_common_flags(sp)
     sp.add_argument("--check-llm", action="store_true", help="Run an LLM HTTP/JSON roundtrip check")
     sp.add_argument("--check-embedding", action="store_true", help="Run embedding roundtrip check")
     sp.set_defaults(func=cmd_doctor, cmd_leaf="doctor")
-    if deprecated:
-        _mark_deprecated(sp, deprecated)
     return sp
 
 
-def _add_reindex_parser(sub, *, name: str = "reindex", deprecated: Optional[str] = None) -> argparse.ArgumentParser:
-    sp = sub.add_parser(name, help=argparse.SUPPRESS if deprecated else "Maintenance: check/fix/rebuild")
+def _add_reindex_parser(sub, *, name: str = "reindex") -> argparse.ArgumentParser:
+    sp = sub.add_parser(name, help="Maintenance: check/fix/rebuild")
     _add_common_flags(sp)
     sp.add_argument("--check", action="store_true", help="Check missing fields and index status")
     sp.add_argument("--fix-missing", action="store_true", help="Fill missing fields and index rows")
@@ -1670,35 +1757,28 @@ def _add_reindex_parser(sub, *, name: str = "reindex", deprecated: Optional[str]
     sp.add_argument("--gen-provider", default=None, choices=["openclaw", "llm", "off"], help="Generator provider for fix-missing (default from clawsqlite.toml)")
     sp.add_argument("--allow-heuristic", action="store_true", help="Explicitly allow heuristic generation when LLM generation is unavailable")
     sp.set_defaults(func=cmd_reindex, cmd_leaf="reindex")
-    if deprecated:
-        _mark_deprecated(sp, deprecated)
     return sp
 
 
-def _add_cleanup_parser(sub, *, name: str = "cleanup", deprecated: Optional[str] = None, action_default: str = "gc") -> argparse.ArgumentParser:
-    sp = sub.add_parser(name, help=argparse.SUPPRESS if deprecated else "Clean orphan/backup files and report broken paths")
+def _add_cleanup_parser(sub, *, name: str = "cleanup", action_default: str = "gc") -> argparse.ArgumentParser:
+    sp = sub.add_parser(name, help="Clean orphan/backup files and report broken paths")
     _add_common_flags(sp)
     sp.add_argument("--days", type=int, default=3, help="Backup retention in days (for .bak_ files)")
     sp.add_argument("--dry-run", action="store_true", help="Dry run: only report, do not delete")
     sp.set_defaults(func=cmd_maintenance, cmd_leaf="cleanup", action=action_default)
-    if deprecated:
-        _mark_deprecated(sp, deprecated)
     return sp
 
 
-def _add_backup_parser(sub, *, name: str = "backup", deprecated: Optional[str] = None) -> argparse.ArgumentParser:
-    sp = sub.add_parser(name, help=argparse.SUPPRESS if deprecated else "Backup configured DB plus articles directory")
+def _add_backup_parser(sub, *, name: str = "backup") -> argparse.ArgumentParser:
+    sp = sub.add_parser(name, help="Upload configured DB plus articles directory to S3")
     _add_common_flags(sp)
-    sp.add_argument("--out", required=True, help="Output .tar.gz path or destination directory")
-    sp.add_argument("--db-only", action="store_true", help="Only include the DB file, not articles/")
+    sp.add_argument("--dry-run", action="store_true", help="Create and validate the archive, but do not upload to S3")
     sp.set_defaults(func=cmd_backup, cmd_leaf="backup")
-    if deprecated:
-        _mark_deprecated(sp, deprecated)
     return sp
 
 
-def _add_build_interest_parser(sub, *, name: str = "build-interest-clusters", deprecated: Optional[str] = None) -> argparse.ArgumentParser:
-    sp = sub.add_parser(name, help=argparse.SUPPRESS if deprecated else "Build interest clusters from existing article embeddings")
+def _add_build_interest_parser(sub, *, name: str = "build-interest-clusters") -> argparse.ArgumentParser:
+    sp = sub.add_parser(name, help="Build interest clusters from existing article embeddings")
     _add_common_flags(sp)
     sp.add_argument("--algo", choices=["kmeans++", "hierarchical"], default=None, help="Clustering backend (default from env or kmeans++)")
     sp.add_argument("--tag-weight", type=float, default=None, help="Weight of tag_vec in interest-vector mix, range [0,1]")
@@ -1716,24 +1796,20 @@ def _add_build_interest_parser(sub, *, name: str = "build-interest-clusters", de
     sp.add_argument("--hierarchical-distance-threshold", type=float, default=None, help="Distance threshold used to cut hierarchical tree")
     sp.add_argument("--hierarchical-linkage", choices=["average", "complete"], default=None, help="Hierarchical linkage strategy")
     sp.set_defaults(func=cmd_build_interest_clusters, cmd_leaf="build-interest-clusters")
-    if deprecated:
-        _mark_deprecated(sp, deprecated)
     return sp
 
 
-def _add_inspect_interest_parser(sub, *, name: str = "inspect-interest-clusters", deprecated: Optional[str] = None) -> argparse.ArgumentParser:
-    sp = sub.add_parser(name, help=argparse.SUPPRESS if deprecated else "Inspect interest cluster radius + PCA scatter plot (requires numpy)")
+def _add_inspect_interest_parser(sub, *, name: str = "inspect-interest-clusters") -> argparse.ArgumentParser:
+    sp = sub.add_parser(name, help="Inspect interest cluster radius + PCA scatter plot (requires numpy)")
     _add_common_flags(sp)
     sp.add_argument("--vec-dim", type=int, default=None, help="Embedding dimension (optional, default: CLAWSQLITE_VEC_DIM / auto)")
     sp.add_argument("--no-plot", action="store_true", help="Only print stats, do not generate PNG plot")
     sp.set_defaults(func=cmd_inspect_interest_clusters, cmd_leaf="inspect-interest-clusters")
-    if deprecated:
-        _mark_deprecated(sp, deprecated)
     return sp
 
 
-def _add_report_interest_parser(sub, *, name: str = "report-interest", deprecated: Optional[str] = None) -> argparse.ArgumentParser:
-    sp = sub.add_parser(name, help=argparse.SUPPRESS if deprecated else "Generate an interest cluster activity report (Markdown + optional PDF)")
+def _add_report_interest_parser(sub, *, name: str = "report-interest") -> argparse.ArgumentParser:
+    sp = sub.add_parser(name, help="Generate an interest cluster activity report (Markdown + optional PDF)")
     _add_common_flags(sp)
     sp.add_argument("--days", type=int, default=7, help="Lookback window in days (ignored if --from/--to provided)")
     sp.add_argument("--from", dest="date_from", default=None, help="Start date (YYYY-MM-DD)")
@@ -1744,8 +1820,6 @@ def _add_report_interest_parser(sub, *, name: str = "report-interest", deprecate
     sp.add_argument("--format", dest="fmt", default=None, choices=["md", "html"], help="Additional output format: 'md' (default) or 'html' (also write report.html via pandoc)")
     sp.add_argument("--no-pdf", action="store_true", help="Do not run pandoc to generate PDF")
     sp.set_defaults(func=cmd_report_interest, cmd_leaf="report-interest")
-    if deprecated:
-        _mark_deprecated(sp, deprecated)
     return sp
 
 
@@ -1797,19 +1871,19 @@ def build_parser() -> argparse.ArgumentParser:
 
 _COMMON_FLAGS_WITH_VALUE = {"--tokenizer-ext", "--vec-ext"}
 _COMMON_FLAGS_NO_VALUE = {"--json", "--verbose"}
-_DEPRECATED_FLAT_COMMANDS = {
-    "init-config": ("maintenance", "init-config"),
-    "ingest": ("record", "ingest"),
-    "search": ("record", "search"),
-    "show": ("record", "show"),
-    "export": ("record", "export"),
-    "update": ("record", "update"),
-    "delete": ("record", "delete"),
-    "doctor": ("maintenance", "doctor"),
-    "reindex": ("maintenance", "reindex"),
-    "build-interest-clusters": ("analysis", "build-interest-clusters"),
-    "inspect-interest-clusters": ("analysis", "inspect-interest-clusters"),
-    "report-interest": ("analysis", "report-interest"),
+_LEGACY_FLAT_COMMANDS = {
+    "init-config": "clawsqlite knowledge maintenance init-config",
+    "ingest": "clawsqlite knowledge record ingest",
+    "search": "clawsqlite knowledge record search",
+    "show": "clawsqlite knowledge record show",
+    "export": "clawsqlite knowledge record export",
+    "update": "clawsqlite knowledge record update",
+    "delete": "clawsqlite knowledge record delete",
+    "doctor": "clawsqlite knowledge maintenance doctor",
+    "reindex": "clawsqlite knowledge maintenance reindex",
+    "build-interest-clusters": "clawsqlite knowledge analysis build-interest-clusters",
+    "inspect-interest-clusters": "clawsqlite knowledge analysis inspect-interest-clusters",
+    "report-interest": "clawsqlite knowledge analysis report-interest",
 }
 
 
@@ -1827,32 +1901,32 @@ def _first_command_index(tokens: List[str], start: int = 0) -> Optional[int]:
     return None
 
 
-def _rewrite_deprecated_argv(argv: Optional[List[str]]) -> tuple[List[str], Optional[str]]:
-    tokens = list(sys.argv[1:] if argv is None else argv)
+def _legacy_flat_command(tokens: List[str]) -> Optional[str]:
     idx = _first_command_index(tokens)
     if idx is None:
-        return tokens, None
+        return None
+    return tokens[idx] if tokens[idx] in _LEGACY_FLAT_COMMANDS else None
 
-    cmd = tokens[idx]
-    if cmd in _DEPRECATED_FLAT_COMMANDS:
-        replacement_parts = _DEPRECATED_FLAT_COMMANDS[cmd]
-        tokens[idx:idx + 1] = list(replacement_parts)
-        return tokens, "clawsqlite knowledge " + " ".join(replacement_parts)
 
-    if cmd == "maintenance":
-        sub_idx = _first_command_index(tokens, idx + 1)
-        if sub_idx is not None and tokens[sub_idx] in {"prune", "gc"}:
-            tokens[sub_idx] = "cleanup"
-            return tokens, "clawsqlite knowledge maintenance cleanup"
-
-    return tokens, None
+def _print_legacy_flat_error(cmd: str) -> None:
+    sys.stderr.write("ERROR: legacy flat knowledge commands are no longer supported.\n")
+    sys.stderr.write(f"ERROR_KIND: legacy_flat_command\n")
+    sys.stderr.write(f"LEGACY_COMMAND: clawsqlite knowledge {cmd}\n")
+    sys.stderr.write("Use:\n")
+    sys.stderr.write(f"  {_LEGACY_FLAT_COMMANDS[cmd]}\n")
+    sys.stderr.write("Examples:\n")
+    sys.stderr.write("  clawsqlite knowledge record ingest\n")
+    sys.stderr.write("  clawsqlite knowledge maintenance doctor\n")
+    sys.stderr.write("  clawsqlite knowledge analysis build-interest-clusters\n")
 
 def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
-    rewritten_argv, replacement = _rewrite_deprecated_argv(argv)
-    args = parser.parse_args(rewritten_argv)
-    if replacement:
-        sys.stderr.write(f"WARNING: deprecated command path; use '{replacement}'.\n")
+    argv_list = list(sys.argv[1:] if argv is None else argv)
+    legacy_cmd = _legacy_flat_command(argv_list)
+    if legacy_cmd:
+        _print_legacy_flat_error(legacy_cmd)
+        return 2
+    args = parser.parse_args(argv_list)
     require_config = bool(getattr(args, "requires_config", True))
     try:
         if require_config:

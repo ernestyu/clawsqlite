@@ -62,6 +62,17 @@ base_url = "{embedding_base_url}"
 model = "{embedding_model}"
 api_key = "{embedding_api_key}"
 dim = {embedding_dim}
+
+[backup]
+provider = "s3"
+
+[backup.s3]
+bucket = "test-bucket"
+prefix = "test-prefix"
+endpoint_url = "http://127.0.0.1:9"
+region = "test-region"
+access_key_id = "test-access-key"
+secret_access_key = "test-secret-key"
 """.lstrip(),
         encoding="utf-8",
     )

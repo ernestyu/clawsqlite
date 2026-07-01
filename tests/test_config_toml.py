@@ -76,6 +76,12 @@ class KnowledgeConfigTomlTests(unittest.TestCase):
             self.assertEqual(cfg.llm.context_window_chars, 4000)
             self.assertEqual(cfg.llm.resolved_api_key, "test-small-llm-key")
             self.assertEqual(cfg.embedding.resolved_api_key, "test-embedding-key")
+            self.assertEqual(cfg.backup.provider, "s3")
+            self.assertEqual(cfg.backup.s3.bucket, "test-bucket")
+            self.assertEqual(cfg.backup.s3.prefix, "test-prefix")
+            self.assertEqual(cfg.backup.s3.endpoint_url, "http://127.0.0.1:9")
+            self.assertEqual(cfg.backup.s3.region, "test-region")
+            self.assertEqual(cfg.backup.s3.access_key_id, "test-access-key")
 
     def test_config_api_keys_are_applied_as_runtime_values(self):
         with _tempdir() as tmpdir:
