@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import os
 import sqlite3
+import sys
 from typing import List, Optional
 
 
@@ -85,7 +86,16 @@ def _cmd_embed_column(args: argparse.Namespace) -> int:
             text = (r["text"] or "").strip()
             if not text:
                 continue
-            emb = l2_normalize(get_embedding(text))
+            try:
+                emb = l2_normalize(get_embedding(text))
+            except Exception as e:
+                conn.rollback()
+                base_url = os.environ.get("EMBEDDING_BASE_URL") or "(unset)"
+                model = os.environ.get("EMBEDDING_MODEL") or "(unset)"
+                sys.stderr.write(f"ERROR: embedding request failed for row id={rid}: {e}\n")
+                sys.stderr.write(f"DETAIL: provider={base_url} model={model}\n")
+                sys.stderr.write("NEXT: check embedding service health, API key/model config, reverse proxy, or retry later.\n")
+                return 4
             blob = floats_to_f32_blob(emb)
             # Use manual DELETE + INSERT because UPSERT is not supported on vec0 virtual tables.
             conn.execute(f"DELETE FROM {vec_table} WHERE id=?", (rid,))

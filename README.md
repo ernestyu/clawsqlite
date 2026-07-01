@@ -681,7 +681,26 @@ actually usable for the current DB.
 
 ---
 
-### 6.7 `report-interest`
+### 6.7 admin primitives
+
+Low-level maintenance primitives live under `clawsqlite admin ...` and do not
+read `clawsqlite.toml`.
+
+- `admin db exec --sql "SELECT ..." --json` prints query rows as JSON; without
+  `--json`, inline queries print TSV. Non-query SQL still runs as a script.
+- `admin index check` warns instead of tracebacking when `--vec-table` requires
+  sqlite-vec but `vec0` is unavailable.
+- `admin index rebuild --fts-table ... --fts-cols title,tags,summary` rebuilds
+  FTS from explicit base-table columns. For knowledge DB body text, prefer
+  `clawsqlite knowledge reindex --rebuild --fts`.
+- `admin fs list-orphans --json` returns counts plus classified `FS_ONLY` /
+  `DB_ONLY` paths; `admin fs gc --dry-run` previews deletes before mutation.
+- `admin embed column` wraps embedding provider failures with `ERROR` and `NEXT`
+  hints instead of exposing a Python traceback.
+
+---
+
+### 6.8 `report-interest`
 
 ```bash
 clawsqlite knowledge report-interest --days 7 --lang zh --no-pdf
@@ -692,12 +711,12 @@ analysis dependencies, so missing `numpy` will not prevent core commands like
 `ingest`, `search`, or `show` from starting. Install with
 `pip install 'clawsqlite[analysis]'` when you need this report.
 
-### 6.8 interest clustering (topics)
+### 6.9 interest clustering (topics)
 
 `clawsqlite` can build topic-like clusters from existing `articles_vec` +
 `articles_tag_vec`.
 
-#### 6.8.1 Build command
+#### 6.9.1 Build command
 
 ```bash
 clawsqlite knowledge build-interest-clusters \
@@ -717,7 +736,7 @@ clawsqlite knowledge build-interest-clusters \
   --hierarchical-distance-threshold 0.20
 ```
 
-#### 6.8.2 Vector pipeline (important)
+#### 6.9.2 Vector pipeline (important)
 
 For each eligible article (undeleted, non-empty summary, at least one vec):
 
@@ -732,7 +751,7 @@ For each eligible article (undeleted, non-empty summary, at least one vec):
 The default tag weight is `0.75` unless explicitly overridden by the
 `build-interest-clusters` command.
 
-#### 6.8.3 PCA + clustering backends
+#### 6.9.3 PCA + clustering backends
 
 - PCA is optional.
 - PCA dimension is auto-selected by cumulative explained variance threshold.
@@ -750,7 +769,7 @@ Backends:
   - falls back to a pure-Python implementation when `scipy` is unavailable
   - no extra post-merge by default
 
-#### 6.8.4 Unified postprocessing and persistence
+#### 6.9.4 Unified postprocessing and persistence
 
 After initial labels from either backend:
 
@@ -766,7 +785,7 @@ After initial labels from either backend:
    - `interest_cluster_members` (`membership=1.0`)
    - `interest_meta` (build timestamp + algo/pca/tag-weight metadata)
 
-#### 6.8.5 Analysis Knobs
+#### 6.9.5 Analysis Knobs
 
 Prefer explicit command flags for one-off analysis runs:
 
@@ -788,7 +807,7 @@ Interest clustering and reports are part of `clawsqlite knowledge`. Durable
 user-facing defaults should live in `clawsqlite.toml`, not in a separate ENV
 file.
 
-#### 6.8.6 Cluster quality inspection
+#### 6.9.6 Cluster quality inspection
 
 为了调参和观察兴趣簇结构，可使用内置分析命令：
 
@@ -833,7 +852,7 @@ clawsqlite knowledge inspect-interest-clusters \
 
 ---
 
-### 6.9 maintenance
+### 6.10 maintenance
 
 ```bash
 clawsqlite knowledge maintenance prune --days 3 --dry-run

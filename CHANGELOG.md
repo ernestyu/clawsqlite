@@ -14,6 +14,11 @@ without strict version tagging yet. Entries are grouped by date + topic.
 - Top-level CLI now exposes `clawsqlite knowledge ...` and
   `clawsqlite admin ...`; low-level DB/index/fs/embed primitives moved under
   `clawsqlite admin db/index/fs/embed ...`.
+- Admin commands now fail more cleanly: vec0-dependent index checks/rebuilds
+  warn instead of tracebacking when sqlite-vec is unavailable, FTS rebuild can
+  use explicit `--fts-cols`, filesystem GC handles rowid aliases correctly,
+  inline `admin db exec` queries can print TSV/JSON results, and embedding
+  service failures are wrapped with operator-facing `ERROR`/`NEXT` hints.
 - Replaced the internal `SMALL_LLM_*` runtime names with `LLM_BASE_URL`,
   `LLM_MODEL`, and `LLM_API_KEY`. The project no longer keeps a compatibility
   path for the old names.

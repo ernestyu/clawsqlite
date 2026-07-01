@@ -15,8 +15,26 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sqlite3
 from typing import List, Optional
+
+
+_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _ident(name: str, *, label: str = "identifier") -> str:
+    value = (name or "").strip()
+    if not _IDENT_RE.match(value):
+        raise SystemExit(f"ERROR: invalid {label}: {name!r}")
+    return value
+
+
+def _split_cols(value: str) -> list[str]:
+    cols = [x.strip() for x in (value or "").split(",") if x.strip()]
+    if not cols:
+        raise SystemExit("ERROR: --fts-cols must contain at least one column name")
+    return cols
 
 
 def _enable_extensions(conn: sqlite3.Connection) -> None:
@@ -62,10 +80,14 @@ def _open_db(path: str) -> sqlite3.Connection:
     return conn
 
 
+def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {str(row["name"]) for row in conn.execute(f"PRAGMA table_info({_ident(table, label='table')})") if row["name"]}
+
+
 def _fts_columns(conn: sqlite3.Connection, fts_table: str) -> list[str]:
     """Return FTS column names in declared order (excluding rowid)."""
     cols: list[str] = []
-    for row in conn.execute(f"PRAGMA table_info({fts_table})"):
+    for row in conn.execute(f"PRAGMA table_info({_ident(fts_table, label='fts table')})"):
         name = row["name"]
         if name:
             cols.append(str(name))
@@ -75,10 +97,10 @@ def _fts_columns(conn: sqlite3.Connection, fts_table: str) -> list[str]:
 def _cmd_check(args: argparse.Namespace) -> int:
     conn = _open_db(args.db)
     try:
-        base = args.table
-        id_col = args.id_col
-        fts = args.fts_table
-        vec = args.vec_table
+        base = _ident(args.table, label="base table")
+        id_col = _ident(args.id_col, label="id column")
+        fts = _ident(args.fts_table, label="FTS table") if args.fts_table else ""
+        vec = _ident(args.vec_table, label="vec table") if args.vec_table else ""
 
         base_ids = {row[0] for row in conn.execute(f"SELECT {id_col} FROM {base}")}
 
@@ -96,17 +118,21 @@ def _cmd_check(args: argparse.Namespace) -> int:
                     print(f"  FTS rows without base: {extra_in_fts[:10]}" + (" ..." if len(extra_in_fts) > 10 else ""))
 
         if vec:
-            vec_ids = {row[0] for row in conn.execute(f"SELECT id FROM {vec}")}
-            missing_in_vec = sorted(base_ids - vec_ids)
-            extra_in_vec = sorted(vec_ids - base_ids)
-            if not missing_in_vec and not extra_in_vec:
-                print(f"[OK] Vec index {vec} matches base table {base} ({len(base_ids)} rows)")
-            else:
-                print(f"[WARN] Vec index {vec} mismatch vs {base}")
-                if missing_in_vec:
-                    print(f"  base rows missing in vec: {missing_in_vec[:10]}" + (" ..." if len(missing_in_vec) > 10 else ""))
-                if extra_in_vec:
-                    print(f"  vec rows without base: {extra_in_vec[:10]}" + (" ..." if len(extra_in_vec) > 10 else ""))
+            try:
+                vec_ids = {row[0] for row in conn.execute(f"SELECT id FROM {vec}")}
+                missing_in_vec = sorted(base_ids - vec_ids)
+                extra_in_vec = sorted(vec_ids - base_ids)
+                if not missing_in_vec and not extra_in_vec:
+                    print(f"[OK] Vec index {vec} matches base table {base} ({len(base_ids)} rows)")
+                else:
+                    print(f"[WARN] Vec index {vec} mismatch vs {base}")
+                    if missing_in_vec:
+                        print(f"  base rows missing in vec: {missing_in_vec[:10]}" + (" ..." if len(missing_in_vec) > 10 else ""))
+                    if extra_in_vec:
+                        print(f"  vec rows without base: {extra_in_vec[:10]}" + (" ..." if len(extra_in_vec) > 10 else ""))
+            except sqlite3.OperationalError as e:
+                print(f"[WARN] Vec index {vec} could not be checked: {e}")
+                print("NEXT: load sqlite-vec via CLAWSQLITE_VEC_EXT, or omit --vec-table for FTS-only checks.")
 
         return 0
     finally:
@@ -116,15 +142,36 @@ def _cmd_check(args: argparse.Namespace) -> int:
 def _cmd_rebuild(args: argparse.Namespace) -> int:
     conn = _open_db(args.db)
     try:
-        base = args.table
-        id_col = args.id_col
-        fts = args.fts_table
-        vec = args.vec_table
+        base = _ident(args.table, label="base table")
+        id_col = _ident(args.id_col, label="id column")
+        fts = _ident(args.fts_table, label="FTS table") if args.fts_table else ""
+        vec = _ident(args.vec_table, label="vec table") if args.vec_table else ""
 
         if fts:
-            cols = _fts_columns(conn, fts)
+            cols = _split_cols(args.fts_cols) if args.fts_cols else _fts_columns(conn, fts)
             if not cols:
                 raise SystemExit(f"ERROR: could not discover columns for FTS table {fts}")
+            for col in cols:
+                _ident(col, label="FTS column")
+            fts_table_cols = set(_fts_columns(conn, fts))
+            bad_fts_cols = [c for c in cols if c not in fts_table_cols]
+            if bad_fts_cols:
+                raise SystemExit(
+                    "ERROR: --fts-cols contains columns not present in "
+                    f"{fts}: {', '.join(bad_fts_cols)}"
+                )
+            base_cols = _table_columns(conn, base)
+            missing_base_cols = [c for c in cols if c not in base_cols]
+            if id_col not in base_cols:
+                missing_base_cols.insert(0, id_col)
+            if missing_base_cols:
+                sys_msg = (
+                    "ERROR: cannot rebuild FTS from base table because columns are missing: "
+                    + ", ".join(dict.fromkeys(missing_base_cols))
+                    + "\nNEXT: pass --fts-cols with columns that exist in the base table, "
+                    "create a view with the needed columns, or use 'clawsqlite knowledge reindex --rebuild --fts' for knowledge DB body text."
+                )
+                raise SystemExit(sys_msg)
             col_list = ", ".join(cols)
             conn.execute(f"DELETE FROM {fts}")
             # Rebuild from base table columns that match FTS schema.
@@ -137,10 +184,14 @@ def _cmd_rebuild(args: argparse.Namespace) -> int:
             print(f"[OK] Rebuilt FTS index {fts} from {base} (id_col={id_col})")
 
         if vec:
-            conn.execute(f"DELETE FROM {vec}")
-            # plumbing does not know how to re-embed; app should call its
-            # own embedder after this step.
-            print(f"[OK] Cleared vector index {vec}; application must refill embeddings")
+            try:
+                conn.execute(f"DELETE FROM {vec}")
+                # plumbing does not know how to re-embed; app should call its
+                # own embedder after this step.
+                print(f"[OK] Cleared vector index {vec}; application must refill embeddings")
+            except sqlite3.OperationalError as e:
+                print(f"[WARN] Vec index {vec} could not be cleared: {e}")
+                print("NEXT: load sqlite-vec via CLAWSQLITE_VEC_EXT, or omit --vec-table for FTS-only rebuilds.")
 
         conn.commit()
         return 0
@@ -186,6 +237,7 @@ def build_parser(prog: str = "clawsqlite admin index") -> argparse.ArgumentParse
     p_rebuild.add_argument("--table", required=True, help="Base table name")
     p_rebuild.add_argument("--id-col", default="id", help="Primary key column in base table (default: id)")
     p_rebuild.add_argument("--fts-table", help="FTS table name")
+    p_rebuild.add_argument("--fts-cols", help="Comma-separated base-table columns to copy into the FTS table")
     p_rebuild.add_argument("--vec-table", help="Vector table name")
     p_rebuild.set_defaults(func=_cmd_rebuild)
 

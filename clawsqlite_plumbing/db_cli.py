@@ -7,6 +7,7 @@ SQLite database file and do not assume KB-specific tables.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import sqlite3
@@ -63,8 +64,21 @@ def _cmd_exec(args: argparse.Namespace) -> int:
             with open(args.file, "r", encoding="utf-8") as f:
                 sql_text = f.read()
 
-        conn.executescript(sql_text)
-        conn.commit()
+        sql_stripped = sql_text.strip()
+        first_word = sql_stripped.split(None, 1)[0].lower() if sql_stripped else ""
+        if args.sql and first_word in {"select", "with", "pragma"}:
+            rows = list(conn.execute(sql_text))
+            if args.json:
+                print(json.dumps([dict(row) for row in rows], ensure_ascii=False))
+            elif rows:
+                headers = rows[0].keys()
+                sys.stdout.write("\t".join(headers) + "\n")
+                for row in rows:
+                    sys.stdout.write("\t".join("" if row[h] is None else str(row[h]) for h in headers) + "\n")
+            return 0
+        else:
+            conn.executescript(sql_text)
+            conn.commit()
         return 0
     finally:
         conn.close()
@@ -128,10 +142,11 @@ def build_parser(prog: str = "clawsqlite admin db") -> argparse.ArgumentParser:
     p_schema.set_defaults(func=_cmd_schema)
 
     # exec
-    p_exec = sub.add_parser("exec", help="Execute SQL text or file")
+    p_exec = sub.add_parser("exec", help="Execute SQL text or file; inline SELECT/PRAGMA prints results")
     p_exec.add_argument("--db", required=True, help="SQLite DB path")
     p_exec.add_argument("--sql", help="Inline SQL text")
     p_exec.add_argument("--file", help="Path to .sql file")
+    p_exec.add_argument("--json", action="store_true", help="Print inline SELECT/PRAGMA results as a JSON array")
     p_exec.set_defaults(func=_cmd_exec)
 
     # vacuum

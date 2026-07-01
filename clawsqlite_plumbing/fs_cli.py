@@ -12,6 +12,7 @@ No KB-specific semantics are baked in.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sqlite3
 from typing import List, Optional
@@ -41,6 +42,62 @@ def _scan_fs(root: str) -> set[str]:
     return files
 
 
+def _normalize_db_path(root: str, path: str) -> str:
+    p = (path or "").strip()
+    if not p:
+        return ""
+    if os.path.isabs(p):
+        try:
+            return os.path.relpath(p, root)
+        except Exception:
+            return p
+    return p
+
+
+def _classify_path(path: str) -> str:
+    name = os.path.basename(path)
+    if ".bak_" in path or name.endswith(".bak"):
+        return "backup"
+    if name.endswith("-wal") or name.endswith("-shm") or name.endswith(".sqlite3-wal") or name.endswith(".sqlite3-shm"):
+        return "sqlite_sidecar"
+    return "regular"
+
+
+def _mismatch_payload(fs_only: list[str], db_only: list[str]) -> dict:
+    fs_items = [{"path": p, "kind": _classify_path(p)} for p in fs_only]
+    db_items = [{"path": p, "kind": _classify_path(p)} for p in db_only]
+    return {
+        "summary": {
+            "fs_only": len(fs_items),
+            "db_only": len(db_items),
+            "fs_only_by_kind": _count_kinds(fs_items),
+            "db_only_by_kind": _count_kinds(db_items),
+        },
+        "fs_only": fs_items,
+        "db_only": db_items,
+    }
+
+
+def _count_kinds(items: list[dict]) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for item in items:
+        kind = str(item.get("kind") or "regular")
+        out[kind] = out.get(kind, 0) + 1
+    return out
+
+
+def _print_mismatches(payload: dict, *, json_out: bool) -> None:
+    if json_out:
+        print(json.dumps(payload, ensure_ascii=False))
+        return
+    summary = payload["summary"]
+    print(f"[SUMMARY] FS_ONLY={summary['fs_only']} DB_ONLY={summary['db_only']}")
+    for item in payload["fs_only"]:
+        print(f"[FS_ONLY][{item['kind']}] {item['path']}")
+    for item in payload["db_only"]:
+        print(f"[DB_ONLY][{item['kind']}] {item['path']}")
+
+
 def _cmd_list_orphans(args: argparse.Namespace) -> int:
     root = args.root
     conn = _open_db(args.db)
@@ -48,17 +105,13 @@ def _cmd_list_orphans(args: argparse.Namespace) -> int:
         fs_paths = _scan_fs(root)
         db_paths = set()
         for row in conn.execute(f"SELECT {args.path_col} AS p FROM {args.table}"):
-            p = (row["p"] or "").strip()
+            p = _normalize_db_path(root, row["p"] or "")
             if p:
                 db_paths.add(p)
 
         fs_only = sorted(fs_paths - db_paths)
         db_only = sorted(db_paths - fs_paths)
-
-        for p in fs_only:
-            print(f"[FS_ONLY] {p}")
-        for p in db_only:
-            print(f"[DB_ONLY] {p}")
+        _print_mismatches(_mismatch_payload(fs_only, db_only), json_out=bool(args.json))
         return 0
     finally:
         conn.close()
@@ -70,8 +123,8 @@ def _cmd_gc(args: argparse.Namespace) -> int:
     try:
         fs_paths = _scan_fs(root)
         db_rows = []
-        for row in conn.execute(f"SELECT rowid, {args.path_col} AS p FROM {args.table}"):
-            db_rows.append((row["rowid"], (row["p"] or "").strip()))
+        for row in conn.execute(f"SELECT rowid AS _rowid, {args.path_col} AS p FROM {args.table}"):
+            db_rows.append((row["_rowid"], _normalize_db_path(root, row["p"] or "")))
 
         db_paths = {p for _, p in db_rows if p}
         fs_only = sorted(fs_paths - db_paths)
@@ -123,6 +176,7 @@ def build_parser(prog: str = "clawsqlite admin fs") -> argparse.ArgumentParser:
     p_list.add_argument("--db", required=True, help="SQLite DB path")
     p_list.add_argument("--table", required=True, help="Table that stores file paths")
     p_list.add_argument("--path-col", required=True, help="Column name that stores relative paths")
+    p_list.add_argument("--json", action="store_true", help="Print mismatch summary and paths as JSON")
     p_list.set_defaults(func=_cmd_list_orphans)
 
     # gc
