@@ -695,13 +695,49 @@ debug/recovery overrides, not the normal path.
   `--json`, inline queries print TSV. Non-query SQL still runs as a script.
 - `admin index check` warns instead of tracebacking when `--vec-table` requires
   sqlite-vec but `vec0` is unavailable.
-- `admin index rebuild --fts-table ... --fts-cols title,tags,summary` rebuilds
-  FTS from explicit base-table columns. For knowledge DB body text, prefer
-  `clawsqlite knowledge reindex --rebuild --fts`.
+- `admin index rebuild --fts-table ... --fts-cols title,tags,summary` is a
+  DB-only/index-only primitive: it rebuilds FTS/vec tables from DB fields and
+  does not read, restore, or repair Markdown files. File consistency belongs
+  under `admin fs`; application-level rebuild workflows should use the
+  `knowledge` wrappers where available.
 - `admin fs list-orphans --json` returns counts plus classified `FS_ONLY` /
-  `DB_ONLY` paths; `admin fs gc --dry-run` previews deletes before mutation.
+  `DB_ONLY` paths and a flat `items` array for Agent use.
+- `admin fs gc --json --dry-run` previews cleanup as structured data; without
+  `--dry-run` it returns deleted FS paths, deleted DB rows, skipped items, and
+  summary counts.
+- `admin fs repair --json` recreates missing article Markdown files for DB rows:
+  URL records try the configured scraper first, while notes/thoughts/discussion
+  summaries fall back to DB summary/title content. It does not rebuild indexes
+  or delete DB records.
 - `admin embed column` wraps embedding provider failures with `ERROR` and `NEXT`
   hints instead of exposing a Python traceback.
+
+Common maintenance workflow:
+
+```bash
+# Show the configured articles table schema.
+clawsqlite admin db schema --table articles
+
+# Query current DB state.
+clawsqlite admin db exec --sql "SELECT COUNT(*) AS n FROM articles;" --json
+
+# Check FTS and vec consistency.
+clawsqlite admin index check --table articles --fts-table articles_fts --vec-table articles_vec
+
+# Inspect filesystem/DB mismatches.
+clawsqlite admin fs list-orphans --table articles --path-col local_file_path --json
+
+# Recreate DB rows whose Markdown files are missing.
+clawsqlite admin fs repair --table articles --path-col local_file_path --json
+
+# Preview cleanup.
+clawsqlite admin fs gc --table articles --path-col local_file_path \
+  --delete-fs-orphans --delete-db-orphans --dry-run --json
+
+# Apply cleanup.
+clawsqlite admin fs gc --table articles --path-col local_file_path \
+  --delete-fs-orphans --delete-db-orphans --json
+```
 
 ---
 

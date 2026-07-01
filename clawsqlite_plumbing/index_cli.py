@@ -256,12 +256,12 @@ def build_parser(prog: str = "clawsqlite admin index") -> argparse.ArgumentParse
     p_check.set_defaults(func=_cmd_check)
 
     # rebuild
-    p_rebuild = sub.add_parser("rebuild", help="Rebuild FTS/vec indexes from base table")
+    p_rebuild = sub.add_parser("rebuild", help="DB-only/index-only rebuild of FTS/vec tables from DB fields")
     p_rebuild.add_argument("--db", help="SQLite DB path override (default: [knowledge].db from clawsqlite.toml)")
     p_rebuild.add_argument("--table", help="Base table override (default: articles)")
     p_rebuild.add_argument("--id-col", default="id", help="Primary key column in base table (default: id)")
     p_rebuild.add_argument("--fts-table", help="FTS table name")
-    p_rebuild.add_argument("--fts-cols", help="Comma-separated base-table columns to copy into the FTS table")
+    p_rebuild.add_argument("--fts-cols", help="Comma-separated DB columns to copy into the FTS table; does not read or repair Markdown files")
     p_rebuild.add_argument("--vec-table", help="Vector table name")
     p_rebuild.set_defaults(func=_cmd_rebuild)
 

@@ -32,6 +32,14 @@ without strict version tagging yet. Entries are grouped by date + topic.
   exposes it to admin plumbing, so `admin index check` and
   `admin embed column` work from `clawsqlite.toml` defaults without manually
   exporting `CLAWSQLITE_VEC_EXT`.
+- Added `admin fs repair` (`reconstruct` / `restore-missing` aliases) for
+  recreating missing Markdown files from configured scraper output or DB
+  summary/title content, without rebuilding indexes or deleting DB records.
+- Expanded `admin fs` structured output: `list-orphans --json` now includes a
+  flat `items` array, and `gc --json` reports deleted FS paths, deleted DB rows,
+  skipped items, and summary counts.
+- Clarified that `admin index rebuild` is a DB-only/index-only primitive; file
+  recovery belongs under `admin fs`.
 - Replaced the internal `SMALL_LLM_*` runtime names with `LLM_BASE_URL`,
   `LLM_MODEL`, and `LLM_API_KEY`. The project no longer keeps a compatibility
   path for the old names.

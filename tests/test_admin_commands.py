@@ -337,6 +337,142 @@ class AdminCommandTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["db_only"], 1)
         self.assertEqual(payload["fs_only"][0]["path"], "orphan.md")
         self.assertEqual(payload["db_only"][0]["path"], "missing.md")
+        self.assertEqual(
+            payload["items"],
+            [
+                {"kind": "fs_only", "class": "regular", "path": "orphan.md"},
+                {"kind": "db_only", "class": "regular", "path": "missing.md"},
+            ],
+        )
+
+    def test_admin_fs_gc_json_reports_actions_and_summary(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "files"
+            root.mkdir()
+            (root / "live.md").write_text("live", encoding="utf-8")
+            (root / "orphan.md").write_text("orphan", encoding="utf-8")
+            db_path = tmpdir / "fs.sqlite3"
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.execute("CREATE TABLE articles(local_file_path TEXT)")
+                conn.execute("INSERT INTO articles(local_file_path) VALUES('live.md')")
+                conn.execute("INSERT INTO articles(local_file_path) VALUES('missing.md')")
+                conn.commit()
+            finally:
+                conn.close()
+
+            code, out, err = _run(
+                fs_cli.main,
+                [
+                    "gc",
+                    "--root",
+                    str(root),
+                    "--db",
+                    str(db_path),
+                    "--table",
+                    "articles",
+                    "--path-col",
+                    "local_file_path",
+                    "--delete-fs-orphans",
+                    "--delete-db-orphans",
+                    "--json",
+                ],
+            )
+            payload = json.loads(out)
+            conn = sqlite3.connect(db_path)
+            try:
+                rows = [r[0] for r in conn.execute("SELECT local_file_path FROM articles ORDER BY local_file_path")]
+            finally:
+                conn.close()
+
+        self.assertEqual(code, 0, err)
+        self.assertFalse((root / "orphan.md").exists())
+        self.assertEqual(rows, ["live.md"])
+        self.assertEqual(payload["deleted_fs"], ["orphan.md"])
+        self.assertEqual(payload["deleted_db"], [{"rowid": 2, "path": "missing.md"}])
+        self.assertEqual(payload["summary"]["deleted_fs_count"], 1)
+        self.assertEqual(payload["summary"]["deleted_db_count"], 1)
+
+    def test_top_level_admin_fs_repair_reconstructs_missing_file_from_summary(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "component"
+            write_knowledge_config(root)
+            db_path = root / "knowledge.sqlite3"
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.execute(
+                    "CREATE TABLE articles("
+                    "id INTEGER PRIMARY KEY, title TEXT, source_url TEXT, summary TEXT, "
+                    "created_at TEXT, category TEXT, tags TEXT, priority INTEGER, local_file_path TEXT)"
+                )
+                conn.execute(
+                    "INSERT INTO articles(id, title, source_url, summary, created_at, category, tags, priority, local_file_path) "
+                    "VALUES(1, 'Missing Note', 'Local', 'summary body', '2026-01-01T00:00:00Z', 'note', 'demo', 0, '000001__missing-note.md')"
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            with _cwd(root):
+                code, out, err = _run_catching_system_exit(
+                    top_cli_main,
+                    ["admin", "fs", "repair", "--no-scrape", "--json"],
+                )
+            payload = json.loads(out)
+            repaired_path = root / "articles" / "000001__missing-note.md"
+
+            self.assertEqual(code, 0, err)
+            self.assertTrue(repaired_path.exists())
+            content = repaired_path.read_text(encoding="utf-8")
+            self.assertIn("summary body", content)
+            self.assertEqual(payload["summary"]["repaired_count"], 1)
+            self.assertEqual(payload["repaired"][0]["mode"], "summary")
+
+    def test_top_level_admin_fs_repair_uses_configured_scraper_for_url_records(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "component"
+            config_path = write_knowledge_config(root)
+            scraper = tmpdir / "scrape.sh"
+            scraper.write_text(
+                "#!/bin/sh\n"
+                "echo 'Title: Scraped Title'\n"
+                "echo 'scraped markdown body'\n",
+                encoding="utf-8",
+            )
+            scraper.chmod(0o755)
+            with config_path.open("a", encoding="utf-8") as f:
+                f.write(f'\n[scraper]\ncmd = "{scraper}"\n')
+
+            db_path = root / "knowledge.sqlite3"
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.execute(
+                    "CREATE TABLE articles("
+                    "id INTEGER PRIMARY KEY, title TEXT, source_url TEXT, summary TEXT, "
+                    "created_at TEXT, category TEXT, tags TEXT, priority INTEGER, local_file_path TEXT)"
+                )
+                conn.execute(
+                    "INSERT INTO articles(id, title, source_url, summary, created_at, category, tags, priority, local_file_path) "
+                    "VALUES(1, 'Original Title', 'https://example.test/a', 'old summary', '2026-01-01T00:00:00Z', 'web_article', 'demo', 0, '000001__article.md')"
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            with _cwd(root):
+                code, out, err = _run_catching_system_exit(
+                    top_cli_main,
+                    ["admin", "fs", "repair", "--json"],
+                )
+            payload = json.loads(out)
+            repaired_path = root / "articles" / "000001__article.md"
+
+            self.assertEqual(code, 0, err)
+            self.assertTrue(repaired_path.exists())
+            content = repaired_path.read_text(encoding="utf-8")
+            self.assertIn("Scraped Title", content)
+            self.assertIn("scraped markdown body", content)
+            self.assertEqual(payload["repaired"][0]["mode"], "scrape")
 
     def test_admin_db_exec_prints_select_results(self):
         with _tempdir() as tmpdir:
