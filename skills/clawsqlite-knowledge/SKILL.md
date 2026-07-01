@@ -87,10 +87,9 @@ clawsqlite knowledge ingest \
   --json
 ```
 
-Manual tags are hints only. Use `--tags-hint` when you want to give the
-generator extra context; do not treat it as stored metadata in strict mode.
-Likewise, `--title` and `--category` are hints during strict LLM ingest. The
-stored title, tags, category, and content type must come from the configured LLM.
+`--title` and `--category` are hints during strict LLM ingest. The stored title,
+tags, category, and content type must come from the configured LLM; manual tag
+input is intentionally not part of the ingest action surface.
 Successful JSON output includes `config_path`, `root`, `db`, `articles_dir`,
 `generation_quality`, `embedding_runtime_enabled`, and `embedding_required`;
 check these fields before telling the user where data was written.

@@ -109,8 +109,6 @@ class CLISmokeTests(unittest.TestCase):
                 "Hello",
                 "--category",
                 "test",
-                "--tags-hint",
-                "demo",
                 "--gen-provider",
                 "off",
                 "--allow-heuristic",
@@ -239,19 +237,7 @@ class CLISmokeTests(unittest.TestCase):
             maint2 = json.loads(p.stdout)
             self.assertEqual(maint2["dry_run"], False)
 
-            # 8) embed-from-summary 命令存在且可调用。
-            #    在默认测试环境下未必配置了 embedding / vec0 表，
-            #    所以只做“命令可以跑起来”的烟囱测试，不强求成功。
-            embed_cmd = [
-                PYTHON_BIN,
-                "-m",
-                "clawsqlite_cli",
-                "knowledge",
-                "embed-from-summary",
-            ]
-            self._run(embed_cmd, expect_ok=False)
-
-            # 9) Admin: db schema should work on the configured component DB
+            # 8) Admin: db schema should work on the configured component DB
             db_schema_cmd = [
                 PYTHON_BIN,
                 "-m",
@@ -281,6 +267,22 @@ class CLISmokeTests(unittest.TestCase):
         self.assertEqual(p.returncode, 2)
         self.assertIn("unknown namespace", p.stderr)
         self.assertIn("clawsqlite --help", p.stderr)
+
+    def test_removed_knowledge_implementation_commands_are_not_exposed(self):
+        p_help = self._run([PYTHON_BIN, "-m", "clawsqlite_cli", "knowledge", "--help"])
+        self.assertNotIn("embed-from-summary", p_help.stdout)
+        self.assertNotIn("rebuild-quality", p_help.stdout)
+
+        p_ingest_help = self._run([PYTHON_BIN, "-m", "clawsqlite_cli", "knowledge", "ingest", "--help"])
+        self.assertNotIn("--tags-hint", p_ingest_help.stdout)
+
+        p_embed = self._run([PYTHON_BIN, "-m", "clawsqlite_cli", "knowledge", "embed-from-summary"], expect_ok=False)
+        self.assertNotEqual(p_embed.returncode, 0)
+        self.assertIn("invalid choice", p_embed.stderr)
+
+        p_quality = self._run([PYTHON_BIN, "-m", "clawsqlite_cli", "knowledge", "rebuild-quality"], expect_ok=False)
+        self.assertNotEqual(p_quality.returncode, 0)
+        self.assertIn("invalid choice", p_quality.stderr)
 
 
 if __name__ == "__main__":  # pragma: no cover

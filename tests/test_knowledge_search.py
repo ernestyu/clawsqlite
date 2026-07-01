@@ -73,7 +73,7 @@ class KnowledgeSearchTests(unittest.TestCase):
             config_path = write_knowledge_config(root)
             self._run_cwd = root
 
-            def _ingest(text, title, category, tags):
+            def _ingest(text, title, category):
                 cmd = [
                     PYTHON_BIN,
                     "-m",
@@ -86,8 +86,6 @@ class KnowledgeSearchTests(unittest.TestCase):
                     title,
                     "--category",
                     category,
-                    "--tags-hint",
-                    tags,
                     "--gen-provider",
                     "off",
                     "--allow-heuristic",
@@ -97,10 +95,28 @@ class KnowledgeSearchTests(unittest.TestCase):
                 p = self._run(cmd)
                 return json.loads(p.stdout)
 
+            def _patch_tags(article_id, tags):
+                cmd = [
+                    PYTHON_BIN,
+                    "-m",
+                    "clawsqlite_cli",
+                    "knowledge",
+                    "update",
+                    "--id",
+                    str(article_id),
+                    "--tags",
+                    tags,
+                    "--json",
+                ]
+                self._run(cmd)
+
             # 准备三条记录，category / tags 不同
-            r1 = _ingest("hello alpha", "Alpha", "dev", "tag1")
-            r2 = _ingest("hello beta", "Beta", "web", "tag2")
-            r3 = _ingest("hello gamma", "Gamma", "dev", "tag2")
+            r1 = _ingest("hello alpha", "Alpha", "dev")
+            r2 = _ingest("hello beta", "Beta", "web")
+            r3 = _ingest("hello gamma", "Gamma", "dev")
+            _patch_tags(r1["id"], "tag1")
+            _patch_tags(r2["id"], "tag2")
+            _patch_tags(r3["id"], "tag2")
 
             # 删除第二条（soft delete）
             del_cmd = [
@@ -191,8 +207,6 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "Unrelated title",
                 "--category",
                 "test",
-                "--tags-hint",
-                "metadataonly",
                 "--gen-provider",
                 "off",
                 "--allow-heuristic",
@@ -240,8 +254,6 @@ class KnowledgeSearchTests(unittest.TestCase):
                 "Hybrid",
                 "--category",
                 "test",
-                "--tags-hint",
-                "hybrid",
                 "--gen-provider",
                 "off",
                 "--allow-heuristic",

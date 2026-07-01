@@ -288,7 +288,6 @@ clawsqlite knowledge ingest \
   --text "你好，clawsqlite" \
   --title "测试笔记" \
   --category note \
-  --tags-hint demo \
   --gen-provider off \
   --allow-heuristic \
   --allow-missing-embedding \
@@ -309,14 +308,14 @@ clawsqlite knowledge ingest --text "一段想法" --category thought --json
 常用参数：
 
 - `--url` / `--text`：二选一
-- `--title` / `--summary` / `--tags-hint` / `--category` / `--priority`
+- `--title` / `--summary` / `--category` / `--priority`
 - `--gen-provider {openclaw,llm,off}`：默认来自配置
 - `--max-summary-chars`：覆盖配置里的 `summary_target_chars`
 - `--scrape-cmd`：覆盖配置里的抓取命令
 - `--update-existing`：URL 已存在时刷新同一条记录
 - `--allow-heuristic` / `--allow-missing-embedding`：显式降级
 
-strict 模式下，人工 title/category/tags 都只是给 LLM 的提示，不会覆盖最终
+strict 模式下，人工 title/category 只是给 LLM 的提示，不会覆盖最终
 metadata。最终 title、tags、category、content_type 必须由 LLM 生成；tags
 数量必须等于 `[ingest].tag_count`，category 和 content_type 必须一致，并且
 必须属于 `[ingest].allowed_categories`。成功的 JSON 输出会包含 `config_path`、
@@ -362,14 +361,18 @@ clawsqlite knowledge update --id 12 --regen all --json
 
 严格配置下，`--regen` 默认也会走配置里的 LLM 生成路径。需要降级时必须显式加 `--allow-heuristic`。
 
-### 重建低质量旧记录
+### 派生数据修复
 
 ```bash
-clawsqlite knowledge rebuild-quality --dry-run --json
-clawsqlite knowledge rebuild-quality --json
+clawsqlite knowledge update --id 12 --regen summary --json
+clawsqlite knowledge update --id 12 --regen tags --json
+clawsqlite knowledge update --id 12 --regen embedding --json
+clawsqlite knowledge update --id 12 --regen all --json
+clawsqlite knowledge reindex --fix-missing --json
 ```
 
-这个命令用于把旧的启发式记录升级为 LLM 质量记录：重生成 summary/tags/key_claims/entities，重写 Markdown metadata，并刷新 FTS / embedding。
+单条记录用 `update --regen`；批量缺失派生字段或索引用 `reindex --fix-missing`。
+`generation_quality` 是来源/生成方式元数据，不再作为独立顶层命令入口。
 
 ### 维护
 

@@ -98,8 +98,6 @@ class StrictIngestConfigTests(unittest.TestCase):
                     "Strict note",
                     "--summary",
                     "Manual summary",
-                    "--tags-hint",
-                    "sqlite,agent",
                     "--gen-provider",
                     "openclaw",
                     "--json",
@@ -127,8 +125,6 @@ class StrictIngestConfigTests(unittest.TestCase):
                     "Strict note",
                     "--summary",
                     "Manual summary",
-                    "--tags-hint",
-                    "sqlite,agent",
                     "--json",
                 ]
             )
@@ -179,8 +175,6 @@ class StrictIngestConfigTests(unittest.TestCase):
                     "Embedding strict note",
                     "--summary",
                     "Manual summary",
-                    "--tags-hint",
-                    "sqlite,agent",
                     "--gen-provider",
                     "off",
                     "--json",
@@ -227,7 +221,7 @@ class StrictIngestConfigTests(unittest.TestCase):
             def fake_generate(*args, **kwargs):
                 self.assertEqual(kwargs["tag_count"], 8)
                 self.assertIn("thought", kwargs["allowed_content_types"])
-                self.assertEqual(kwargs["hint_tags"], "manual,wrong")
+                self.assertIsNone(kwargs["hint_tags"])
                 return {
                     "title": "Generated title",
                     "summary": "Generated whole article summary",
@@ -247,8 +241,6 @@ class StrictIngestConfigTests(unittest.TestCase):
                     "A useful note about SQLite and agents.",
                     "--title",
                     "Human hint title",
-                    "--tags-hint",
-                    "manual,wrong",
                     "--category",
                     "note",
                     "--json",

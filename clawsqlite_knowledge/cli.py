@@ -258,48 +258,6 @@ def _maybe_warn_fts_fallback(conn) -> None:
     _WARNED_FTS_FALLBACK = True
 
 
-def cmd_embed_from_summary(args) -> int:
-    """Embed article summaries into the vec table.
-
-    This is a knowledge-level wrapper around `clawsqlite admin embed column` that
-    knows the default KB schema:
-
-    - base table: articles
-    - id column: id
-    - text column: summary
-    - vec table: articles_vec
-    - default WHERE: undeleted rows with non-empty summary
-    """
-    from clawsqlite_plumbing import embed_cli as _embed_plumbing_cli  # local import to avoid hard dep at import time
-
-    paths = _resolve_paths(args)
-    db_path = paths["db"]
-
-    where = args.where or "deleted_at IS NULL AND summary IS NOT NULL AND trim(summary) != ''"
-    argv = [
-        "column",
-        "--db",
-        db_path,
-        "--table",
-        "articles",
-        "--id-col",
-        "id",
-        "--text-col",
-        "summary",
-        "--vec-table",
-        "articles_vec",
-        "--where",
-        where,
-    ]
-    if args.limit is not None:
-        argv += ["--limit", str(int(args.limit))]
-    if args.offset is not None:
-        argv += ["--offset", str(int(args.offset))]
-
-    code = _embed_plumbing_cli.main(argv)
-    return int(code)
-
-
 def cmd_init_config(args) -> int:
     out = getattr(args, "out", None) or "clawsqlite.toml"
     path = os.path.abspath(os.path.expanduser(out))
@@ -355,7 +313,6 @@ def cmd_ingest(args) -> int:
         body_md = args.text
 
     # 2) Fields
-    tags_hint = getattr(args, "tags_hint", None) or ""
     tags = ""
     summary = (args.summary or "").strip()
     summary_generated = False
@@ -371,13 +328,13 @@ def cmd_ingest(args) -> int:
     entities_json = "[]"
 
     if gen_provider != "off":
-        need_gen = bool(policy.require_llm) or (not title) or (not summary) or not tags_hint
+        need_gen = bool(policy.require_llm) or (not title) or (not summary) or not tags
         if need_gen:
             try:
                 gen = generate_fields(
                     body_md,
                     hint_title=title or None,
-                    hint_tags=tags_hint or None,
+                    hint_tags=None,
                     provider=gen_provider,
                     max_summary_chars=max_summary_chars,
                     tag_count=policy.tag_count,
@@ -423,8 +380,6 @@ def cmd_ingest(args) -> int:
         summary = summary.strip()
     else:
         summary = truncate_text(summary, max_chars=max_summary_chars)
-    if not tags and tags_hint and (gen_provider == "off" or generation_quality in {"", "manual"}):
-        tags = tags_hint
     tags = comma_join_tags(tags)
     if not generation_quality:
         generation_quality = "manual"
@@ -1372,8 +1327,9 @@ def cmd_reindex(args) -> int:
             # plumbing that only reads base-table columns.
             #
             # Vec rebuild semantics: clear the vec table only. Embedding
-            #    recomputation is handled by a separate embedding task/CLI
-            #    (e.g. `clawsqlite knowledge embed-from-summary`).
+            # recomputation is handled through high-level regen/fix flows,
+            # such as `knowledge update --regen embedding` for one record or
+            # `knowledge reindex --fix-missing` for missing derived data.
             out = reindex_mod.rebuild(
                 conn,
                 rebuild_fts=bool(args.fts),
@@ -1395,152 +1351,6 @@ def cmd_reindex(args) -> int:
         if conn is not None:
             conn.close()
 
-
-def cmd_rebuild_quality(args) -> int:
-    cfg = _get_config(args)
-    paths = _resolve_paths(args)
-    db_path = paths["db"]
-    if not os.path.exists(db_path):
-        sys.stderr.write(f"ERROR: db not found at {db_path}. Check current component-root clawsqlite.toml.\n")
-        return 2
-    if cfg.ingest.require_llm and not (cfg.llm.base_url and cfg.llm.model and cfg.llm.resolved_api_key):
-        sys.stderr.write("ERROR: rebuild-quality requires configured LLM.\n")
-        sys.stderr.write("ERROR_KIND: llm_required\n")
-        sys.stderr.write("NEXT: configure [llm].base_url/model/api_key in clawsqlite.toml.\n")
-        return 2
-    if cfg.ingest.require_embedding and not getattr(args, "allow_missing_embedding", False) and not embedding_enabled():
-        sys.stderr.write("ERROR: rebuild-quality requires configured embedding.\n")
-        sys.stderr.write("ERROR_KIND: embedding_required\n")
-        sys.stderr.write("NEXT: configure [embedding] in clawsqlite.toml, or pass --allow-missing-embedding.\n")
-        return 2
-
-    conn = None
-    try:
-        conn = _open_for_command(db_path, need_fts=True, need_vec=True, args=args)
-        clauses = ["deleted_at IS NULL"]
-        params: List[Any] = []
-        if getattr(args, "id", None):
-            clauses.append("id=?")
-            params.append(int(args.id))
-        else:
-            clauses.append("(coalesce(generation_quality,'') != 'llm' OR coalesce(summary_model,'') = '' OR coalesce(tags_model,'') = '')")
-        if getattr(args, "since", None):
-            clauses.append("created_at >= ?")
-            params.append(args.since)
-        sql = "SELECT * FROM articles WHERE " + " AND ".join(clauses) + " ORDER BY id ASC"
-        if getattr(args, "limit", None):
-            sql += " LIMIT ?"
-            params.append(int(args.limit))
-        rows = conn.execute(sql, params).fetchall()
-        ids = [int(r["id"]) for r in rows]
-        if getattr(args, "dry_run", False):
-            _print({"ok": True, "dry_run": True, "ids": ids, "count": len(ids)}, bool(args.json))
-            return 0
-
-        updated: List[int] = []
-        errors: List[str] = []
-        for r in rows:
-            aid = int(r["id"])
-            try:
-                path = (r["local_file_path"] or "").strip()
-                body_md = read_markdown(path) if path and os.path.exists(path) else (r["summary"] or r["title"] or "")
-                body_md = _extract_markdown_body(body_md)
-                gen = generate_fields(
-                    body_md,
-                    hint_title=(r["title"] or "") or None,
-                    hint_tags=(r["tags"] or "") or None,
-                    provider="llm",
-                    max_summary_chars=cfg.ingest.summary_target_chars,
-                    tag_count=cfg.ingest.tag_count,
-                    allowed_content_types=list(cfg.ingest.allowed_categories),
-                    allow_heuristic=False,
-                    llm_context_window_chars=cfg.llm.context_window_chars,
-                    llm_prompt_reserved_chars=cfg.llm.prompt_reserved_chars,
-                    llm_chunk_overlap_chars=cfg.llm.chunk_overlap_chars,
-                    llm_timeout_seconds=cfg.llm.timeout_seconds,
-                    source_kind="stored",
-                    source_content_type=str(r["content_type"] or r["category"] or ""),
-                )
-                title = (gen.get("title") or r["title"] or "").strip() or "untitled"
-                summary = (gen.get("summary") or "").strip()
-                tags = comma_join_tags(gen.get("tags"))
-                key_claims_json = json.dumps(gen.get("key_claims") or [], ensure_ascii=False)
-                entities_json = json.dumps(gen.get("entities") or [], ensure_ascii=False)
-                content_type = str(gen.get("content_type") or r["content_type"] or "web_article")
-
-                embedding_model = cfg.embedding.model if embedding_enabled() else ""
-                embedding_dim: Optional[int] = cfg.embedding.dim if cfg.embedding.dim > 0 else None
-                if embedding_enabled():
-                    if not dbmod.vec_table_exists(conn) and cfg.ingest.require_embedding and not getattr(args, "allow_missing_embedding", False):
-                        raise RuntimeError("vec index not available (vec0 extension not loaded)")
-                    if dbmod.vec_table_exists(conn):
-                        dbmod.upsert_vec(conn, aid, floats_to_f32_blob(l2_normalize(get_embedding(summary, timeout=cfg.embedding.timeout_seconds))))
-                        dbmod.upsert_tag_vec(conn, aid, floats_to_f32_blob(l2_normalize(get_embedding(tags, timeout=cfg.embedding.timeout_seconds))))
-                elif cfg.ingest.require_embedding and not getattr(args, "allow_missing_embedding", False):
-                    raise RuntimeError("embedding is required but not configured")
-
-                new_path = article_abspath(paths["articles_dir"], aid, title)
-                md_content = format_markdown_with_metadata(
-                    article_id=aid,
-                    title=title,
-                    source_url=(r["source_url"] or "").strip() or "Local",
-                    created_at=(r["created_at"] or "").strip() or now_iso_z(),
-                    category=r["category"] or "",
-                    tags=tags,
-                    priority=int(r["priority"] or 0),
-                    body_markdown=body_md,
-                    summary=summary,
-                    generation_quality="llm",
-                    summary_model=cfg.llm.model,
-                    tags_model=cfg.llm.model,
-                    embedding_model=embedding_model,
-                    content_type=content_type,
-                    key_claims=key_claims_json,
-                )
-                write_markdown(new_path, md_content)
-                dbmod.update_article_fields(
-                    conn,
-                    aid,
-                    title=title,
-                    summary=summary,
-                    tags=tags,
-                    local_file_path=new_path,
-                    generation_provider="llm",
-                    generation_quality="llm",
-                    summary_model=cfg.llm.model,
-                    tags_model=cfg.llm.model,
-                    embedding_model=embedding_model,
-                    embedding_dim=embedding_dim,
-                    ingest_status="ok",
-                    ingest_error="",
-                    content_type=content_type,
-                    key_claims=key_claims_json,
-                    entities=entities_json,
-                    config_path=cfg.config_path,
-                )
-                dbmod.upsert_fts(conn, aid, title, tags, summary, body_md)
-                updated.append(aid)
-            except Exception as e:
-                errors.append(f"id={aid}: {e}")
-                try:
-                    dbmod.update_article_fields(conn, aid, ingest_status="failed", ingest_error=str(e))
-                except Exception:
-                    pass
-        conn.commit()
-        out = {"ok": not errors, "updated": updated, "errors": errors}
-        _print(out, bool(args.json))
-        return 0 if not errors else 4
-    except Exception as e:
-        if conn is not None:
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-        sys.stderr.write(f"ERROR: rebuild-quality failed: {e}\n")
-        return 4
-    finally:
-        if conn is not None:
-            conn.close()
 
 def _add_common_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
@@ -1723,7 +1533,6 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--text", default=None, help="Raw text content to ingest")
     sp.add_argument("--title", default=None, help="Title override")
     sp.add_argument("--summary", default=None, help="Summary override (long summary)")
-    sp.add_argument("--tags-hint", default=None, help="Optional tag hints for the generator (comma-separated)")
     sp.add_argument("--category", default="", help="Category hint; strict LLM ingest stores a configured generated category")
     sp.add_argument("--priority", default=0, type=int, help="Priority (0 default)")
     sp.add_argument("--gen-provider", default=None, choices=["openclaw", "llm", "off"], help="Generator provider override (default from clawsqlite.toml)")
@@ -1814,16 +1623,6 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--allow-heuristic", action="store_true", help="Explicitly allow heuristic generation when LLM generation is unavailable")
     sp.set_defaults(func=cmd_reindex)
 
-    # rebuild-quality
-    sp = sub.add_parser("rebuild-quality", help="Regenerate low-quality records with strict LLM generation")
-    _add_common_flags(sp)
-    sp.add_argument("--id", default=None, help="Rebuild one article id")
-    sp.add_argument("--since", default=None, help="Only rebuild records created_at >= since")
-    sp.add_argument("--limit", type=int, default=None, help="Maximum records to rebuild")
-    sp.add_argument("--dry-run", action="store_true", help="Only list records that would be rebuilt")
-    sp.add_argument("--allow-missing-embedding", action="store_true", help="Allow rebuild without vector embeddings")
-    sp.set_defaults(func=cmd_rebuild_quality)
-
     # inspect-interest-clusters (analysis helper)
     sp = sub.add_parser("inspect-interest-clusters", help="Inspect interest cluster radius + PCA scatter plot (requires numpy)")
     _add_common_flags(sp)
@@ -1843,14 +1642,6 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--format", dest="fmt", default=None, choices=["md", "html"], help="Additional output format: 'md' (default) or 'html' (also write report.html via pandoc)")
     sp.add_argument("--no-pdf", action="store_true", help="Do not run pandoc to generate PDF")
     sp.set_defaults(func=cmd_report_interest)
-
-    # embed-from-summary (knowledge-level wrapper)
-    sp = sub.add_parser("embed-from-summary", help="Embed article summaries into articles_vec via plumbing")
-    _add_common_flags(sp)
-    sp.add_argument("--where", default=None, help="Optional SQL WHERE clause on articles (default: undeleted with non-empty summary)")
-    sp.add_argument("--limit", type=int, default=None, help="Optional LIMIT for batching")
-    sp.add_argument("--offset", type=int, default=None, help="Optional OFFSET for batching")
-    sp.set_defaults(func=cmd_embed_from_summary)
 
     # maintenance / gc
     sp = sub.add_parser("maintenance", help="Maintenance: prune orphan/backup files and check paths")

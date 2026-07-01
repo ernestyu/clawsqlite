@@ -50,8 +50,11 @@ without strict version tagging yet. Entries are grouped by date + topic.
 - Tightened short-summary passthrough: direct text and short
   `note`/`thought`/`discussion_summary` content can preserve cleaned text, while
   URL/web-article ingest still asks the LLM to summarize.
-- Removed `--tags` from `knowledge ingest`; manual ingest tags are now expressed
-  only as `--tags-hint`. The `update --tags` patch operation remains separate.
+- Removed manual tag input from `knowledge ingest`; `update --tags` remains a
+  patch operation for existing records.
+- Removed `knowledge embed-from-summary` and `knowledge rebuild-quality` from
+  the public command surface. Use `knowledge update --regen ...` for single
+  records and `knowledge reindex --fix-missing` for batch derived-data repair.
 - Replaced ingest JSON `embedding_enabled` with clearer
   `embedding_runtime_enabled` and `embedding_required` fields.
 - Doctor config output now reports why the active `clawsqlite.toml` was chosen
