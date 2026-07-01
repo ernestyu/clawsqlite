@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""`clawsqlite index` plumbing commands.
+"""Administrative FTS / vector index maintenance primitives.
 
 These commands operate on generic FTS / vector indexes for a given base
 table. They only know about:
@@ -167,8 +167,8 @@ def _cmd_search(args: argparse.Namespace) -> int:
         conn.close()
 
 
-def build_parser(prog: str = "clawsqlite index") -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog=prog, description="clawsqlite index plumbing commands")
+def build_parser(prog: str = "clawsqlite admin index") -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog=prog, description="Administrative FTS / vector index maintenance commands")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     # check
@@ -201,7 +201,7 @@ def build_parser(prog: str = "clawsqlite index") -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[List[str]] = None) -> int:
-    parser = build_parser()
+def main(argv: Optional[List[str]] = None, *, prog: str = "clawsqlite admin index") -> int:
+    parser = build_parser(prog=prog)
     args = parser.parse_args(argv)
     return int(args.func(args))

@@ -4,10 +4,11 @@
 
 `clawsqlite` 是一个围绕 SQLite 打造的 CLI 工具箱。它有两层：
 
-- `clawsqlite_plumbing`：通用 SQLite / FTS / 向量 / 文件系统基础命令，不读取知识库配置。
-- `clawsqlite_knowledge`：面向文章、笔记、想法入库的知识库应用，读取 `clawsqlite.toml`。
+- `clawsqlite admin ...`：通用 SQLite / FTS / 向量 / 文件系统基础命令，不读取知识库配置，面向管理员、维护、诊断和恢复。
+- `clawsqlite knowledge ...`：面向文章、笔记、想法入库的知识库应用，读取 `clawsqlite.toml`。
 
-这一层次很重要：底层 plumbing 应该能服务任何 SQLite 数据库；Knowledge 只负责“网页/想法入库、检索、维护”这一类知识库工作流。
+这一层次很重要：底层 admin 命令应该能服务任何 SQLite 数据库；Knowledge
+只负责“网页/想法入库、检索、维护”这一类知识库工作流。
 
 ---
 

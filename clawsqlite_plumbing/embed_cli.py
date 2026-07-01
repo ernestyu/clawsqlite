@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Embedding plumbing commands for clawsqlite.
+"""Administrative low-level embedding primitives for clawsqlite.
 
 These commands operate on a generic pattern:
 
@@ -100,8 +100,8 @@ def _cmd_embed_column(args: argparse.Namespace) -> int:
         conn.close()
 
 
-def build_parser(prog: str = "clawsqlite embed") -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog=prog, description="clawsqlite embedding plumbing commands")
+def build_parser(prog: str = "clawsqlite admin embed") -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog=prog, description="Administrative low-level embedding primitive commands")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_col = sub.add_parser(
@@ -122,7 +122,7 @@ def build_parser(prog: str = "clawsqlite embed") -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[List[str]] = None) -> int:
-    parser = build_parser()
+def main(argv: Optional[List[str]] = None, *, prog: str = "clawsqlite admin embed") -> int:
+    parser = build_parser(prog=prog)
     args = parser.parse_args(argv)
     return int(args.func(args))

@@ -9,6 +9,8 @@ application is a local Markdown + SQLite knowledge base.
 This repo currently focuses on the **knowledge** app:
 
 - commands are exposed under `clawsqlite knowledge ...` for users/skills.
+- low-level SQLite/FTS/filesystem/embedding primitives are exposed under
+  `clawsqlite admin ...` for advanced maintenance and recovery workflows.
 
 Naming note: `clawsqlite_knowledge` is the Python package that implements the
 Knowledge app. `skills/clawsqlite-knowledge` is only a thin OpenClaw/ClawHub
@@ -41,7 +43,7 @@ The knowledge app helps you:
   - Markdown files include a small METADATA header + MARKDOWN body section
 - **Project config**
   - All data lives under a single root directory
-  - Knowledge commands read `clawsqlite.toml` first; plumbing commands stay generic and do not read it
+  - Knowledge commands read `clawsqlite.toml` first; admin commands stay generic and do not read it
   - DB and articles dir default to `<root>/knowledge.sqlite3` and `<root>/articles`
 - **Embeddings + LLM**
   - Embeddings: OpenAI‑compatible `/v1/embeddings` API
@@ -63,6 +65,7 @@ The knowledge app helps you:
       so that many partial tag hits don’t overpower the semantic channels
 - **CLI first**
   - Simple subcommands: `ingest`, `search`, `show`, `export`, `update`, `delete`, `reindex`, `doctor`
+  - Low-level primitives live under `clawsqlite admin db/index/fs/embed ...`
 
 ---
 
@@ -668,7 +671,7 @@ Maintenance operations:
 
 - `reindex --check` – report missing fields/indexes
 - `reindex --fix-missing` – regen missing fields/indexes using the configured generator; strict config requires LLM unless `--allow-heuristic` is explicit
-- `reindex --rebuild --fts` – rebuild FTS index (via `clawsqlite index rebuild`)
+- `reindex --rebuild --fts` – rebuild FTS index (via `clawsqlite admin index rebuild`)
 - `reindex --rebuild --vec` – clear vec index **only** (no embedding); use
   `clawsqlite knowledge embed-from-summary` to refill embeddings.
 

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""`clawsqlite fs` plumbing commands.
+"""Administrative filesystem / DB consistency maintenance primitives.
 
 Helpers for applications that pair a SQLite DB with a filesystem tree.
 They assume:
@@ -113,8 +113,8 @@ def _cmd_gc(args: argparse.Namespace) -> int:
         conn.close()
 
 
-def build_parser(prog: str = "clawsqlite fs") -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog=prog, description="clawsqlite fs plumbing commands")
+def build_parser(prog: str = "clawsqlite admin fs") -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog=prog, description="Administrative filesystem + DB consistency maintenance commands")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     # list-orphans
@@ -139,7 +139,7 @@ def build_parser(prog: str = "clawsqlite fs") -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[List[str]] = None) -> int:
-    parser = build_parser()
+def main(argv: Optional[List[str]] = None, *, prog: str = "clawsqlite admin fs") -> int:
+    parser = build_parser(prog=prog)
     args = parser.parse_args(argv)
     return int(args.func(args))

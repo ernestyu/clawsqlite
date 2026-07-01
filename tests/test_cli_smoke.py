@@ -55,7 +55,7 @@ class CLISmokeTests(unittest.TestCase):
     这些测试偏向“从外向内”的烟囱测试，目标是保证：
 
     - `clawsqlite knowledge` 各主要子命令在一个临时 root 下能跑通；
-    - plumbing 层 (`clawsqlite db ...` 等) 在真实 DB 上能工作；
+    - admin 层 (`clawsqlite admin db ...` 等) 在真实 DB 上能工作；
     - 对 Embedding / vec0 / tokenizer 的依赖以“尽量不 hard-fail”为原则，
       在依赖缺失时不会导致 Python 堆栈直接崩溃。
     """
@@ -86,7 +86,7 @@ class CLISmokeTests(unittest.TestCase):
         return proc
 
     def test_knowledge_and_plumbing_smoke(self):
-        """End-to-end smoke test for knowledge CLI + basic plumbing commands."""
+        """End-to-end smoke test for knowledge CLI + basic admin commands."""
         with _tempdir() as tmpdir:
             root = Path(tmpdir) / "kb_root"
             db_path = root / "knowledge.sqlite3"
@@ -251,17 +251,37 @@ class CLISmokeTests(unittest.TestCase):
             ]
             self._run(embed_cmd, expect_ok=False)
 
-            # 9) Plumbing: db schema should work on the same DB
+            # 9) Admin: db schema should work on the same DB
             db_schema_cmd = [
                 PYTHON_BIN,
                 "-m",
                 "clawsqlite_cli",
+                "admin",
                 "db",
                 "schema",
                 "--db",
                 str(db_path),
             ]
             self._run(db_schema_cmd)
+
+    def test_top_level_help_exposes_knowledge_and_admin_only(self):
+        p = self._run([PYTHON_BIN, "-m", "clawsqlite_cli", "--help"])
+        self.assertIn("knowledge", p.stdout)
+        self.assertIn("admin", p.stdout)
+        self.assertNotIn("db         Low-level", p.stdout)
+
+        p_admin = self._run([PYTHON_BIN, "-m", "clawsqlite_cli", "admin", "--help"])
+        self.assertIn("advanced users", p_admin.stdout)
+        self.assertIn("db", p_admin.stdout)
+        self.assertIn("index", p_admin.stdout)
+        self.assertIn("fs", p_admin.stdout)
+        self.assertIn("embed", p_admin.stdout)
+
+    def test_old_low_level_top_level_namespace_is_removed(self):
+        p = self._run([PYTHON_BIN, "-m", "clawsqlite_cli", "db", "--help"], expect_ok=False)
+        self.assertEqual(p.returncode, 2)
+        self.assertIn("unknown namespace", p.stderr)
+        self.assertIn("clawsqlite --help", p.stderr)
 
 
 if __name__ == "__main__":  # pragma: no cover

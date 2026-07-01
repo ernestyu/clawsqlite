@@ -172,7 +172,7 @@ def rebuild(
 
     - When `rebuild_fts=True` we call the DB helper to rebuild FTS. In the
       knowledge CLI, this path is now typically handled via
-      `clawsqlite index rebuild` instead.
+      `clawsqlite admin index rebuild` instead.
     - When `rebuild_vec=True` we only clear the vec table; **we no longer
       recompute embeddings here**. A separate embedding task/CLI should
       handle generating new vectors from the chosen text column.

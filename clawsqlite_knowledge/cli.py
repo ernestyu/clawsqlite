@@ -35,7 +35,7 @@ from .search import hybrid_search
 from . import reindex as reindex_mod
 from . import interest as interest_mod
 
-# Plumbing layer (generic db/index/fs helpers)
+# Admin layer (generic db/index/fs/embed helpers)
 try:
     from clawsqlite_plumbing import db_cli as _db_plumbing_cli
 except Exception:  # pragma: no cover
@@ -260,7 +260,7 @@ def _maybe_warn_fts_fallback(conn) -> None:
 def cmd_embed_from_summary(args) -> int:
     """Embed article summaries into the vec table.
 
-    This is a knowledge-level wrapper around `clawsqlite embed column` that
+    This is a knowledge-level wrapper around `clawsqlite admin embed column` that
     knows the default KB schema:
 
     - base table: articles
@@ -1212,9 +1212,9 @@ def cmd_maintenance(args) -> int:
     - 非 dry-run 情况下删除这些文件 + VACUUM DB。
 
     目前由于 schema 中只有绝对路径 `local_file_path`，这里暂时
-    继续用现有逻辑扫描文件，而不是直接调用 fs plumbing 的
+    继续用现有逻辑扫描文件，而不是直接调用 admin fs 的
     `list-orphans/gc`。后续如果引入 `relpath` 列，可以再切到
-    `clawsqlite fs`。
+    `clawsqlite admin fs`。
     """
 
     paths = _resolve_paths(args)

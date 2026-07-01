@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""`clawsqlite db` plumbing commands.
+"""Administrative SQLite DB maintenance primitives.
 
 All commands here are schema-agnostic: they operate on an arbitrary
 SQLite database file and do not assume KB-specific tables.
@@ -117,8 +117,8 @@ def _cmd_backup(args: argparse.Namespace) -> int:
     return 0
 
 
-def build_parser(prog: str = "clawsqlite db") -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog=prog, description="clawsqlite db plumbing commands")
+def build_parser(prog: str = "clawsqlite admin db") -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog=prog, description="Administrative SQLite database maintenance commands")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     # schema
@@ -154,7 +154,7 @@ def build_parser(prog: str = "clawsqlite db") -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[list[str]] = None) -> int:
-    parser = build_parser()
+def main(argv: Optional[list[str]] = None, *, prog: str = "clawsqlite admin db") -> int:
+    parser = build_parser(prog=prog)
     args = parser.parse_args(argv)
     return int(args.func(args))

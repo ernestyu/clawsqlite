@@ -2,7 +2,7 @@
 """Plumbing layer for clawsqlite.
 
 This package implements low-level, generic commands that back the
-`clawsqlite db/index/fs` namespaces.
+`clawsqlite admin db/index/fs/embed` namespaces.
 
 Design goals:
 - generic (no knowledge-specific tables like `articles` baked in),

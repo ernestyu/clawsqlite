@@ -11,6 +11,9 @@ without strict version tagging yet. Entries are grouped by date + topic.
 
 ### Changed
 
+- Top-level CLI now exposes `clawsqlite knowledge ...` and
+  `clawsqlite admin ...`; low-level DB/index/fs/embed primitives moved under
+  `clawsqlite admin db/index/fs/embed ...`.
 - Replaced the internal `SMALL_LLM_*` runtime names with `LLM_BASE_URL`,
   `LLM_MODEL`, and `LLM_API_KEY`. The project no longer keeps a compatibility
   path for the old names.
@@ -81,7 +84,8 @@ without strict version tagging yet. Entries are grouped by date + topic.
 - **Tag vector maintenance**:
   - `ingest` / `update` now keep `articles_tag_vec` in sync (when embeddings are enabled), in addition to `articles_vec`.
 
-- **Embedding plumbing** (`clawsqlite embed column`) now L2-normalizes vectors before writing to vec tables.
+- **Embedding admin primitive** (`clawsqlite admin embed column`) now
+  L2-normalizes vectors before writing to vec tables.
 
 - **Documentation** updated:
   - Historical search-mode docs were expanded with the new knobs. The later
