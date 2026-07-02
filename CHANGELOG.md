@@ -7,6 +7,43 @@ without strict version tagging yet. Entries are grouped by date + topic.
 
 ---
 
+## 2026-07-02 – 1.0.5 Fresh Install & Skill Entrypoint
+
+### Changed
+
+- `knowledge maintenance init-config --instance default` now creates instances
+  under `${XDG_DATA_HOME:-~/.local/share}/clawsqlite-knowledge/default` instead
+  of the OpenClaw workspace tree, keeping user data outside replaceable repo or
+  skill directories.
+- `init-config` writes a default instance registry file so future skill-local
+  CLI calls can discover the default knowledge instance across sessions.
+- The ClawHub skill now ships a stable local CLI wrapper at
+  `skills/clawsqlite-knowledge/bin/clawsqlite`; `bootstrap_deps.sh` validates
+  and recommends this entry even when managed Python environments do not expose
+  a global `clawsqlite` command on `PATH`.
+- `doctor` now reports scraper configuration and emits a top-level
+  `url_ingest_ready` summary with `missing`, `failed`, and `not_checked`
+  prerequisites for URL ingest workflows.
+- URL ingest failures now distinguish missing scraper configuration
+  (`ERROR_KIND: scraper_required`) from scraper runtime failures
+  (`ERROR_KIND: scraper_failed`).
+
+### Fixed
+
+- Prevented `init-config` from recommending an instance path that its own safety
+  rules would reject in workspaces where source repos live under
+  `~/.openclaw/workspace`.
+- Reduced first-install friction by documenting that ClawHub installs only the
+  thin wrapper and that `bootstrap_deps.sh` must run before the CLI is usable.
+
+### Tests
+
+- Added coverage for XDG default instance creation, default instance registry
+  persistence, skill-local wrapper auto-discovery, scraper doctor checks, and
+  URL ingest scraper-required errors.
+
+---
+
 ## 2026-07-01 – Strict Config Contract Closure
 
 ### Changed
