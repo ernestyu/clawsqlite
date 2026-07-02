@@ -7,7 +7,7 @@ without strict version tagging yet. Entries are grouped by date + topic.
 
 ---
 
-## 2026-07-02 – Dual Title Schema
+## 2026-07-02 – 1.0.6 Dual Title Schema
 
 ### Changed
 
