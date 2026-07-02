@@ -62,10 +62,15 @@ Knowledge 命令默认会读取 `clawsqlite.toml`。不要让 Agent 猜数据库
 创建模板：
 
 ```bash
-clawsqlite knowledge maintenance init-config --out clawsqlite.toml
+clawsqlite knowledge maintenance init-config --instance default
+cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
 # 或者
 cp clawsqlite.toml.example clawsqlite.toml
 ```
+
+如果要自定义实例目录，使用 `--home /path/to/knowledge-home`。
+`init-config` 会拒绝在源码仓库或 `skills/` 安装目录中初始化，避免用户数据
+绑定到可删除、可替换的代码目录。
 
 示例：
 
@@ -270,28 +275,22 @@ chunk_overlap_chars = 500
 
 ## 5. 快速开始
 
-1. 克隆并进入仓库：
+1. 创建默认 knowledge instance，并进入该数据目录：
 
    ```bash
-   git clone git@github.com:ernestyu/clawsqlite.git
-   cd clawsqlite
+   clawsqlite knowledge maintenance init-config --instance default
+   cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
    ```
 
-2. 创建配置：
+2. 在私有配置里直接填写 `[knowledge]`、`[llm]`、`[embedding]`，包括真实 API key。
 
-   ```bash
-   clawsqlite knowledge maintenance init-config --out clawsqlite.toml
-   ```
-
-3. 在私有配置里直接填写 `[knowledge]`、`[llm]`、`[embedding]`，包括真实 API key。
-
-4. 自检：
+3. 自检：
 
    ```bash
    clawsqlite knowledge maintenance doctor --json
    ```
 
-5. 严格入库：
+4. 严格入库：
 
    ```bash
    clawsqlite knowledge record ingest \

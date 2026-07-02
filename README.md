@@ -208,10 +208,15 @@ together. A good OpenClaw layout is:
 Create a template:
 
 ```bash
-clawsqlite knowledge maintenance init-config --out clawsqlite.toml
+clawsqlite knowledge maintenance init-config --instance default
+cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
 # or copy the checked-in example
 cp clawsqlite.toml.example clawsqlite.toml
 ```
+
+For a custom instance directory, use `--home /path/to/knowledge-home`.
+`init-config` refuses to initialize inside source repositories or `skills/`
+installation trees so user data is not tied to replaceable code directories.
 
 Minimal shape:
 
@@ -497,18 +502,14 @@ The knowledge app will parse these into `title` and markdown body.
 
 ### 5.1 Minimal setup
 
-1. **Create and enter a knowledge instance home**
+1. **Create the default knowledge instance**
 
    ```bash
-   mkdir -p ~/.openclaw/workspace/data/clawsqlite-knowledge/default
+   clawsqlite knowledge maintenance init-config --instance default
    cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
    ```
 
-2. **Create and edit the private `clawsqlite.toml`**
-
-   ```bash
-   clawsqlite knowledge maintenance init-config --out clawsqlite.toml
-   ```
+2. **Edit the private `clawsqlite.toml`**
 
    Keep `[knowledge].root = "."`, then fill in `[knowledge].db`, `[llm]`,
    `[embedding]`, and other settings directly in this private file, including

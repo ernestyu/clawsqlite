@@ -91,13 +91,16 @@ fi
 
 cat <<'EOF'
 Next steps:
-1. Create and enter a knowledge instance home, for example:
-   mkdir -p ~/.openclaw/workspace/data/clawsqlite-knowledge/default
+1. Create the default knowledge instance:
+EOF
+cat <<EOF
+   $CLAWSQLITE_CMD knowledge maintenance init-config --instance default
+EOF
+cat <<'EOF'
+2. Enter the knowledge instance home:
    cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
 EOF
 cat <<EOF
-2. Create or edit ./clawsqlite.toml there:
-   $CLAWSQLITE_CMD knowledge maintenance init-config --out clawsqlite.toml
 3. Validate with:
    $CLAWSQLITE_CMD knowledge maintenance doctor --json
 EOF

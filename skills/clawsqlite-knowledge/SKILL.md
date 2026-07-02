@@ -55,7 +55,8 @@ Then create or edit `./clawsqlite.toml` inside the knowledge instance home. If
 no config exists yet:
 
 ```bash
-clawsqlite knowledge maintenance init-config --out clawsqlite.toml
+clawsqlite knowledge maintenance init-config --instance default
+cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
 ```
 
 ## Validate

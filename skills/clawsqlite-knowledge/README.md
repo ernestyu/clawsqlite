@@ -38,9 +38,8 @@ Create or edit the local private config in a knowledge instance home, not in
 the skill directory:
 
 ```bash
-mkdir -p ~/.openclaw/workspace/data/clawsqlite-knowledge/default
+clawsqlite knowledge maintenance init-config --instance default
 cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
-clawsqlite knowledge maintenance init-config --out clawsqlite.toml
 ```
 
 `clawsqlite.toml` is the single runtime configuration source. This skill does

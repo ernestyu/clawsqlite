@@ -25,8 +25,13 @@ directory should contain the configured DB and `articles/` directory.
 Create a template:
 
 ```bash
-clawsqlite knowledge maintenance init-config --out clawsqlite.toml
+clawsqlite knowledge maintenance init-config --instance default
+cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
 ```
+
+Use `--home /path/to/knowledge-home` for an explicit custom instance home.
+`init-config` refuses source repositories and `skills/` directories as
+instance homes.
 
 `[knowledge]` keeps `root = "."` and controls DB and Markdown paths relative to
 the instance home. `[ingest]`, `[llm]`,

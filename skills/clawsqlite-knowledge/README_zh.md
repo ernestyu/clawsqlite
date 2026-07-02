@@ -39,9 +39,8 @@ sh bootstrap_deps.sh
 在 knowledge instance home 中创建或编辑私有配置，不要放在 skill 目录里：
 
 ```bash
-mkdir -p ~/.openclaw/workspace/data/clawsqlite-knowledge/default
+clawsqlite knowledge maintenance init-config --instance default
 cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
-clawsqlite knowledge maintenance init-config --out clawsqlite.toml
 ```
 
 `clawsqlite.toml` 是唯一运行配置来源。这里没有提供 env 示例文件，

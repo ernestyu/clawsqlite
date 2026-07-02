@@ -20,6 +20,7 @@ import re
 import sys
 import tempfile
 import datetime as _dt
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from . import db as dbmod
@@ -274,18 +275,86 @@ def _maybe_warn_fts_fallback(conn) -> None:
     _WARNED_FTS_FALLBACK = True
 
 
+def _default_instance_base() -> Path:
+    return Path.home() / ".openclaw" / "workspace" / "data" / "clawsqlite-knowledge"
+
+
+def _resolve_init_config_path(args) -> tuple[Path, Optional[str]]:
+    out = getattr(args, "out", None)
+    home = getattr(args, "home", None)
+    instance = getattr(args, "instance", None)
+    modes = sum(1 for value in (out, home, instance) if value)
+    if modes > 1:
+        return Path(), "Use only one of --out, --home, or --instance."
+    if instance:
+        name = str(instance).strip()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", name):
+            return Path(), "--instance must be 1-64 chars and use only letters, numbers, dot, underscore, or dash."
+        return (_default_instance_base() / name / "clawsqlite.toml").expanduser().resolve(), None
+    if home:
+        return (Path(str(home)).expanduser() / "clawsqlite.toml").resolve(), None
+    return Path(os.path.abspath(os.path.expanduser(out or "clawsqlite.toml"))), None
+
+
+def _find_enclosing_git_root(path: Path) -> Optional[Path]:
+    cur = path.resolve()
+    if cur.is_file():
+        cur = cur.parent
+    for parent in (cur, *cur.parents):
+        if (parent / ".git").exists():
+            return parent
+    return None
+
+
+def _is_under_skills_dir(path: Path) -> bool:
+    return "skills" in path.resolve().parts
+
+
+def _unsafe_init_config_reason(target_dir: Path) -> Optional[str]:
+    if _is_under_skills_dir(target_dir):
+        return "target directory is inside a skills/ installation tree"
+    git_root = _find_enclosing_git_root(target_dir)
+    if git_root is not None:
+        return f"target directory is inside source repository {git_root}"
+    return None
+
+
+def _write_safe_init_next() -> None:
+    sys.stderr.write("NEXT: create a dedicated user data directory, for example:\n")
+    sys.stderr.write("  clawsqlite knowledge maintenance init-config --instance default\n")
+    sys.stderr.write("  cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default\n")
+
+
 def cmd_init_config(args) -> int:
-    out = getattr(args, "out", None) or "clawsqlite.toml"
-    path = os.path.abspath(os.path.expanduser(out))
+    path_obj, path_error = _resolve_init_config_path(args)
+    if path_error:
+        sys.stderr.write(f"ERROR: {path_error}\n")
+        sys.stderr.write("ERROR_KIND: invalid_init_config_target\n")
+        _write_safe_init_next()
+        return 2
+    target_dir = path_obj.parent
+    unsafe_reason = _unsafe_init_config_reason(target_dir)
+    if unsafe_reason:
+        sys.stderr.write(
+            "ERROR: refusing to initialize a knowledge instance inside a source repository or skill directory.\n"
+        )
+        sys.stderr.write(f"DETAIL: {unsafe_reason}: {target_dir}\n")
+        sys.stderr.write("ERROR_KIND: unsafe_instance_home\n")
+        _write_safe_init_next()
+        return 2
+    path = str(path_obj)
     if os.path.exists(path) and not getattr(args, "force", False):
         sys.stderr.write(f"ERROR: config already exists at {path}\n")
-        sys.stderr.write("NEXT: pass --force to overwrite, or choose --out /path/to/clawsqlite.toml.\n")
+        sys.stderr.write("NEXT: pass --force to overwrite, choose another --instance, or use --home /path/to/knowledge-home.\n")
         return 2
     root = "."
     ensure_dir(os.path.dirname(path) or ".")
     with open(path, "w", encoding="utf-8") as f:
         f.write(CONFIG_TEMPLATE.format(root=root))
-    _print({"ok": True, "config_path": path}, bool(getattr(args, "json", False)))
+    _print(
+        {"ok": True, "config_path": path, "instance_home": str(target_dir)},
+        bool(getattr(args, "json", False)),
+    )
     return 0
 
 
@@ -1641,7 +1710,9 @@ def cmd_report_interest(args) -> int:
 def _add_init_config_parser(sub, *, name: str = "init-config", help_text: str = "Create a clawsqlite.toml template for the knowledge app") -> argparse.ArgumentParser:
     sp = sub.add_parser(name, help=help_text)
     _add_common_flags(sp)
-    sp.add_argument("--out", default=None, help="Output config path (default: ./clawsqlite.toml)")
+    sp.add_argument("--instance", default=None, help="Create config under ~/.openclaw/workspace/data/clawsqlite-knowledge/INSTANCE")
+    sp.add_argument("--home", default=None, help="Create config in an explicit knowledge instance home directory")
+    sp.add_argument("--out", default=None, help="Output config path (default: ./clawsqlite.toml; rejected inside repo/skill dirs)")
     sp.add_argument("--force", action="store_true", help="Overwrite an existing config file")
     sp.set_defaults(func=cmd_init_config, cmd_leaf="init-config", requires_config=False)
     return sp
