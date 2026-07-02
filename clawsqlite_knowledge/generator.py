@@ -3,8 +3,8 @@
 Field generator for clawsqlite knowledge.
 
 Provider options:
-- openclaw: default. Do NOT call external small LLM. If caller didn't provide fields, use heuristics.
-- llm: call a configured small LLM via OpenAI-compatible chat completions API to generate fields.
+- openclaw: default. Do NOT call an external LLM. If caller didn't provide fields, use heuristics.
+- llm: call a configured LLM via OpenAI-compatible chat completions API to generate fields.
 - off: do nothing.
 """
 from __future__ import annotations

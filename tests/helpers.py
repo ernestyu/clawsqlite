@@ -25,7 +25,7 @@ def write_knowledge_config(
         "dev",
         "test",
     ),
-    llm_api_key: str = "test-small-llm-key",
+    llm_api_key: str = "test-llm-key",
     embedding_api_key: str = "test-embedding-key",
     embedding_base_url: str = "http://127.0.0.1:9/v1",
     embedding_model: str = "test-embedding",

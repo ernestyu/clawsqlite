@@ -10,7 +10,7 @@ from __future__ import annotations
 - vec0 扩展和 vec 表是否可用；
 - Embedding 配置是否完整且能正常调用；
 - [llm] 配置是否完整；
-- 当前大致处于哪个 capability mode（有/无 embedding + 有/无 small LLM）。
+- 当前大致处于哪个 capability mode（有/无 embedding + 有/无 LLM）。
 
 该命令不会修改任何数据，只做只读检查。
 """

@@ -97,7 +97,7 @@ fallback = "fail"
 
 [llm]
 base_url = "https://llm.example.com/v1"
-model = "your-small-llm"
+model = "your-llm-model"
 api_key = ""  # 在私有 clawsqlite.toml 中填入真实 key
 timeout_seconds = 90
 context_window_chars = 24000

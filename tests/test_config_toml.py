@@ -74,7 +74,7 @@ class KnowledgeConfigTomlTests(unittest.TestCase):
             self.assertEqual(cfg.ingest.tag_count, 8)
             self.assertIn("note", cfg.ingest.allowed_categories)
             self.assertEqual(cfg.llm.context_window_chars, 4000)
-            self.assertEqual(cfg.llm.resolved_api_key, "test-small-llm-key")
+            self.assertEqual(cfg.llm.resolved_api_key, "test-llm-key")
             self.assertEqual(cfg.embedding.resolved_api_key, "test-embedding-key")
             self.assertEqual(cfg.backup.provider, "s3")
             self.assertEqual(cfg.backup.s3.bucket, "test-bucket")

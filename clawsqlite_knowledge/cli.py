@@ -79,7 +79,7 @@ fallback = "fail"
 
 [llm]
 base_url = "https://llm.example.com/v1"
-model = "your-small-llm"
+model = "your-llm-model"
 api_key = ""
 timeout_seconds = 90
 # Character-budget approximation for the model context. The generator

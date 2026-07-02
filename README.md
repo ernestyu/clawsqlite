@@ -25,7 +25,7 @@ The knowledge app helps you:
 - Ingest URLs or raw text as Markdown files + SQLite records
 - Run fast full‑text search over your notes and scraped articles
 - Optionally enable vector search via an external embedding service
-- Generate titles/summaries/tags with a configured small LLM for reliable ingest
+- Generate titles/summaries/tags with a configured LLM for reliable ingest
 - Keep the KB healthy with explicit maintenance commands (reindex/check/fix + cleanup/backup)
 
 > **Status**: already used in real OpenClaw setups. The schema and CLI are kept small and stable on purpose.
@@ -81,7 +81,7 @@ The knowledge app expects an environment similar to the OpenClaw container:
 - sqlite extensions (optional but recommended):
   - `libsimple.so` (tokenizer `simple`) for better CJK tokenization
   - `vec0.so` from [sqlite-vec](https://github.com/asg017/sqlite-vec)
-- Network access to your embedding / small LLM HTTP endpoints (if you enable those features)
+- Network access to your embedding / LLM HTTP endpoints (if you enable those features)
 
 The repo assumes these paths by default (you can override them):
 
@@ -167,7 +167,7 @@ clawsqlite knowledge ...
 ```
 
 To run a quick self-check of your active config, DB paths, vec0, embedding, and
-small LLM readiness, you can use:
+LLM readiness, you can use:
 
 ```bash
 clawsqlite knowledge maintenance doctor --json
@@ -243,7 +243,7 @@ fallback = "fail"
 
 [llm]
 base_url = "https://llm.example.com/v1"
-model = "your-small-llm"
+model = "your-llm-model"
 api_key = ""  # fill in the real key in your private clawsqlite.toml
 context_window_chars = 24000
 prompt_reserved_chars = 4000
@@ -655,8 +655,8 @@ Modes:
 Other flags:
 
 - `--candidates` – candidate pool before re‑ranking
-- `--llm-keywords {auto,on,off}` – small-LLM usage policy for building `query_refine/query_tags`
-- `--gen-provider` – set to `llm` to enable the small LLM configured in `clawsqlite.toml`
+- `--llm-keywords {auto,on,off}` – LLM usage policy for building `query_refine/query_tags`
+- `--gen-provider` – set to `llm` to enable the LLM configured in `clawsqlite.toml`
 - Filters: `--category`, `--tag`, `--since`, `--priority`, `--include-deleted`
 
 ### 6.4 record show / export / update / delete

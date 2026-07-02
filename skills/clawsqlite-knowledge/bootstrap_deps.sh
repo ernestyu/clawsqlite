@@ -1,6 +1,9 @@
 #!/usr/bin/env sh
 set -eu
 
+BASE_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+LOCAL_TARGET="$BASE_DIR/.clawsqlite-python"
+
 if [ "${PYTHON:-}" ]; then
   PYTHON_BIN="$PYTHON"
 elif command -v python3 >/dev/null 2>&1; then
@@ -17,26 +20,84 @@ if [ -z "$PYTHON_BIN" ] || ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   exit 2
 fi
 
-"$PYTHON_BIN" -m pip install --upgrade clawsqlite
+INSTALL_MODE="environment"
+if ! "$PYTHON_BIN" -m pip install --upgrade clawsqlite; then
+  echo "WARN: environment install failed; falling back to local skill dependency target." >&2
+  rm -rf "$LOCAL_TARGET"
+  "$PYTHON_BIN" -m pip install --upgrade --target "$LOCAL_TARGET" clawsqlite
+  PYTHONPATH="$LOCAL_TARGET${PYTHONPATH:+:$PYTHONPATH}"
+  export PYTHONPATH
+  INSTALL_MODE="local-target"
+fi
 
-if ! command -v clawsqlite >/dev/null 2>&1; then
-  echo "ERROR: clawsqlite console script was not found after installation." >&2
-  echo "NEXT: ensure the Python scripts directory is on PATH, then rerun bootstrap_deps.sh." >&2
+run_clawsqlite() {
+  if [ "$INSTALL_MODE" = "local-target" ]; then
+    "$PYTHON_BIN" -m clawsqlite_cli "$@"
+  elif command -v clawsqlite >/dev/null 2>&1; then
+    clawsqlite "$@"
+  else
+    "$PYTHON_BIN" -m clawsqlite_cli "$@"
+  fi
+}
+
+clawsqlite_command_text() {
+  if [ "$INSTALL_MODE" = "local-target" ]; then
+    printf 'PYTHONPATH="%s" %s -m clawsqlite_cli' "$PYTHONPATH" "$PYTHON_BIN"
+  elif command -v clawsqlite >/dev/null 2>&1; then
+    printf 'clawsqlite'
+  else
+    printf '%s -m clawsqlite_cli' "$PYTHON_BIN"
+  fi
+}
+
+if ! run_clawsqlite --help >/dev/null 2>&1; then
+  echo "ERROR: installed clawsqlite package could not be imported or executed." >&2
+  echo "NEXT: check Python/pip output above, then rerun bootstrap_deps.sh." >&2
   exit 2
 fi
 
-clawsqlite --help >/dev/null
-clawsqlite knowledge --help >/dev/null
+run_clawsqlite knowledge --help >/dev/null
 
 cat <<'EOF'
 clawsqlite-knowledge dependencies installed.
+EOF
 
+CLAWSQLITE_CMD=$(clawsqlite_command_text)
+
+if [ "$CLAWSQLITE_CMD" = "clawsqlite" ]; then
+  cat <<'EOF'
+
+CLI command:
+  clawsqlite
+EOF
+else
+  cat <<EOF
+
+CLI command:
+  $CLAWSQLITE_CMD
+
+NOTE: the clawsqlite console script is not on PATH. The package was validated
+through Python module execution instead.
+EOF
+fi
+
+if [ "$INSTALL_MODE" = "local-target" ]; then
+  cat <<EOF
+
+Local dependency target:
+  $LOCAL_TARGET
+EOF
+fi
+
+cat <<'EOF'
 Next steps:
 1. Create and enter a knowledge instance home, for example:
    mkdir -p ~/.openclaw/workspace/data/clawsqlite-knowledge/default
    cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
+EOF
+cat <<EOF
 2. Create or edit ./clawsqlite.toml there:
-   clawsqlite knowledge maintenance init-config --out clawsqlite.toml
+   $CLAWSQLITE_CMD knowledge maintenance init-config --out clawsqlite.toml
 3. Validate with:
-   clawsqlite knowledge maintenance doctor --json
+   $CLAWSQLITE_CMD knowledge maintenance doctor --json
 EOF
