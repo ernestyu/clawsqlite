@@ -62,11 +62,12 @@ def fix_missing(
     rows = conn.execute("SELECT * FROM articles WHERE deleted_at IS NULL ORDER BY id ASC").fetchall()
     for r in rows:
         aid = int(r["id"])
-        title = (r["title"] or "").strip()
+        source_title = dbmod.source_title_from_row(r)
+        generated_title = dbmod.generated_title_from_row(r)
         summary = (r["summary"] or "").strip()
         tags = (r["tags"] or "").strip()
 
-        need_title = not title
+        need_title = not generated_title
         need_summary = not summary
         need_tags = not tags
 
@@ -81,13 +82,13 @@ def fix_missing(
                 except Exception:
                     content = ""
             if not content:
-                # last resort: use existing summary/title
-                content = (summary or title or "")
+                # last resort: use existing summary/knowledge title
+                content = (summary or generated_title or source_title or "")
 
             try:
                 gen = generate_fields(
                     content,
-                    hint_title=title or None,
+                    hint_title=source_title or generated_title or None,
                     hint_tags=tags or None,
                     provider=gen_provider,
                     max_summary_chars=max_summary_chars,
@@ -101,11 +102,19 @@ def fix_missing(
                     source_kind="stored",
                     source_content_type=str(r["content_type"] or r["category"] or ""),
                 )
-                new_title = title or (gen.get("title") or "").strip()
+                new_generated_title = generated_title or (gen.get("title") or "").strip()
+                new_source_title = source_title or new_generated_title
                 new_summary = summary or (gen.get("summary") or "").strip()
                 new_tags = tags or comma_join_tags(gen.get("tags"))
-                dbmod.update_article_fields(conn, aid, title=new_title, summary=new_summary, tags=new_tags)
-                title, summary, tags = new_title, new_summary, new_tags
+                dbmod.update_article_fields(
+                    conn,
+                    aid,
+                    source_title=new_source_title,
+                    generated_title=new_generated_title,
+                    summary=new_summary,
+                    tags=new_tags,
+                )
+                source_title, generated_title, summary, tags = new_source_title, new_generated_title, new_summary, new_tags
                 updated += 1
             except Exception as e:
                 errors.append(f"id={aid}: gen failed: {e}")
@@ -120,7 +129,7 @@ def fix_missing(
                         body = f.read()
                 except Exception:
                     body = ""
-            dbmod.upsert_fts(conn, aid, title, tags, summary, body)
+            dbmod.upsert_fts(conn, aid, generated_title, tags, summary, body)
             updated_fts += 1
         except Exception as e:
             errors.append(f"id={aid}: fts upsert failed: {e}")

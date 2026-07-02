@@ -272,7 +272,7 @@ def _is_fetchable_url(value: str) -> bool:
 
 def _repair_body_from_row(row: sqlite3.Row) -> str:
     summary = str(_row_value(row, "summary", "") or "").strip()
-    title = str(_row_value(row, "title", "") or "").strip()
+    title = str(_row_value(row, "generated_title", _row_value(row, "title", "")) or "").strip()
     if summary:
         return summary
     if title:
@@ -280,13 +280,14 @@ def _repair_body_from_row(row: sqlite3.Row) -> str:
     return "Recovered placeholder body. The original article file was missing."
 
 
-def _format_repair_markdown(row: sqlite3.Row, *, body: str, title: str) -> str:
+def _format_repair_markdown(row: sqlite3.Row, *, body: str, source_title: str, generated_title: str) -> str:
     try:
         from clawsqlite_knowledge.storage import format_markdown_with_metadata
 
         return format_markdown_with_metadata(
             article_id=int(_row_value(row, "id", _row_value(row, "_rowid", 0)) or 0),
-            title=title,
+            source_title=source_title,
+            generated_title=generated_title,
             source_url=str(_row_value(row, "source_url", "") or ""),
             created_at=str(_row_value(row, "created_at", "") or _dt.datetime.utcnow().isoformat() + "Z"),
             category=str(_row_value(row, "category", "") or ""),
@@ -305,7 +306,8 @@ def _format_repair_markdown(row: sqlite3.Row, *, body: str, title: str) -> str:
         return (
             "--- METADATA ---\n"
             f"id: {_row_value(row, 'id', _row_value(row, '_rowid', ''))}\n"
-            f"title: {title}\n"
+            f"source_title: {source_title}\n"
+            f"generated_title: {generated_title}\n"
             f"source_url: {_row_value(row, 'source_url', '')}\n"
             "--- SUMMARY ---\n"
             f"{_row_value(row, 'summary', '')}\n"
@@ -325,6 +327,8 @@ def _cmd_repair(args: argparse.Namespace) -> int:
             "_rowid",
             path_col,
             "id",
+            "source_title",
+            "generated_title",
             "title",
             "source_url",
             "summary",
@@ -362,7 +366,12 @@ def _cmd_repair(args: argparse.Namespace) -> int:
             if os.path.exists(full):
                 continue
 
-            title = str(_row_value(row, "title", "") or f"Recovered {row['_rowid']}").strip()
+            generated_title = str(
+                _row_value(row, "generated_title", _row_value(row, "title", "")) or f"Recovered {row['_rowid']}"
+            ).strip()
+            source_title = str(
+                _row_value(row, "source_title", _row_value(row, "title", "")) or generated_title
+            ).strip()
             source_url = str(_row_value(row, "source_url", "") or "").strip()
             body = ""
             mode = "summary"
@@ -375,14 +384,14 @@ def _cmd_repair(args: argparse.Namespace) -> int:
                         body = scraped_body
                         mode = "scrape"
                     if scraped_title:
-                        title = scraped_title
+                        source_title = scraped_title
                 except Exception as e:
                     mode = "summary_fallback"
                     warnings.append({"rowid": row["_rowid"], "path": rel, "warning": f"scrape_failed: {e}"})
             if not body:
                 body = _repair_body_from_row(row)
 
-            content = _format_repair_markdown(row, body=body, title=title)
+            content = _format_repair_markdown(row, body=body, source_title=source_title, generated_title=generated_title)
             item = {"rowid": row["_rowid"], "path": rel, "mode": mode, "class": _classify_path(rel)}
             if args.dry_run:
                 item["dry_run"] = True
@@ -460,7 +469,7 @@ def build_parser(prog: str = "clawsqlite admin fs") -> argparse.ArgumentParser:
     p_repair.add_argument("--db", help="SQLite DB path override (default: [knowledge].db from clawsqlite.toml)")
     p_repair.add_argument("--table", help="Table override (default: articles)")
     p_repair.add_argument("--path-col", help="Path column override (default: local_file_path)")
-    p_repair.add_argument("--no-scrape", action="store_true", help="Do not re-fetch source_url records; reconstruct from DB summary/title only")
+    p_repair.add_argument("--no-scrape", action="store_true", help="Do not re-fetch source_url records; reconstruct from DB summary/generated_title only")
     p_repair.add_argument("--scrape-timeout", type=int, default=120, help="Seconds to wait for configured scraper per URL")
     p_repair.add_argument("--limit", type=int, help="Maximum number of missing files to repair")
     p_repair.add_argument("--dry-run", action="store_true", help="Report repair actions without writing files")

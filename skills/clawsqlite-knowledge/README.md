@@ -72,6 +72,10 @@ variables as a second config layer.
 <workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge maintenance backup --dry-run --json
 ```
 
+For text ingest, `--title` is a `source_title` hint for archive filenames and
+metadata. Strict ingest stores the LLM-produced knowledge title in
+`generated_title`.
+
 ## When To Use clawsqlite Directly
 
 Use `clawsqlite` directly whenever you are developing or debugging the upstream

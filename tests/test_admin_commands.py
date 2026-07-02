@@ -88,6 +88,21 @@ class AdminCommandTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def _make_generated_title_articles_db(self, db_path: Path) -> None:
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute(
+                "CREATE TABLE articles(id INTEGER PRIMARY KEY, source_title TEXT, generated_title TEXT, tags TEXT, summary TEXT)"
+            )
+            conn.execute(
+                "INSERT INTO articles(id, source_title, generated_title, tags, summary) "
+                "VALUES(1, 'Source Alpha', 'Generated Alpha', 'tag1', 'hello alpha')"
+            )
+            conn.execute("CREATE VIRTUAL TABLE articles_fts USING fts5(title, tags, summary, body)")
+            conn.commit()
+        finally:
+            conn.close()
+
     def test_admin_index_check_warns_when_vec0_is_unavailable(self):
         with _tempdir() as tmpdir:
             db_path = tmpdir / "vec_missing.sqlite3"
@@ -215,6 +230,39 @@ class AdminCommandTests(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("[OK] Rebuilt FTS index articles_fts", out)
         self.assertEqual(count, 1)
+
+    def test_admin_index_rebuild_maps_generated_title_to_fts_title(self):
+        with _tempdir() as tmpdir:
+            db_path = tmpdir / "fts_generated_title.sqlite3"
+            self._make_generated_title_articles_db(db_path)
+
+            code, out, err = _run(
+                index_cli.main,
+                [
+                    "rebuild",
+                    "--db",
+                    str(db_path),
+                    "--table",
+                    "articles",
+                    "--fts-table",
+                    "articles_fts",
+                ],
+            )
+            conn = sqlite3.connect(db_path)
+            try:
+                generated_count = conn.execute(
+                    "SELECT count(*) FROM articles_fts WHERE articles_fts MATCH 'Generated'"
+                ).fetchone()[0]
+                source_count = conn.execute(
+                    "SELECT count(*) FROM articles_fts WHERE articles_fts MATCH 'Source'"
+                ).fetchone()[0]
+            finally:
+                conn.close()
+
+        self.assertEqual(code, 0, err)
+        self.assertIn("[OK] Rebuilt FTS index articles_fts", out)
+        self.assertEqual(generated_count, 1)
+        self.assertEqual(source_count, 0)
 
     def test_admin_index_rebuild_rejects_explicit_non_db_backed_fts_columns(self):
         with _tempdir() as tmpdir:

@@ -73,6 +73,9 @@ cd ~/.local/share/clawsqlite-knowledge/default
 <workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge maintenance backup --dry-run --json
 ```
 
+文本入库里的 `--title` 是 `source_title` 提示，用于归档文件名和元数据。
+strict 入库时，真正的知识库标题会由 LLM 写入 `generated_title`。
+
 ## 什么时候直接用 clawsqlite
 
 如果你在开发、调试、修改上游包本身，应该直接使用 `clawsqlite` 项目。

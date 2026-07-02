@@ -402,13 +402,13 @@ def cmd_ingest(args) -> int:
         return 2
 
     # 1) Fetch content
-    hint_title = args.title
+    source_title_hint = args.title
     body_md = ""
     if args.url:
         try:
             t, md = scrape_url(args.url, scrape_cmd=args.scrape_cmd or cfg.scraper.cmd or None)
-            if t and not hint_title:
-                hint_title = t
+            if t and not source_title_hint:
+                source_title_hint = t
             body_md = md
         except Exception as e:
             sys.stderr.write(f"ERROR: scrape failed: {e}\n")
@@ -433,7 +433,8 @@ def cmd_ingest(args) -> int:
     tags = ""
     summary = (args.summary or "").strip()
     summary_generated = False
-    title = hint_title or ""
+    source_title = source_title_hint or ""
+    generated_title = ""
 
     generation_provider = gen_provider
     generation_quality = "manual" if gen_provider == "off" else ""
@@ -445,12 +446,12 @@ def cmd_ingest(args) -> int:
     entities_json = "[]"
 
     if gen_provider != "off":
-        need_gen = bool(policy.require_llm) or (not title) or (not summary) or not tags
+        need_gen = bool(policy.require_llm) or (not generated_title) or (not summary) or not tags
         if need_gen:
             try:
                 gen = generate_fields(
                     body_md,
-                    hint_title=title or None,
+                    hint_title=source_title or None,
                     hint_tags=None,
                     provider=gen_provider,
                     max_summary_chars=max_summary_chars,
@@ -465,10 +466,10 @@ def cmd_ingest(args) -> int:
                     source_content_type=content_type,
                 )
                 gen_title = (gen.get("title") or "").strip()
-                if policy.require_llm:
-                    title = gen_title
-                elif not title:
-                    title = gen_title
+                if gen_title:
+                    generated_title = gen_title
+                elif not generated_title:
+                    generated_title = source_title
                 if policy.require_llm or not summary:
                     summary = (gen.get("summary") or "").strip()
                     summary_generated = True
@@ -492,7 +493,8 @@ def cmd_ingest(args) -> int:
                     return 4
                 sys.stderr.write(f"WARNING: generate_fields failed: {e}\n")
 
-    title = title.strip() or "untitled"
+    generated_title = generated_title.strip() or source_title.strip() or "untitled"
+    source_title = source_title.strip() or generated_title
     if summary_generated:
         summary = summary.strip()
     else:
@@ -526,7 +528,7 @@ def cmd_ingest(args) -> int:
             sys.stderr.write("ERROR_KIND: category_invalid\n")
             sys.stderr.write("NEXT: adjust the LLM prompt/model so category and content_type use the same configured value.\n")
             return 4
-        title_error = _validate_strict_title(title)
+        title_error = _validate_strict_title(generated_title)
         if title_error:
             sys.stderr.write(f"ERROR: {title_error}\n")
             sys.stderr.write("ERROR_KIND: title_invalid\n")
@@ -582,7 +584,8 @@ def cmd_ingest(args) -> int:
             dbmod.update_article_fields(
                 conn,
                 existing_id,
-                title=title,
+                source_title=source_title,
+                generated_title=generated_title,
                 summary=summary,
                 tags=tags,
                 category=category,
@@ -604,7 +607,8 @@ def cmd_ingest(args) -> int:
         else:
             new_id = dbmod.insert_article(
                 conn,
-                title=title,
+                source_title=source_title,
+                generated_title=generated_title,
                 source_url=source_url,
                 tags=tags,
                 summary=summary,
@@ -626,10 +630,11 @@ def cmd_ingest(args) -> int:
                 config_path=cfg.config_path,
             )
 
-        md_path = article_abspath(paths["articles_dir"], new_id, title)
+        md_path = article_abspath(paths["articles_dir"], new_id, source_title)
         md_content = format_markdown_with_metadata(
             article_id=new_id,
-            title=title,
+            source_title=source_title,
+            generated_title=generated_title,
             source_url=source_url,
             created_at=created_at_for_md,
             category=category,
@@ -662,7 +667,7 @@ def cmd_ingest(args) -> int:
 
         # Index sync
         try:
-            dbmod.upsert_fts(conn, new_id, title, tags, summary, body_md)
+            dbmod.upsert_fts(conn, new_id, generated_title, tags, summary, body_md)
         except Exception as e:
             sys.stderr.write(f"WARNING: FTS upsert failed: {e}\n")
 
@@ -703,7 +708,8 @@ def cmd_ingest(args) -> int:
 
         out = {
             "id": new_id,
-            "title": title,
+            "source_title": source_title,
+            "generated_title": generated_title,
             "created_at": created_at,
             "category": category,
             "local_file_path": md_path,
@@ -718,7 +724,7 @@ def cmd_ingest(args) -> int:
         if args.json:
             _print(out, True)
         else:
-            _print(f"id={new_id} title={title}\npath={md_path}", False)
+            _print(f"id={new_id} generated_title={generated_title}\nsource_title={source_title}\npath={md_path}", False)
         return 0
     except Exception as e:
         if conn is not None:
@@ -781,7 +787,8 @@ ON CONFLICT(article_id) DO UPDATE SET
         else:
             txt = (
                 f"id: {out.get('id')}\n"
-                f"title: {out.get('title')}\n"
+                f"generated_title: {out.get('generated_title')}\n"
+                f"source_title: {out.get('source_title')}\n"
                 f"source_url: {out.get('source_url')}\n"
                 f"created_at: {out.get('created_at')}\n"
                 f"modified_at: {out.get('modified_at')}\n"
@@ -840,7 +847,8 @@ def cmd_export(args) -> int:
                 md = (
                     "--- METADATA ---\n"
                     f"id: {out.get('id')}\n"
-                    f"title: {out.get('title')}\n"
+                    f"source_title: {out.get('source_title')}\n"
+                    f"generated_title: {out.get('generated_title')}\n"
                     f"source_url: {out.get('source_url')}\n"
                     f"created_at: {out.get('created_at')}\n"
                     f"category: {out.get('category')}\n"
@@ -979,7 +987,7 @@ def cmd_search(args) -> int:
         else:
             lines = []
             for x in res:
-                lines.append(f"{x['id']:6d}  score={x['score']:.4f}  {x['created_at']}  [{x['category']}]  {x['title']}")
+                lines.append(f"{x['id']:6d}  score={x['score']:.4f}  {x['created_at']}  [{x['category']}]  {x['generated_title']}")
             _print("\n".join(lines) if lines else "(no results)", False)
         return 0
     except Exception as e:
@@ -1020,8 +1028,9 @@ def cmd_update(args) -> int:
         max_summary_chars = int(args.max_summary_chars or cfg.ingest.summary_target_chars)
 
         # URL / ID / created_at are read-only by design. We only allow updating
-        # title/summary/tags/category/priority (and modified_at implicitly).
-        title = (row["title"] or "")
+        # source_title/generated_title/summary/tags/category/priority.
+        source_title = dbmod.source_title_from_row(row)
+        generated_title = dbmod.generated_title_from_row(row)
         summary = (row["summary"] or "")
         summary_before = summary
         tags = (row["tags"] or "")
@@ -1031,7 +1040,9 @@ def cmd_update(args) -> int:
 
         # Patch
         if args.title is not None:
-            title = args.title
+            generated_title = args.title
+        if getattr(args, "source_title", None) is not None:
+            source_title = args.source_title
         if args.summary is not None:
             summary = truncate_text(args.summary, max_chars=max_summary_chars)
         if args.tags is not None:
@@ -1049,7 +1060,7 @@ def cmd_update(args) -> int:
             if p and os.path.exists(p):
                 content = read_markdown(p)
             else:
-                content = summary or title
+                content = summary or generated_title
 
             gen_cache = None
             def _gen_once():
@@ -1057,7 +1068,7 @@ def cmd_update(args) -> int:
                 if gen_cache is None:
                     gen_cache = generate_fields(
                         content,
-                        hint_title=title or None,
+                        hint_title=source_title or generated_title or None,
                         hint_tags=tags or None,
                         provider=gen_provider,
                         max_summary_chars=max_summary_chars,
@@ -1075,7 +1086,7 @@ def cmd_update(args) -> int:
 
             if regen in ("title", "all"):
                 gen = _gen_once()
-                title = (gen.get("title") or title).strip() or title
+                generated_title = (gen.get("title") or generated_title).strip() or generated_title
             if regen in ("summary", "all"):
                 gen = _gen_once()
                 summary = (gen.get("summary") or summary).strip()
@@ -1083,10 +1094,13 @@ def cmd_update(args) -> int:
                 gen = _gen_once()
                 tags = comma_join_tags(gen.get("tags") or tags)
 
-        # Sync markdown file + local_file_path based on updated title.
+        generated_title = generated_title.strip() or source_title.strip() or "untitled"
+        source_title = source_title.strip() or generated_title
+
+        # Sync markdown file + local_file_path based on the source/archive title.
         ensure_dir(paths["articles_dir"])
         old_path = (row["local_file_path"] or "").strip()
-        new_path = article_abspath(paths["articles_dir"], aid, title)
+        new_path = article_abspath(paths["articles_dir"], aid, source_title)
         content = ""
         for candidate in [old_path, new_path]:
             if candidate and os.path.exists(candidate):
@@ -1095,7 +1109,7 @@ def cmd_update(args) -> int:
                     break
                 except Exception:
                     content = ""
-        body_md = _extract_markdown_body(content) if content else (summary or title)
+        body_md = _extract_markdown_body(content) if content else (summary or generated_title)
 
         # If the filename changes, keep a backup of the old file.
         if old_path and old_path != new_path and os.path.exists(old_path):
@@ -1110,7 +1124,8 @@ def cmd_update(args) -> int:
         source_url = (row["source_url"] or "").strip() or "Local"
         md_content = format_markdown_with_metadata(
             article_id=aid,
-            title=title,
+            source_title=source_title,
+            generated_title=generated_title,
             source_url=source_url,
             created_at=created_at,
             category=category,
@@ -1124,7 +1139,8 @@ def cmd_update(args) -> int:
         dbmod.update_article_fields(
             conn,
             aid,
-            title=title,
+            source_title=source_title,
+            generated_title=generated_title,
             summary=summary,
             tags=tags,
             category=category,
@@ -1134,7 +1150,7 @@ def cmd_update(args) -> int:
 
         # sync FTS
         try:
-            dbmod.upsert_fts(conn, aid, title, tags, summary, body_md)
+            dbmod.upsert_fts(conn, aid, generated_title, tags, summary, body_md)
         except Exception as e:
             sys.stderr.write(f"WARNING: fts sync failed: {e}\n")
 
@@ -1174,7 +1190,15 @@ def cmd_update(args) -> int:
                 pass
 
         conn.commit()
-        _print({"ok": True, "id": aid}, bool(args.json))
+        _print(
+            {
+                "ok": True,
+                "id": aid,
+                "source_title": source_title,
+                "generated_title": generated_title,
+            },
+            bool(args.json),
+        )
         return 0
     except Exception as e:
         if conn is not None:
@@ -1757,7 +1781,7 @@ def _add_ingest_parser(sub, *, name: str = "ingest") -> argparse.ArgumentParser:
     g = sp.add_mutually_exclusive_group(required=True)
     g.add_argument("--url", default=None, help="URL to ingest")
     g.add_argument("--text", default=None, help="Raw text content to ingest")
-    sp.add_argument("--title", default=None, help="Title override")
+    sp.add_argument("--title", default=None, help="Source title hint for file naming; strict LLM ingest stores generated_title separately")
     sp.add_argument("--summary", default=None, help="Summary override (long summary)")
     sp.add_argument("--category", default="", help="Category hint; strict LLM ingest stores a configured generated category")
     sp.add_argument("--priority", default=0, type=int, help="Priority (0 default)")
@@ -1814,7 +1838,8 @@ def _add_update_parser(sub, *, name: str = "update") -> argparse.ArgumentParser:
     sp = sub.add_parser(name, help="Update one record (patch or regen)")
     _add_common_flags(sp)
     sp.add_argument("--id", required=True, help="Article id")
-    sp.add_argument("--title", default=None, help="Patch: new title")
+    sp.add_argument("--title", default=None, help="Patch: new generated_title")
+    sp.add_argument("--source-title", default=None, help="Patch: new source_title used for archive filename/metadata")
     sp.add_argument("--summary", default=None, help="Patch: new summary")
     sp.add_argument("--tags", default=None, help="Patch: new tags (comma-separated)")
     sp.add_argument("--category", default=None, help="Patch: new category")

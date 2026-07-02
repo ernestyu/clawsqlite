@@ -48,7 +48,8 @@ _VEC_GLOBS = [
 BASE_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS articles (
   id               INTEGER PRIMARY KEY,
-  title            TEXT,
+  source_title     TEXT,
+  generated_title  TEXT,
   source_url       TEXT,
   tags             TEXT,
   summary          TEXT,
@@ -112,6 +113,8 @@ _FTS_TOKENIZER_RE = re.compile(r"tokenize\s*=\s*['\"]simple['\"]", re.IGNORECASE
 _WORD_TOKEN_RE = re.compile(r"[\w\u4e00-\u9fff]")
 
 _ARTICLE_EXTRA_COLUMNS: Dict[str, str] = {
+    "source_title": "TEXT",
+    "generated_title": "TEXT",
     "generation_provider": "TEXT",
     "generation_quality": "TEXT",
     "summary_model": "TEXT",
@@ -125,6 +128,61 @@ _ARTICLE_EXTRA_COLUMNS: Dict[str, str] = {
     "entities": "TEXT",
     "config_path": "TEXT",
 }
+
+_ARTICLE_CANONICAL_COLUMNS: Dict[str, str] = {
+    "id": "INTEGER PRIMARY KEY",
+    "source_title": "TEXT",
+    "generated_title": "TEXT",
+    "source_url": "TEXT",
+    "tags": "TEXT",
+    "summary": "TEXT",
+    "created_at": "TEXT NOT NULL",
+    "modified_at": "TEXT NOT NULL",
+    "deleted_at": "TEXT",
+    "category": "TEXT",
+    "local_file_path": "TEXT",
+    "priority": "INTEGER NOT NULL DEFAULT 0",
+    "generation_provider": "TEXT",
+    "generation_quality": "TEXT",
+    "summary_model": "TEXT",
+    "tags_model": "TEXT",
+    "embedding_model": "TEXT",
+    "embedding_dim": "INTEGER",
+    "ingest_status": "TEXT",
+    "ingest_error": "TEXT",
+    "content_type": "TEXT",
+    "key_claims": "TEXT",
+    "entities": "TEXT",
+    "config_path": "TEXT",
+}
+
+
+def generated_title_from_row(row: sqlite3.Row) -> str:
+    """Return the knowledge title for a row, tolerating pre-migration rows."""
+
+    for key in ("generated_title", "title", "source_title"):
+        try:
+            value = row[key]
+        except Exception:
+            continue
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def source_title_from_row(row: sqlite3.Row) -> str:
+    """Return the source/archive title for a row."""
+
+    for key in ("source_title", "title", "generated_title"):
+        try:
+            value = row[key]
+        except Exception:
+            continue
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
 
 def _fts_uses_simple_tokenizer(conn: sqlite3.Connection) -> bool:
     try:
@@ -391,6 +449,100 @@ def _ensure_article_columns(conn: sqlite3.Connection) -> None:
             pass
 
 
+def _article_column_names(conn: sqlite3.Connection) -> set[str]:
+    try:
+        rows = conn.execute("PRAGMA table_info(articles)").fetchall()
+    except Exception:
+        return set()
+    return {str(r["name"] if isinstance(r, sqlite3.Row) else r[1]) for r in rows}
+
+
+def _sql_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _copy_expr(col: str, existing: set[str]) -> str:
+    if col == "id":
+        return "id" if "id" in existing else "rowid"
+    if col == "source_title":
+        parts = []
+        if "source_title" in existing:
+            parts.append("NULLIF(source_title, '')")
+        if "title" in existing:
+            parts.append("NULLIF(title, '')")
+        if "generated_title" in existing:
+            parts.append("NULLIF(generated_title, '')")
+        return f"COALESCE({', '.join(parts)}, '')" if parts else "''"
+    if col == "generated_title":
+        parts = []
+        if "generated_title" in existing:
+            parts.append("NULLIF(generated_title, '')")
+        if "title" in existing:
+            parts.append("NULLIF(title, '')")
+        if "source_title" in existing:
+            parts.append("NULLIF(source_title, '')")
+        return f"COALESCE({', '.join(parts)}, '')" if parts else "''"
+    if col in existing:
+        return col
+    if col in {"created_at", "modified_at"}:
+        return _sql_literal(now_iso_z())
+    if col == "priority":
+        return "0"
+    return "NULL"
+
+
+def _rebuild_articles_without_legacy_title(conn: sqlite3.Connection, existing: set[str]) -> None:
+    cols_sql = ",\n  ".join(f"{name} {ddl}" for name, ddl in _ARTICLE_CANONICAL_COLUMNS.items())
+    column_names = list(_ARTICLE_CANONICAL_COLUMNS.keys())
+    select_exprs = [_copy_expr(col, existing) for col in column_names]
+
+    conn.execute("DROP TABLE IF EXISTS articles_title_migration_new")
+    conn.execute(f"CREATE TABLE articles_title_migration_new (\n  {cols_sql}\n)")
+    conn.execute(
+        f"INSERT INTO articles_title_migration_new({', '.join(column_names)}) "
+        f"SELECT {', '.join(select_exprs)} FROM articles"
+    )
+    conn.execute("DROP TABLE articles")
+    conn.execute("ALTER TABLE articles_title_migration_new RENAME TO articles")
+    conn.executescript(BASE_SCHEMA_SQL)
+
+
+def _migrate_title_columns(conn: sqlite3.Connection) -> None:
+    existing = _article_column_names(conn)
+    if not existing:
+        return
+
+    if "source_title" in existing and "generated_title" in existing and "title" not in existing:
+        return
+
+    for name in ("source_title", "generated_title"):
+        if name not in existing:
+            try:
+                conn.execute(f"ALTER TABLE articles ADD COLUMN {name} TEXT")
+                existing.add(name)
+            except Exception:
+                pass
+
+    if "title" in existing:
+        try:
+            conn.execute(
+                """
+                UPDATE articles
+                SET
+                  source_title = COALESCE(NULLIF(source_title, ''), NULLIF(title, ''), NULLIF(generated_title, ''), ''),
+                  generated_title = COALESCE(NULLIF(generated_title, ''), NULLIF(title, ''), NULLIF(source_title, ''), '')
+                """
+            )
+        except Exception:
+            pass
+        try:
+            _rebuild_articles_without_legacy_title(conn, _article_column_names(conn))
+        except Exception:
+            # If the local SQLite cannot rebuild for any reason, keep the data
+            # readable through source_title/generated_title and stop using title.
+            pass
+
+
 def _create_fts(conn: sqlite3.Connection, *, use_simple: bool) -> None:
     conn.executescript(FTS_SCHEMA_SIMPLE if use_simple else FTS_SCHEMA_FALLBACK)
 
@@ -425,6 +577,7 @@ def open_db(
 
     conn.executescript(BASE_SCHEMA_SQL)
     _ensure_article_columns(conn)
+    _migrate_title_columns(conn)
 
     if need_fts:
         ext = tokenizer_ext or os.environ.get("CLAWSQLITE_TOKENIZER_EXT") or DEFAULT_TOKENIZER_EXT
@@ -467,7 +620,8 @@ def open_db(
 def insert_article(
     conn: sqlite3.Connection,
     *,
-    title: str,
+    source_title: str,
+    generated_title: str,
     source_url: str,
     tags: str,
     summary: str,
@@ -492,16 +646,17 @@ def insert_article(
     cur = conn.execute(
         """
         INSERT INTO articles(
-          title, source_url, tags, summary, created_at, modified_at, deleted_at,
+          source_title, generated_title, source_url, tags, summary, created_at, modified_at, deleted_at,
           category, local_file_path, priority,
           generation_provider, generation_quality, summary_model, tags_model,
           embedding_model, embedding_dim, ingest_status, ingest_error,
           content_type, key_claims, entities, config_path
         )
-        VALUES(?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES(?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            title,
+            source_title,
+            generated_title,
             source_url,
             tags,
             summary,
@@ -530,7 +685,8 @@ def update_article_fields(
     conn: sqlite3.Connection,
     article_id: int,
     *,
-    title: Optional[str] = None,
+    source_title: Optional[str] = None,
+    generated_title: Optional[str] = None,
     tags: Optional[str] = None,
     summary: Optional[str] = None,
     category: Optional[str] = None,
@@ -553,9 +709,12 @@ def update_article_fields(
     fields = []
     vals: List[Any] = []
 
-    if title is not None:
-        fields.append("title=?")
-        vals.append(title)
+    if source_title is not None:
+        fields.append("source_title=?")
+        vals.append(source_title)
+    if generated_title is not None:
+        fields.append("generated_title=?")
+        vals.append(generated_title)
     if tags is not None:
         fields.append("tags=?")
         vals.append(tags)
@@ -659,15 +818,15 @@ def rebuild_fts(conn: sqlite3.Connection, include_deleted: bool = False) -> None
     if fts_jieba_enabled(conn):
         if include_deleted:
             rows = conn.execute(
-                "SELECT id, title, tags, summary, local_file_path FROM articles"
+                "SELECT id, generated_title, tags, summary, local_file_path FROM articles"
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT id, title, tags, summary, local_file_path FROM articles WHERE deleted_at IS NULL"
+                "SELECT id, generated_title, tags, summary, local_file_path FROM articles WHERE deleted_at IS NULL"
             ).fetchall()
         for r in rows:
             aid = int(r["id"])
-            title = _fts_text_for_index(conn, r["title"] or "")
+            title = _fts_text_for_index(conn, r["generated_title"] or "")
             tags = _fts_text_for_index(conn, r["tags"] or "")
             summary = _fts_text_for_index(conn, r["summary"] or "")
             body = _fts_text_for_index(conn, _read_body_for_fts(r["local_file_path"] or ""))
@@ -678,18 +837,18 @@ def rebuild_fts(conn: sqlite3.Connection, include_deleted: bool = False) -> None
     else:
         if include_deleted:
             rows = conn.execute(
-                "SELECT id, title, tags, summary, local_file_path FROM articles"
+                "SELECT id, generated_title, tags, summary, local_file_path FROM articles"
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT id, title, tags, summary, local_file_path FROM articles WHERE deleted_at IS NULL"
+                "SELECT id, generated_title, tags, summary, local_file_path FROM articles WHERE deleted_at IS NULL"
             ).fetchall()
         for r in rows:
             conn.execute(
                 "INSERT INTO articles_fts(rowid, title, tags, summary, body) VALUES(?, ?, ?, ?, ?)",
                 (
                     int(r["id"]),
-                    r["title"] or "",
+                    r["generated_title"] or "",
                     r["tags"] or "",
                     r["summary"] or "",
                     _read_body_for_fts(r["local_file_path"] or ""),
@@ -765,7 +924,8 @@ def count_missing(conn: sqlite3.Connection) -> Dict[str, int]:
     def _count(where: str) -> int:
         return int(conn.execute(f"SELECT COUNT(*) AS c FROM articles WHERE deleted_at IS NULL AND ({where})").fetchone()["c"])
     return {
-        "title": _count("title IS NULL OR trim(title) = ''"),
+        "source_title": _count("source_title IS NULL OR trim(source_title) = ''"),
+        "generated_title": _count("generated_title IS NULL OR trim(generated_title) = ''"),
         "summary": _count("summary IS NULL OR trim(summary) = ''"),
         "tags": _count("tags IS NULL OR trim(tags) = ''"),
         "path": _count("local_file_path IS NULL OR trim(local_file_path) = ''"),

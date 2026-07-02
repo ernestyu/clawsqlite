@@ -29,7 +29,8 @@ def read_markdown(path: str) -> str:
 def format_markdown_with_metadata(
     *,
     article_id: int,
-    title: str,
+    source_title: str,
+    generated_title: str,
     source_url: str,
     created_at: str,
     category: str,
@@ -47,7 +48,8 @@ def format_markdown_with_metadata(
     header = (
         "--- METADATA ---\n"
         f"id: {article_id}\n"
-        f"title: {title}\n"
+        f"source_title: {source_title}\n"
+        f"generated_title: {generated_title}\n"
         f"source_url: {source_url}\n"
         f"created_at: {created_at}\n"
         f"category: {category}\n"

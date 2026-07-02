@@ -247,9 +247,9 @@ def _clear_interest_tables(conn: sqlite3.Connection) -> None:
 def load_articles_for_clustering(conn: sqlite3.Connection, *, dim: int) -> List[ArticleEmbeddingRecord]:
     rows = conn.execute(
         """
-SELECT a.id AS id,
-       coalesce(a.title, '') AS title,
-       sv.embedding AS summary_embedding,
+	SELECT a.id AS id,
+	       coalesce(a.generated_title, '') AS title,
+	       sv.embedding AS summary_embedding,
        tv.embedding AS tag_embedding
 FROM articles a
 LEFT JOIN articles_vec sv ON sv.id = a.id

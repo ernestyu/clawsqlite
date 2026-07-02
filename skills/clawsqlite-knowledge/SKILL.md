@@ -113,6 +113,10 @@ Strict text ingest:
   --json
 ```
 
+`--title` is a `source_title` hint for archive filenames and metadata. In
+strict ingest, the stored knowledge title is `generated_title` from the
+configured LLM.
+
 Search:
 
 ```bash

@@ -234,7 +234,8 @@ clawsqlite knowledge record ingest ... --allow-missing-embedding
 
 LLM 入库会从全文生成结构化字段：
 
-- `title`
+- `generated_title`（LLM 生成的知识库标题）
+- `source_title`（来源/归档标题，用于文件名和元数据）
 - `summary`
 - `tags`
 - `key_claims`
@@ -338,8 +339,8 @@ clawsqlite knowledge record ingest --text "一段想法" --category thought --js
 - `--update-existing`：URL 已存在时刷新同一条记录
 - `--allow-heuristic` / `--allow-missing-embedding`：显式降级
 
-strict 模式下，人工 title/category 只是给 LLM 的提示，不会覆盖最终
-metadata。最终 title、tags、category、content_type 必须由 LLM 生成；tags
+strict 模式下，人工 `--title` 是来源标题提示，用于文件名和元数据；
+最终 `generated_title`、tags、category、content_type 必须由 LLM 生成；tags
 数量必须等于 `[ingest].tag_count`，category 和 content_type 必须一致，并且
 必须属于 `[ingest].allowed_categories`。成功的 JSON 输出会包含 `config_path`、
 `root`、`db`、`articles_dir`、`generation_quality`、

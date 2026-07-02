@@ -47,6 +47,7 @@ class StrictIngestConfigTests(unittest.TestCase):
     def setUp(self) -> None:
         self._env = os.environ.copy()
         self._generate_fields = kcli.generate_fields
+        self._scrape_url = kcli.scrape_url
         for key in [
             "LLM_MODEL",
             "LLM_BASE_URL",
@@ -62,6 +63,7 @@ class StrictIngestConfigTests(unittest.TestCase):
         if hasattr(self, "_run_cwd"):
             delattr(self, "_run_cwd")
         kcli.generate_fields = self._generate_fields
+        kcli.scrape_url = self._scrape_url
         os.environ.clear()
         os.environ.update(self._env)
 
@@ -265,13 +267,78 @@ class StrictIngestConfigTests(unittest.TestCase):
             self.assertEqual(payload["articles_dir"], str(root / "articles"))
             self.assertIn("embedding_runtime_enabled", payload)
             self.assertFalse(payload["embedding_required"])
+            self.assertEqual(payload["source_title"], "Human hint title")
+            self.assertEqual(payload["generated_title"], "Generated title")
             with sqlite3.connect(root / "knowledge.sqlite3") as conn:
                 conn.row_factory = sqlite3.Row
-                row = conn.execute("SELECT title, tags, category FROM articles WHERE id=1").fetchone()
-        self.assertEqual(row["title"], "Generated title")
+                row = conn.execute(
+                    "SELECT source_title, generated_title, tags, category FROM articles WHERE id=1"
+                ).fetchone()
+        self.assertEqual(row["source_title"], "Human hint title")
+        self.assertEqual(row["generated_title"], "Generated title")
         self.assertEqual(row["category"], "thought")
         self.assertEqual(row["tags"], "sqlite,agent,config,strict,summary,embedding,search,knowledge")
         self.assertNotIn("manual", row["tags"])
+
+    def test_url_ingest_keeps_source_title_but_indexes_generated_title(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "kb"
+            write_knowledge_config(root, require_llm=True, require_embedding=False)
+            self._run_cwd = root
+
+            def fake_scrape(*args, **kwargs):
+                return "Original Source Title", "Full article body about alpha beta."
+
+            def fake_generate(*args, **kwargs):
+                return {
+                    "title": "Generated Knowledge Title",
+                    "summary": "Generated whole article summary",
+                    "tags": ["sqlite", "agent", "config", "strict", "summary", "embedding", "search", "knowledge"],
+                    "generation_quality": "llm",
+                    "category": "web_article",
+                    "content_type": "web_article",
+                    "key_claims": [],
+                    "entities": [],
+                }
+
+            kcli.scrape_url = fake_scrape
+            kcli.generate_fields = fake_generate
+            code, out, err = self._run_cli(
+                [
+                    "record",
+                    "ingest",
+                    "--url",
+                    "https://example.com/post",
+                    "--json",
+                ]
+            )
+            self.assertEqual(code, 0, err)
+            payload = json.loads(out)
+            self.assertEqual(payload["source_title"], "Original Source Title")
+            self.assertEqual(payload["generated_title"], "Generated Knowledge Title")
+            self.assertIn("original-source-title", Path(payload["local_file_path"]).name)
+            self.assertNotIn("generated-knowledge-title", Path(payload["local_file_path"]).name)
+
+            md = Path(payload["local_file_path"]).read_text(encoding="utf-8")
+            self.assertIn("source_title: Original Source Title", md)
+            self.assertIn("generated_title: Generated Knowledge Title", md)
+            self.assertIn("--- MARKDOWN ---\nFull article body about alpha beta.", md)
+
+            with sqlite3.connect(root / "knowledge.sqlite3") as conn:
+                conn.row_factory = sqlite3.Row
+                cols = {r["name"] for r in conn.execute("PRAGMA table_info(articles)")}
+                self.assertIn("source_title", cols)
+                self.assertIn("generated_title", cols)
+                self.assertNotIn("title", cols)
+                row = conn.execute(
+                    "SELECT source_title, generated_title FROM articles WHERE id=1"
+                ).fetchone()
+                self.assertEqual(row["source_title"], "Original Source Title")
+                self.assertEqual(row["generated_title"], "Generated Knowledge Title")
+                fts = conn.execute(
+                    "SELECT rowid FROM articles_fts WHERE articles_fts MATCH 'Generated'"
+                ).fetchall()
+                self.assertEqual([int(r["rowid"]) for r in fts], [1])
 
     def test_strict_ingest_rejects_wrong_generated_tag_count(self):
         with _tempdir() as tmpdir:

@@ -7,6 +7,34 @@ without strict version tagging yet. Entries are grouped by date + topic.
 
 ---
 
+## 2026-07-02 – Dual Title Schema
+
+### Changed
+
+- Split knowledge record titles into `source_title` and `generated_title`.
+  `source_title` preserves the source/archive title for Markdown filenames and
+  metadata, while `generated_title` is the knowledge title used by search,
+  display, analysis, FTS, and Agent-facing JSON.
+- New and migrated `articles` tables no longer use the legacy `title` column as
+  the primary schema. Old `title` values are migrated once into both
+  `source_title` and `generated_title`.
+- Markdown files now write both title fields in metadata and use
+  `source_title` for slugged filenames.
+- `knowledge record update --title` now patches `generated_title`; use
+  `--source-title` to patch the archive/source title.
+- Admin FTS rebuild maps `articles.generated_title` into the FTS `title` column
+  for the knowledge schema.
+
+### Tests
+
+- Added coverage for strict URL ingest preserving scraper source titles while
+  indexing/displaying generated titles.
+- Added schema migration coverage for legacy `articles.title` databases.
+- Added admin index rebuild coverage for the `generated_title` to FTS `title`
+  mapping.
+
+---
+
 ## 2026-07-02 – 1.0.5 Fresh Install & Skill Entrypoint
 
 ### Changed

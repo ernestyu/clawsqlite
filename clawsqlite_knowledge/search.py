@@ -671,7 +671,8 @@ def hybrid_search(
         results.append(
             {
                 "id": aid,
-                "title": r["title"] or "",
+                "source_title": r["source_title"] or "",
+                "generated_title": r["generated_title"] or "",
                 "category": r["category"] or "",
                 "created_at": r["created_at"] or "",
                 "tags": r["tags"] or "",

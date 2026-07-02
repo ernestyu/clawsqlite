@@ -119,6 +119,8 @@ class CLISmokeTests(unittest.TestCase):
             p = self._run(ingest_cmd)
             data = json.loads(p.stdout)
             self.assertEqual(data["id"], 1)
+            self.assertEqual(data["source_title"], "Hello")
+            self.assertEqual(data["generated_title"], "Hello")
             self.assertIn("local_file_path", data)
 
             # 2) Search it back (FTS mode)
@@ -157,7 +159,8 @@ class CLISmokeTests(unittest.TestCase):
             p = self._run(show_cmd)
             row = json.loads(p.stdout)
             self.assertEqual(row["id"], 1)
-            self.assertEqual(row["title"], "Hello")
+            self.assertEqual(row["source_title"], "Hello")
+            self.assertEqual(row["generated_title"], "Hello")
 
             # 4) Export as markdown
             out_md = root / "export.md"
@@ -197,6 +200,7 @@ class CLISmokeTests(unittest.TestCase):
             p = self._run(update_cmd)
             upd = json.loads(p.stdout)
             self.assertTrue(upd["ok"])
+            self.assertEqual(upd["generated_title"], "Hello Updated")
 
             # 6) Reindex check (no-op but should succeed)
             reindex_check_cmd = [

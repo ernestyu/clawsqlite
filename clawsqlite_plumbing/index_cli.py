@@ -119,7 +119,21 @@ def _db_backed_fts_columns(conn: sqlite3.Connection, *, fts_table: str, base_tab
     """Return FTS columns that are present in the base DB table, preserving FTS order."""
 
     base_cols = _table_columns(conn, base_table)
-    return [col for col in _fts_columns(conn, fts_table) if col in base_cols]
+    out: list[str] = []
+    for col in _fts_columns(conn, fts_table):
+        if col in base_cols:
+            out.append(col)
+        elif col == "title" and "generated_title" in base_cols:
+            out.append(col)
+    return out
+
+
+def _base_expr_for_fts_col(col: str, base_cols: set[str]) -> Optional[str]:
+    if col in base_cols:
+        return col
+    if col == "title" and "generated_title" in base_cols:
+        return "generated_title"
+    return None
 
 
 def _cmd_check(args: argparse.Namespace) -> int:
@@ -192,7 +206,7 @@ def _cmd_rebuild(args: argparse.Namespace) -> int:
                     f"{fts}: {', '.join(bad_fts_cols)}"
                 )
             base_cols = _table_columns(conn, base)
-            missing_base_cols = [c for c in cols if c not in base_cols]
+            missing_base_cols = [c for c in cols if _base_expr_for_fts_col(c, base_cols) is None]
             if id_col not in base_cols:
                 missing_base_cols.insert(0, id_col)
             if missing_base_cols:
@@ -203,13 +217,14 @@ def _cmd_rebuild(args: argparse.Namespace) -> int:
                 )
                 raise SystemExit(sys_msg)
             col_list = ", ".join(cols)
+            select_col_list = ", ".join(_base_expr_for_fts_col(c, base_cols) or c for c in cols)
             conn.execute(f"DELETE FROM {fts}")
             # Rebuild from base table columns that match FTS schema.
             # If your base table uses different column names, create a view
             # that aligns names and point --table to the view.
             conn.execute(
                 f"INSERT INTO {fts}(rowid, {col_list}) "
-                f"SELECT {id_col}, {col_list} FROM {base}"
+                f"SELECT {id_col}, {select_col_list} FROM {base}"
             )
             print(f"[OK] Rebuilt FTS index {fts} from {base} (id_col={id_col})")
 

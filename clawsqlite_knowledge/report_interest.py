@@ -112,7 +112,7 @@ def _load_articles_in_window(
     cur = conn.cursor()
     cur.execute(
         """
-SELECT id, title, tags, summary, created_at
+SELECT id, generated_title AS title, tags, summary, created_at
 FROM articles
 WHERE deleted_at IS NULL
   AND created_at >= ?

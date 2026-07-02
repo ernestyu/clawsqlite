@@ -109,6 +109,8 @@ class KnowledgeCLITests(unittest.TestCase):
             row2 = _ingest("hello article 2", "Article 2")
             self.assertEqual(row1["id"], 1)
             self.assertEqual(row2["id"], 2)
+            self.assertEqual(row1["source_title"], "Article 1")
+            self.assertEqual(row1["generated_title"], "Article 1")
 
             # 2) search 基本验证（fts 模式）
             search_cmd = [
@@ -147,6 +149,8 @@ class KnowledgeCLITests(unittest.TestCase):
             p = self._run(show_cmd)
             show_row = json.loads(p.stdout)
             self.assertEqual(show_row["id"], 1)
+            self.assertEqual(show_row["source_title"], "Article 1")
+            self.assertEqual(show_row["generated_title"], "Article 1")
             # 当前实现中，正文内容字段叫 content
             self.assertIn("content", show_row)
 
@@ -187,6 +191,7 @@ class KnowledgeCLITests(unittest.TestCase):
             p = self._run(update_cmd)
             upd = json.loads(p.stdout)
             self.assertTrue(upd["ok"])
+            self.assertEqual(upd["generated_title"], "Article 1 Updated")
 
             # 再 show 一次确认 title 更新
             show2_cmd = [
@@ -202,7 +207,8 @@ class KnowledgeCLITests(unittest.TestCase):
             ]
             p = self._run(show2_cmd)
             show2 = json.loads(p.stdout)
-            self.assertEqual(show2["title"], "Article 1 Updated")
+            self.assertEqual(show2["source_title"], "Article 1")
+            self.assertEqual(show2["generated_title"], "Article 1 Updated")
 
             # 5) 软删第二条记录
             delete_cmd = [
