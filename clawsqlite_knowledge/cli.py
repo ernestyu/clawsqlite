@@ -361,6 +361,19 @@ def cmd_init_config(args) -> int:
         return 2
     path = str(path_obj)
     if os.path.exists(path) and not getattr(args, "force", False):
+        if getattr(args, "instance", None) or getattr(args, "home", None):
+            _register_default_instance(target_dir)
+            _print(
+                {
+                    "ok": True,
+                    "already_exists": True,
+                    "config_path": path,
+                    "instance_home": str(target_dir),
+                    "default_instance_registry": str(_instance_registry_path()),
+                },
+                bool(getattr(args, "json", False)),
+            )
+            return 0
         sys.stderr.write(f"ERROR: config already exists at {path}\n")
         sys.stderr.write("NEXT: pass --force to overwrite, choose another --instance, or use --home /path/to/knowledge-home.\n")
         return 2

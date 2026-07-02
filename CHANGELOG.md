@@ -7,6 +7,33 @@ without strict version tagging yet. Entries are grouped by date + topic.
 
 ---
 
+## 2026-07-02 – 1.0.7 Default Instance Registry Closure
+
+### Fixed
+
+- `knowledge maintenance init-config --instance default` now repairs the
+  default instance registry even when the instance `clawsqlite.toml` already
+  exists. This closes the fresh-install gap where a valid default instance could
+  exist but `skills/clawsqlite-knowledge/bin/clawsqlite` had no registry file to
+  read from other directories.
+- The skill-local `bin/clawsqlite` wrapper now fails with
+  `ERROR_KIND: default_instance_required` when neither the current directory nor
+  the default instance registry can provide `clawsqlite.toml`, with direct
+  recovery instructions for Agents.
+
+### Packaging
+
+- Kept `skills/clawsqlite-knowledge/bin/clawsqlite` as an executable file in the
+  repository and retained the bootstrap `chmod +x` safeguard.
+
+### Tests
+
+- Added regression coverage for repairing a missing default registry when the
+  default instance config already exists.
+- Added wrapper diagnostics coverage for the missing default registry case.
+
+---
+
 ## 2026-07-02 – 1.0.6 Dual Title Schema
 
 ### Changed

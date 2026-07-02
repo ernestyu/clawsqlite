@@ -67,6 +67,12 @@ if needs_instance_home "$@" && [ ! -f "./clawsqlite.toml" ]; then
       echo "NEXT: run '$0 knowledge maintenance init-config --instance default' or cd to a valid instance home." >&2
       exit 2
     fi
+  else
+    echo "ERROR: current directory is not a clawsqlite knowledge instance home, and no default instance registry was found." >&2
+    echo "ERROR_KIND: default_instance_required" >&2
+    echo "DETAIL: missing $DEFAULT_INSTANCE_REGISTRY" >&2
+    echo "NEXT: run '$0 knowledge maintenance init-config --instance default', or cd to an existing directory that contains clawsqlite.toml." >&2
+    exit 2
   fi
 fi
 

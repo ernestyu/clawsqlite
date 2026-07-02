@@ -89,6 +89,30 @@ class InitConfigSafetyTests(unittest.TestCase):
             self.assertEqual(Path(payload["default_instance_registry"]).read_text(encoding="utf-8").strip(), str(expected_home.resolve()))
             self.assertTrue((expected_home / "clawsqlite.toml").is_file())
 
+    def test_init_config_instance_repairs_missing_registry_when_config_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            old_xdg = os.environ.get("XDG_DATA_HOME")
+            os.environ["XDG_DATA_HOME"] = str(Path(tmp) / "xdg")
+            try:
+                code, out, err = _run_cli(["maintenance", "init-config", "--instance", "default", "--json"])
+                self.assertEqual(code, 0, err)
+                payload = json.loads(out)
+                registry = Path(payload["default_instance_registry"])
+                registry.unlink()
+
+                code, out, err = _run_cli(["maintenance", "init-config", "--instance", "default", "--json"])
+            finally:
+                if old_xdg is None:
+                    os.environ.pop("XDG_DATA_HOME", None)
+                else:
+                    os.environ["XDG_DATA_HOME"] = old_xdg
+
+            self.assertEqual(code, 0, err)
+            payload = json.loads(out)
+            expected_home = Path(tmp) / "xdg" / "clawsqlite-knowledge" / "default"
+            self.assertTrue(payload["already_exists"])
+            self.assertEqual(registry.read_text(encoding="utf-8").strip(), str(expected_home.resolve()))
+
     def test_skill_wrapper_uses_registered_default_instance_from_any_cwd(self):
         with tempfile.TemporaryDirectory() as tmp:
             xdg = Path(tmp) / "xdg"
@@ -122,6 +146,30 @@ class InitConfigSafetyTests(unittest.TestCase):
             report = json.loads(proc.stdout)
             expected_home = xdg / "clawsqlite-knowledge" / "default"
             self.assertEqual(report["active_config"]["root"], str(expected_home.resolve()))
+
+    def test_skill_wrapper_reports_missing_default_instance_registry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_cwd = Path(tmp) / "elsewhere"
+            xdg = Path(tmp) / "xdg"
+            run_cwd.mkdir()
+            env = os.environ.copy()
+            env["XDG_DATA_HOME"] = str(xdg)
+            env["PYTHON"] = sys.executable
+            env["PYTHONPATH"] = str(REPO_ROOT)
+            wrapper = REPO_ROOT / "skills" / "clawsqlite-knowledge" / "bin" / "clawsqlite"
+            proc = subprocess.run(
+                [str(wrapper), "knowledge", "maintenance", "doctor", "--json"],
+                cwd=str(run_cwd),
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("ERROR_KIND: default_instance_required", proc.stderr)
+        self.assertIn("default_instance_home", proc.stderr)
+        self.assertIn("init-config --instance default", proc.stderr)
 
     def test_init_config_rejects_ambiguous_target_options(self):
         with tempfile.TemporaryDirectory() as tmp:
