@@ -6,6 +6,11 @@
 它围绕 PyPI 已发布的 `clawsqlite` 包工作，指导 Agent 稳定调用官方
 `clawsqlite knowledge ...` CLI。
 
+从 ClawHub 安装这个 skill 只会安装 wrapper 文件。必须先运行
+`bootstrap_deps.sh`，CLI 才可用。在受管理的 Python 环境里，全局
+`clawsqlite` 命令可能不会进入 `PATH`；请使用稳定的本地入口
+`bin/clawsqlite`。
+
 ## 它和 clawsqlite 的关系
 
 知识库核心逻辑属于上游 `clawsqlite` 包，不属于这个 skill 目录。
@@ -32,14 +37,19 @@
 sh bootstrap_deps.sh
 ```
 
-这个脚本只安装/升级 PyPI 包并做最小 CLI 校验，不处理业务逻辑。
+这个脚本只安装/升级 PyPI 包并做最小 CLI 校验，不处理业务逻辑。它也会
+验证稳定本地入口：
+
+```bash
+./bin/clawsqlite
+```
 
 ## 配置
 
 在 knowledge instance home 中创建或编辑私有配置，不要放在 skill 目录里：
 
 ```bash
-clawsqlite knowledge maintenance init-config --instance default
+./bin/clawsqlite knowledge maintenance init-config --instance default
 cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
 ```
 
@@ -49,18 +59,18 @@ cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
 ## doctor 自检
 
 ```bash
-clawsqlite knowledge maintenance doctor --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge maintenance doctor --json
 ```
 
 ## 常见命令
 
 ```bash
-clawsqlite knowledge record ingest --url "https://example.com/post" --category web_article --json
-clawsqlite knowledge record ingest --text "some note" --title "Saved note" --category note --json
-clawsqlite knowledge record search "vector database design" --mode hybrid --json
-clawsqlite knowledge record show --id 123 --full --json
-clawsqlite knowledge maintenance cleanup --days 3 --dry-run --json
-clawsqlite knowledge maintenance backup --dry-run --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge record ingest --url "https://example.com/post" --category web_article --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge record ingest --text "some note" --title "Saved note" --category note --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge record search "vector database design" --mode hybrid --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge record show --id 123 --full --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge maintenance cleanup --days 3 --dry-run --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge maintenance backup --dry-run --json
 ```
 
 ## 什么时候直接用 clawsqlite

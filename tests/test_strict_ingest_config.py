@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import sqlite3
+import sys
 import tempfile
 import unittest
 import uuid
@@ -359,8 +360,12 @@ class StrictIngestConfigTests(unittest.TestCase):
         self.assertIn("embedding_config", names)
         self.assertNotIn("llm_roundtrip", names)
         self.assertNotIn("embedding_roundtrip", names)
+        scraper = next(c for c in report["checks"] if c["name"] == "scraper_config")
+        self.assertFalse(scraper["ok"])
+        self.assertIn("not configured", scraper["message"])
         self.assertFalse(report["roundtrip"]["llm_checked"])
         self.assertFalse(report["roundtrip"]["embedding_checked"])
+        self.assertFalse(report["roundtrip"]["scraper_checked"])
 
     def test_doctor_roundtrip_checks_are_explicit(self):
         with _tempdir() as tmpdir:
@@ -375,6 +380,52 @@ class StrictIngestConfigTests(unittest.TestCase):
         self.assertIn("llm_config", names)
         self.assertIn("llm_roundtrip", names)
         self.assertTrue(report["roundtrip"]["llm_checked"])
+
+    def test_doctor_reports_configured_scraper_and_roundtrip(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "kb"
+            config_path = write_knowledge_config(root, require_llm=False, require_embedding=False)
+            scraper = tmpdir / "scrape.py"
+            scraper.write_text(
+                "print('Title: Example')\n"
+                "print('# Body from scraper')\n",
+                encoding="utf-8",
+            )
+            with config_path.open("a", encoding="utf-8") as f:
+                f.write(f'\n[scraper]\ncmd = "{sys.executable} {scraper}"\n')
+            self._run_cwd = root
+            code, out, err = self._run_cli(["maintenance", "doctor", "--check-scraper", "--json"])
+
+        self.assertEqual(code, 0, err)
+        report = json.loads(out)
+        scraper_config = next(c for c in report["checks"] if c["name"] == "scraper_config")
+        scraper_runtime = next(c for c in report["checks"] if c["name"] == "scraper_runtime")
+        self.assertTrue(scraper_config["ok"])
+        self.assertTrue(scraper_config["details"]["bootstrap_complete"])
+        self.assertTrue(scraper_runtime["ok"])
+        self.assertTrue(report["roundtrip"]["scraper_checked"])
+
+    def test_url_ingest_without_scraper_reports_scraper_required(self):
+        with _tempdir() as tmpdir:
+            root = tmpdir / "kb"
+            write_knowledge_config(root, require_llm=False, require_embedding=False)
+            self._run_cwd = root
+            code, _, err = self._run_cli(
+                [
+                    "record",
+                    "ingest",
+                    "--url",
+                    "https://example.com/post",
+                    "--gen-provider",
+                    "off",
+                    "--allow-heuristic",
+                    "--allow-missing-embedding",
+                ]
+            )
+
+        self.assertEqual(code, 3)
+        self.assertIn("ERROR_KIND: scraper_required", err)
+        self.assertIn("[scraper].cmd", err)
 
     def test_reindex_fix_missing_respects_strict_llm_policy(self):
         with _tempdir() as tmpdir:

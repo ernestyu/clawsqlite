@@ -3,6 +3,8 @@ set -eu
 
 BASE_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 LOCAL_TARGET="$BASE_DIR/.clawsqlite-python"
+BIN_DIR="$BASE_DIR/bin"
+LOCAL_CLI="$BIN_DIR/clawsqlite"
 
 if [ "${PYTHON:-}" ]; then
   PYTHON_BIN="$PYTHON"
@@ -30,56 +32,38 @@ if ! "$PYTHON_BIN" -m pip install --upgrade clawsqlite; then
   INSTALL_MODE="local-target"
 fi
 
-run_clawsqlite() {
-  if [ "$INSTALL_MODE" = "local-target" ]; then
-    "$PYTHON_BIN" -m clawsqlite_cli "$@"
-  elif command -v clawsqlite >/dev/null 2>&1; then
-    clawsqlite "$@"
-  else
-    "$PYTHON_BIN" -m clawsqlite_cli "$@"
-  fi
-}
+mkdir -p "$BIN_DIR"
+if [ ! -f "$LOCAL_CLI" ]; then
+  echo "ERROR: expected local CLI wrapper was not found at $LOCAL_CLI" >&2
+  echo "NEXT: reinstall the clawsqlite-knowledge skill wrapper, then rerun bootstrap_deps.sh." >&2
+  exit 2
+fi
+chmod +x "$LOCAL_CLI"
 
-clawsqlite_command_text() {
-  if [ "$INSTALL_MODE" = "local-target" ]; then
-    printf 'PYTHONPATH="%s" %s -m clawsqlite_cli' "$PYTHONPATH" "$PYTHON_BIN"
-  elif command -v clawsqlite >/dev/null 2>&1; then
-    printf 'clawsqlite'
-  else
-    printf '%s -m clawsqlite_cli' "$PYTHON_BIN"
-  fi
-}
-
-if ! run_clawsqlite --help >/dev/null 2>&1; then
+if ! "$LOCAL_CLI" --help >/dev/null 2>&1; then
   echo "ERROR: installed clawsqlite package could not be imported or executed." >&2
   echo "NEXT: check Python/pip output above, then rerun bootstrap_deps.sh." >&2
   exit 2
 fi
 
-run_clawsqlite knowledge --help >/dev/null
+"$LOCAL_CLI" knowledge --help >/dev/null
 
 cat <<'EOF'
 clawsqlite-knowledge dependencies installed.
 EOF
 
-CLAWSQLITE_CMD=$(clawsqlite_command_text)
+CLAWSQLITE_CMD="$LOCAL_CLI"
 
-if [ "$CLAWSQLITE_CMD" = "clawsqlite" ]; then
-  cat <<'EOF'
+cat <<EOF
 
-CLI command:
-  clawsqlite
-EOF
-else
-  cat <<EOF
-
-CLI command:
+Stable skill-local CLI:
   $CLAWSQLITE_CMD
 
-NOTE: the clawsqlite console script is not on PATH. The package was validated
-through Python module execution instead.
+NOTE: ClawHub installs only this thin skill wrapper. bootstrap_deps.sh installs
+the published clawsqlite package and prepares the stable local entry above.
+The global 'clawsqlite' command may still be absent from PATH in managed Python
+environments.
 EOF
-fi
 
 if [ "$INSTALL_MODE" = "local-target" ]; then
   cat <<EOF

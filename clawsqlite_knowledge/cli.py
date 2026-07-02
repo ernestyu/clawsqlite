@@ -389,10 +389,19 @@ def cmd_ingest(args) -> int:
             body_md = md
         except Exception as e:
             sys.stderr.write(f"ERROR: scrape failed: {e}\n")
-            sys.stderr.write(
-                "NEXT: install the 'clawfetch' skill from ClawHub and set [scraper].cmd "
-                "in clawsqlite.toml, or pass --scrape-cmd \"<your-scraper> <url>\" for a debug override.\n"
-            )
+            if "requires a scraper" in str(e).lower():
+                sys.stderr.write("ERROR_KIND: scraper_required\n")
+                sys.stderr.write(
+                    "NEXT: set [scraper].cmd in clawsqlite.toml to a clawfetch or compatible scraper command, "
+                    "then run 'clawsqlite knowledge maintenance doctor --check-scraper --json'. "
+                    "For one-off debugging, pass --scrape-cmd \"<your-scraper> <url>\".\n"
+                )
+            else:
+                sys.stderr.write("ERROR_KIND: scraper_failed\n")
+                sys.stderr.write(
+                    "NEXT: bootstrap/check the scraper runtime, verify [scraper].cmd, and run "
+                    "'clawsqlite knowledge maintenance doctor --check-scraper --json'.\n"
+                )
             return 3
     else:
         body_md = args.text
@@ -841,6 +850,7 @@ def cmd_doctor(args) -> int:
         config=getattr(args, "_knowledge_config", None),
         check_embedding=bool(getattr(args, "check_embedding", False)),
         check_llm=bool(getattr(args, "check_llm", False)),
+        check_scraper=bool(getattr(args, "check_scraper", False)),
     )
 
 
@@ -1814,6 +1824,7 @@ def _add_doctor_parser(sub, *, name: str = "doctor") -> argparse.ArgumentParser:
     _add_common_flags(sp)
     sp.add_argument("--check-llm", action="store_true", help="Run an LLM HTTP/JSON roundtrip check")
     sp.add_argument("--check-embedding", action="store_true", help="Run embedding roundtrip check")
+    sp.add_argument("--check-scraper", action="store_true", help="Run scraper runtime roundtrip check with https://example.com")
     sp.set_defaults(func=cmd_doctor, cmd_leaf="doctor")
     return sp
 

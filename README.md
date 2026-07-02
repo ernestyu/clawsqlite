@@ -465,6 +465,11 @@ Recommended `clawsqlite.toml` usage:
 cmd = "node /path/to/scrape.js --some-flag"
 ```
 
+Without `[scraper].cmd`, `clawsqlite knowledge record ingest --url ...` fails
+with `ERROR_KIND: scraper_required`. Installing a ClawHub scraper skill is not
+the same thing as having a ready scraper runtime; bootstrap/runtime readiness
+must also be checked.
+
 The knowledge app will:
 
 - Read this value from `clawsqlite.toml`
@@ -637,9 +642,10 @@ clawsqlite knowledge maintenance doctor --json
 ```
 
 By default doctor performs lightweight config/schema checks only. It reports
-whether `[llm]` and `[embedding]` fields are complete without making provider
-HTTP calls. Use `--check-llm` and/or `--check-embedding` only when you explicitly
-want heavier roundtrip checks.
+whether `[llm]`, `[embedding]`, and `[scraper]` fields are complete without
+making provider HTTP calls or scraper network requests. Use `--check-llm`,
+`--check-embedding`, and/or `--check-scraper` only when you explicitly want
+heavier roundtrip checks.
 
 ### 6.3 record search
 
@@ -983,12 +989,18 @@ Do not confuse the two similarly named directories:
 - `skills/clawsqlite-knowledge/` is a thin Agent-facing instruction wrapper.
 
 The skill does not vendor this repository, clone GitHub, or ship a runtime JSON
-wrapper. Its install hook runs `bootstrap_deps.sh`, which installs the
-published `clawsqlite` PyPI package. Agents should create or enter a knowledge
-instance home such as `~/.openclaw/workspace/data/clawsqlite-knowledge/default`,
-keep `clawsqlite.toml`, `knowledge.sqlite3`, and `articles/` there, and run
-`clawsqlite knowledge ...` from that directory. Core logic, strict ingest,
-config loading, and error semantics remain owned by `clawsqlite knowledge`.
+wrapper. Installing from ClawHub installs only the wrapper; agents must run
+`bootstrap_deps.sh` before the CLI is usable. The bootstrap installs the
+published `clawsqlite` PyPI package and validates the stable skill-local entry
+`skills/clawsqlite-knowledge/bin/clawsqlite`; in managed Python environments,
+the global `clawsqlite` command may still be absent from `PATH`.
+
+Agents should create or enter a knowledge instance home such as
+`~/.openclaw/workspace/data/clawsqlite-knowledge/default`, keep
+`clawsqlite.toml`, `knowledge.sqlite3`, and `articles/` there, and run
+`<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge ...` from that
+directory. Core logic, strict ingest, config loading, and error semantics
+remain owned by `clawsqlite knowledge`.
 
 ## 9. Chinese Documentation
 

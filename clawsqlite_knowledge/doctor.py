@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
+import shutil
 import sqlite3
 import sys
 from dataclasses import dataclass, asdict
@@ -26,6 +28,7 @@ from typing import Any, Dict, List, Optional
 from .embed import embedding_enabled, get_embedding, _embedding_missing_keys, _resolve_vec_dim
 from . import db as dbmod
 from .config import KnowledgeConfig
+from .scraper import scrape_url
 
 
 @dataclass
@@ -408,6 +411,134 @@ def _check_llm_roundtrip(config: Optional[KnowledgeConfig] = None) -> CheckResul
         )
 
 
+def _check_scraper_config(config: Optional[KnowledgeConfig] = None) -> CheckResult:
+    cmd = config.scraper.cmd if config is not None else os.environ.get("CLAWSQLITE_SCRAPE_CMD", "")
+    cmd = (cmd or "").strip()
+    if not cmd:
+        return CheckResult(
+            name="scraper_config",
+            ok=False,
+            message="URL ingest scraper is not configured.",
+            next=(
+                "Set [scraper].cmd in clawsqlite.toml to a clawfetch or compatible scraper command "
+                "before using 'clawsqlite knowledge record ingest --url'."
+            ),
+            details={
+                "configured": False,
+                "skill_installed": "unknown",
+                "bootstrap_complete": "unknown",
+                "runtime_ready": False,
+            },
+        )
+
+    try:
+        argv = shlex.split(cmd.format(url="https://example.com") if "{url}" in cmd else cmd)
+    except Exception as e:
+        return CheckResult(
+            name="scraper_config",
+            ok=False,
+            message=f"Configured scraper command could not be parsed: {e}",
+            next="Fix [scraper].cmd quoting in clawsqlite.toml.",
+            details={"configured": True, "cmd": cmd, "runtime_ready": False},
+        )
+
+    if not argv:
+        return CheckResult(
+            name="scraper_config",
+            ok=False,
+            message="Configured scraper command is empty after parsing.",
+            next="Set [scraper].cmd to a non-empty command in clawsqlite.toml.",
+            details={"configured": True, "cmd": cmd, "runtime_ready": False},
+        )
+
+    executable = argv[0]
+    if os.path.sep in executable or (os.path.altsep and os.path.altsep in executable):
+        executable_path = Path(executable).expanduser()
+        executable_found = executable_path.exists()
+        resolved = str(executable_path)
+    else:
+        resolved_path = shutil.which(executable)
+        executable_found = bool(resolved_path)
+        resolved = resolved_path or executable
+
+    if not executable_found:
+        return CheckResult(
+            name="scraper_config",
+            ok=False,
+            message=f"Configured scraper executable was not found: {executable}",
+            next=(
+                "Install/bootstrap the scraper runtime, or update [scraper].cmd to point to an existing executable."
+            ),
+            details={
+                "configured": True,
+                "cmd": cmd,
+                "executable": executable,
+                "resolved_executable": resolved,
+                "skill_installed": "unknown",
+                "bootstrap_complete": False,
+                "runtime_ready": False,
+            },
+        )
+
+    return CheckResult(
+        name="scraper_config",
+        ok=True,
+        message="URL ingest scraper command is configured and its executable was found.",
+        next="Run doctor with --check-scraper to perform an explicit scraper runtime roundtrip.",
+        details={
+            "configured": True,
+            "cmd": cmd,
+            "executable": executable,
+            "resolved_executable": resolved,
+            "skill_installed": "unknown",
+            "bootstrap_complete": True,
+            "runtime_ready": "not_checked",
+        },
+    )
+
+
+def _check_scraper_roundtrip(config: Optional[KnowledgeConfig] = None) -> CheckResult:
+    config_check = _check_scraper_config(config)
+    if not config_check.ok:
+        return CheckResult(
+            name="scraper_runtime",
+            ok=False,
+            message="Scraper runtime was not checked because scraper_config is not ready.",
+            next=config_check.next,
+            details=config_check.details,
+        )
+
+    cmd = config.scraper.cmd if config is not None else os.environ.get("CLAWSQLITE_SCRAPE_CMD", "")
+    try:
+        title, body = scrape_url("https://example.com", scrape_cmd=cmd, timeout=45)
+        ok = bool((title or "").strip() or (body or "").strip())
+        if not ok:
+            return CheckResult(
+                name="scraper_runtime",
+                ok=False,
+                message="Scraper command ran but returned no title or body.",
+                next="Verify the configured scraper runtime and output format.",
+                details={"runtime_ready": False},
+            )
+        return CheckResult(
+            name="scraper_runtime",
+            ok=True,
+            message="Scraper runtime roundtrip succeeded.",
+            details={"runtime_ready": True, "title": title or "", "body_chars": len(body or "")},
+        )
+    except Exception as e:
+        return CheckResult(
+            name="scraper_runtime",
+            ok=False,
+            message=f"Scraper runtime roundtrip failed: {e}",
+            next=(
+                "Bootstrap the scraper package/runtime and verify browser/runtime dependencies, "
+                "then rerun doctor --check-scraper."
+            ),
+            details={"runtime_ready": False},
+        )
+
+
 def _check_capability_mode(config: Optional[KnowledgeConfig] = None) -> CheckResult:
     # This mirrors the high-level capability modes used in search scoring.
     missing = _embedding_missing_config(config)
@@ -520,6 +651,10 @@ def _config_report(config: Optional[KnowledgeConfig]) -> Dict[str, Any]:
             "has_api_key": bool(config.embedding.resolved_api_key),
             "dim": config.embedding.dim,
         },
+        "scraper": {
+            "configured": bool(config.scraper.cmd),
+            "cmd": config.scraper.cmd,
+        },
         "fts": {
             "jieba": config.fts.jieba,
         },
@@ -562,6 +697,7 @@ def run_doctor(
     config: Optional[KnowledgeConfig] = None,
     check_embedding: bool = False,
     check_llm: bool = False,
+    check_scraper: bool = False,
 ) -> int:
     checks: List[CheckResult] = []
 
@@ -574,6 +710,9 @@ def run_doctor(
     checks.append(_check_llm_config(config))
     if check_llm:
         checks.append(_check_llm_roundtrip(config))
+    checks.append(_check_scraper_config(config))
+    if check_scraper:
+        checks.append(_check_scraper_roundtrip(config))
     checks.append(_check_capability_mode(config))
 
     any_error = any(not c.ok for c in checks if c.name in {"knowledge_paths", "db_schema"})
@@ -585,6 +724,7 @@ def run_doctor(
         "roundtrip": {
             "llm_checked": bool(check_llm),
             "embedding_checked": bool(check_embedding),
+            "scraper_checked": bool(check_scraper),
         },
     }
     report.update(_config_report(config))

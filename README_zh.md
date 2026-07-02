@@ -188,6 +188,10 @@ merge_alpha = 0.40
 lang = "en"
 ```
 
+如果没有配置 `[scraper].cmd`，`clawsqlite knowledge record ingest --url ...`
+会以 `ERROR_KIND: scraper_required` 失败。安装 clawfetch 这类 ClawHub skill
+不等于 scraper runtime 已经就绪；还需要确认 bootstrap 和 runtime 检查通过。
+
 说明：
 
 - `root` 应保持为 `"."`，也就是 `clawsqlite.toml` 所在的 knowledge instance home。
@@ -348,9 +352,10 @@ metadata。最终 title、tags、category、content_type 必须由 LLM 生成；
 clawsqlite knowledge maintenance doctor --json
 ```
 
-默认 doctor 只做轻量配置和 schema 检查：它会判断 `[llm]` / `[embedding]`
-字段是否完整，但不会主动请求外部模型服务。只有显式传入 `--check-llm` 或
-`--check-embedding` 时，才会执行更重的 HTTP roundtrip 检查。
+默认 doctor 只做轻量配置和 schema 检查：它会判断 `[llm]` / `[embedding]` /
+`[scraper]` 字段是否完整，但不会主动请求外部模型服务或 scraper 网络请求。
+只有显式传入 `--check-llm`、`--check-embedding` 或 `--check-scraper` 时，
+才会执行更重的 roundtrip 检查。
 
 ### 搜索
 
@@ -421,10 +426,15 @@ clawsqlite knowledge maintenance backup --json
 - `skills/clawsqlite-knowledge/` 只是面向 Agent 的薄说明层。
 
 Skill 不 vendor 本仓库源码，不从 GitHub clone，也不提供额外运行时 JSON
-wrapper。它的安装钩子只运行 `bootstrap_deps.sh`，从 PyPI 安装已发布的
-`clawsqlite` 包。Agent 应先 `cd` 到 knowledge instance home，例如
+wrapper。从 ClawHub 安装只会得到 wrapper；必须运行 `bootstrap_deps.sh`，
+CLI 才可用。bootstrap 会安装 PyPI 上发布的 `clawsqlite` 包，并验证稳定的
+skill 本地入口 `skills/clawsqlite-knowledge/bin/clawsqlite`；在受管理的
+Python 环境里，全局 `clawsqlite` 命令可能仍然不会出现在 `PATH`。
+
+Agent 应先 `cd` 到 knowledge instance home，例如
 `~/.openclaw/workspace/data/clawsqlite-knowledge/default`，并在那里运行
-`clawsqlite knowledge ...`；Skill 不直接读数据库，不生成标签，不猜路径，也不默认降级。
+`<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge ...`；Skill
+不直接读数据库，不生成标签，不猜路径，也不默认降级。
 
 ---
 

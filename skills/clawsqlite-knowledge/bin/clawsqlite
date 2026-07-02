@@ -1,0 +1,31 @@
+#!/usr/bin/env sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SKILL_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+LOCAL_TARGET="$SKILL_DIR/.clawsqlite-python"
+
+if [ "${PYTHON:-}" ]; then
+  PYTHON_BIN="$PYTHON"
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN="python3"
+elif command -v python >/dev/null 2>&1; then
+  PYTHON_BIN="python"
+else
+  echo "ERROR: python3 was not found." >&2
+  echo "NEXT: install Python 3.10+ or set PYTHON=/path/to/python, then rerun bootstrap_deps.sh." >&2
+  exit 2
+fi
+
+if [ -d "$LOCAL_TARGET" ]; then
+  PYTHONPATH="$LOCAL_TARGET${PYTHONPATH:+:$PYTHONPATH}"
+  export PYTHONPATH
+fi
+
+if ! "$PYTHON_BIN" -m clawsqlite_cli --help >/dev/null 2>&1; then
+  echo "ERROR: clawsqlite Python package is not usable from this skill wrapper." >&2
+  echo "NEXT: cd $SKILL_DIR && bash bootstrap_deps.sh" >&2
+  exit 2
+fi
+
+exec "$PYTHON_BIN" -m clawsqlite_cli "$@"

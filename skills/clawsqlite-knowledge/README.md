@@ -5,6 +5,11 @@
 `clawsqlite-knowledge` is a thin OpenClaw/ClawHub skill wrapper around the
 published `clawsqlite` PyPI package.
 
+Installing this skill from ClawHub installs only the wrapper. Run
+`bootstrap_deps.sh` before using the CLI. In managed Python environments the
+global `clawsqlite` command may not appear on `PATH`; use the stable local
+entry `bin/clawsqlite`.
+
 It exists to help agents call the official `clawsqlite knowledge ...` CLI
 consistently from a fixed knowledge instance home.
 
@@ -30,7 +35,11 @@ sh bootstrap_deps.sh
 ```
 
 The bootstrap script installs or upgrades `clawsqlite` from PyPI and performs a
-minimal CLI check.
+minimal CLI check. It also validates the stable local entry:
+
+```bash
+./bin/clawsqlite
+```
 
 ## Configuration
 
@@ -38,7 +47,7 @@ Create or edit the local private config in a knowledge instance home, not in
 the skill directory:
 
 ```bash
-clawsqlite knowledge maintenance init-config --instance default
+./bin/clawsqlite knowledge maintenance init-config --instance default
 cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
 ```
 
@@ -49,18 +58,18 @@ variables as a second config layer.
 ## Validate With Doctor
 
 ```bash
-clawsqlite knowledge maintenance doctor --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge maintenance doctor --json
 ```
 
 ## Common Commands
 
 ```bash
-clawsqlite knowledge record ingest --url "https://example.com/post" --category web_article --json
-clawsqlite knowledge record ingest --text "some note" --title "Saved note" --category note --json
-clawsqlite knowledge record search "vector database design" --mode hybrid --json
-clawsqlite knowledge record show --id 123 --full --json
-clawsqlite knowledge maintenance cleanup --days 3 --dry-run --json
-clawsqlite knowledge maintenance backup --dry-run --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge record ingest --url "https://example.com/post" --category web_article --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge record ingest --text "some note" --title "Saved note" --category note --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge record search "vector database design" --mode hybrid --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge record show --id 123 --full --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge maintenance cleanup --days 3 --dry-run --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge maintenance backup --dry-run --json
 ```
 
 ## When To Use clawsqlite Directly

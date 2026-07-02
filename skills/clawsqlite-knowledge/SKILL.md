@@ -1,13 +1,21 @@
 ---
 name: clawsqlite-knowledge
 description: Knowledge base skill that uses the published clawsqlite CLI for ingest, search, show, and maintenance workflows.
-version: 1.0.3
+version: 1.0.4
 metadata: {"openclaw":{"homepage":"https://github.com/ernestyu/clawsqlite","tags":["knowledge","sqlite","search","cli"],"requires":{"bins":["python"],"env":[]},"install":[{"id":"clawsqlite_knowledge_bootstrap","kind":"bash","label":"Install clawsqlite Python package from PyPI","script":"set -e && cd {baseDir} && bash bootstrap_deps.sh"}]}}
 ---
 
 # ClawSQLite Knowledge Skill
 
 This skill is a thin wrapper around the published `clawsqlite` PyPI package.
+
+Important: installing this skill from ClawHub installs only the wrapper files.
+The `clawsqlite` CLI is not usable until `bootstrap_deps.sh` has been run.
+After bootstrap, prefer the stable skill-local entry:
+
+```bash
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite
+```
 
 It does not:
 
@@ -51,11 +59,15 @@ Install or upgrade the published package:
 sh bootstrap_deps.sh
 ```
 
+Managed Python environments may not expose a global `clawsqlite` command on
+`PATH`. Use `bin/clawsqlite` from this skill directory; it wraps the installed
+PyPI package and local fallback target.
+
 Then create or edit `./clawsqlite.toml` inside the knowledge instance home. If
 no config exists yet:
 
 ```bash
-clawsqlite knowledge maintenance init-config --instance default
+bin/clawsqlite knowledge maintenance init-config --instance default
 cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
 ```
 
@@ -64,7 +76,7 @@ cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
 After installation and config editing, validate with:
 
 ```bash
-clawsqlite knowledge maintenance doctor --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge maintenance doctor --json
 ```
 
 Doctor is lightweight by default. Only pass `--check-llm` or
@@ -85,7 +97,7 @@ Doctor is lightweight by default. Only pass `--check-llm` or
 Strict URL ingest:
 
 ```bash
-clawsqlite knowledge record ingest \
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge record ingest \
   --url "https://example.com/article" \
   --category web_article \
   --json
@@ -94,7 +106,7 @@ clawsqlite knowledge record ingest \
 Strict text ingest:
 
 ```bash
-clawsqlite knowledge record ingest \
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge record ingest \
   --text "A thought worth saving." \
   --title "A saved thought" \
   --category thought \
@@ -104,34 +116,34 @@ clawsqlite knowledge record ingest \
 Search:
 
 ```bash
-clawsqlite knowledge record search "vector database design" --mode hybrid --topk 5 --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge record search "vector database design" --mode hybrid --topk 5 --json
 ```
 
 Show one record:
 
 ```bash
-clawsqlite knowledge record show --id 123 --full --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge record show --id 123 --full --json
 ```
 
 Maintenance:
 
 ```bash
-clawsqlite knowledge maintenance reindex --check --json
-clawsqlite knowledge maintenance cleanup --days 3 --dry-run --json
-clawsqlite knowledge maintenance backup --dry-run --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge maintenance reindex --check --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge maintenance cleanup --days 3 --dry-run --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge maintenance backup --dry-run --json
 ```
 
 Analysis:
 
 ```bash
-clawsqlite knowledge analysis build-interest-clusters --json
-clawsqlite knowledge analysis report-interest --days 7 --no-pdf
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge analysis build-interest-clusters --json
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge analysis report-interest --days 7 --no-pdf
 ```
 
 Explicit degraded ingest, only when the user requested it:
 
 ```bash
-clawsqlite knowledge record ingest \
+<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge record ingest \
   --text "Local no-network test." \
   --title "Test" \
   --gen-provider off \

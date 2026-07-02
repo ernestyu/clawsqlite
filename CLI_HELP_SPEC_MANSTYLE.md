@@ -52,7 +52,8 @@ runtime. `[backup]` / `[backup.s3]` controls remote S3 backup.
 
 `maintenance doctor`
 : Report active config, DB status, schema health, vec availability, embedding
-  readiness, and LLM readiness.
+  readiness, LLM readiness, and scraper configuration. Use `--check-scraper`
+  only when an explicit scraper runtime roundtrip is desired.
 
 `maintenance reindex`
 : Check, fix, or rebuild derived DB indexes.
