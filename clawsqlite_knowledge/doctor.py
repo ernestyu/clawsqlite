@@ -6,7 +6,7 @@ from __future__ import annotations
 `clawsqlite knowledge maintenance doctor` 会运行一组检查，输出一份 JSON 报告，
 帮助你快速判断：
 
-- clawsqlite.toml 中的 root / DB 是否指向有效的知识库；
+- 当前 knowledge instance home 中的 DB 是否指向有效的知识库；
 - vec0 扩展和 vec 表是否可用；
 - Embedding 配置是否完整且能正常调用；
 - [llm] 配置是否完整；
@@ -62,7 +62,7 @@ def _check_kb_paths(config: Optional[KnowledgeConfig] = None) -> CheckResult:
                 f"Knowledge root {root!r} and DB {db_path!r} do not exist or are not configured."
             ),
             next=(
-                "Create or fix clawsqlite.toml ([knowledge].root/[knowledge].db), "
+                "Create or fix clawsqlite.toml in the knowledge instance home, set [knowledge].db, "
                 "then run 'clawsqlite knowledge record ingest' to initialize the database."
             ),
             details={"root": root, "db": db_path},
@@ -90,8 +90,8 @@ def _check_kb_paths(config: Optional[KnowledgeConfig] = None) -> CheckResult:
                 f"DB file exists at {db_path!r}, but configured root {root!r} directory is missing."
             ),
             next=(
-                "Set [knowledge].root in clawsqlite.toml to the directory that contains "
-                "your articles/, or recreate the expected directory tree."
+                "cd to the directory containing clawsqlite.toml. [knowledge].root should be '.', "
+                "with articles/ and the DB kept under the same knowledge instance home."
             ),
             details={"root": root, "db": db_path},
         )

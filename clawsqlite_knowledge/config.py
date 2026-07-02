@@ -3,7 +3,8 @@
 
 This module is intentionally owned by the knowledge component. The top-level
 `clawsqlite admin ...` namespace also reads this config so maintenance commands
-share the same component root, DB path, and runtime settings as knowledge.
+share the same knowledge instance home, DB path, and runtime settings as
+knowledge.
 """
 from __future__ import annotations
 
@@ -19,6 +20,14 @@ except Exception:  # pragma: no cover - Python 3.10 fallback
 
 
 CONFIG_FILENAME = "clawsqlite.toml"
+CONFIG_NOT_FOUND_HINT = (
+    "clawsqlite.toml not found in the current directory. The knowledge instance "
+    "home is the directory that contains clawsqlite.toml. To recover, search for "
+    "it and cd to that directory before rerunning the command, for example: "
+    "`find ~/.openclaw ~ -name clawsqlite.toml -print 2>/dev/null`; if needed, "
+    "search the whole system with `find / -name clawsqlite.toml -print 2>/dev/null`; "
+    "then run `cd $(dirname <found-path>)`."
+)
 DEFAULT_SUMMARY_TARGET_CHARS = 3600
 DEFAULT_TAG_COUNT = 8
 DEFAULT_ALLOWED_CATEGORIES = (
@@ -267,10 +276,7 @@ def load_knowledge_config(
 ) -> KnowledgeConfig:
     cfg_path = find_config_path()
     if cfg_path is None:
-        raise ConfigError(
-            "clawsqlite.toml not found in the current component root. "
-            "Run from the directory that contains clawsqlite.toml, or create one with init-config."
-        )
+        raise ConfigError(CONFIG_NOT_FOUND_HINT)
 
     try:
         data = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
@@ -290,12 +296,19 @@ def load_knowledge_config(
     report = data.get("report") or {}
     backup = data.get("backup") or {}
 
-    root_text = str(knowledge.get("root") or "").strip()
-    if not root_text:
-        raise ConfigError("[knowledge].root is required in clawsqlite.toml")
-    root = Path(root_text).expanduser()
-    if not root.is_absolute():
-        root = (cfg_path.parent / root).resolve()
+    instance_home = cfg_path.parent.resolve()
+    root_text = str(knowledge.get("root") or ".").strip() or "."
+    root_candidate = Path(root_text).expanduser()
+    if not root_candidate.is_absolute():
+        root_candidate = (instance_home / root_candidate).resolve()
+    else:
+        root_candidate = root_candidate.resolve()
+    if root_candidate != instance_home:
+        raise ConfigError(
+            "[knowledge].root must be '.' or the directory containing clawsqlite.toml. "
+            "Keep clawsqlite.toml, the DB, and articles/ together in one knowledge instance home."
+        )
+    root = instance_home
 
     db_path = _resolve_under_root(root, str(knowledge.get("db") or ""), "knowledge.sqlite3")
     articles_dir = _resolve_under_root(root, str(knowledge.get("articles_dir") or ""), "articles")
@@ -394,8 +407,8 @@ def load_knowledge_config(
 
     return KnowledgeConfig(
         config_path=str(cfg_path.resolve()),
-        config_resolution_mode="component_root_config",
-        config_source_reason=f"loaded {CONFIG_FILENAME} from the current component root",
+        config_resolution_mode="knowledge_instance_home_config",
+        config_source_reason=f"loaded {CONFIG_FILENAME} from the current knowledge instance home",
         root=str(root),
         db=db_path,
         articles_dir=articles_dir,

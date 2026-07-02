@@ -36,7 +36,7 @@ def write_knowledge_config(
     config_path.write_text(
         f"""
 [knowledge]
-root = "{root}"
+root = "."
 db = "knowledge.sqlite3"
 articles_dir = "articles"
 

@@ -3,7 +3,7 @@
 # `clawsqlite knowledge ...` and `clawsqlite admin ...`.
 
 [knowledge]
-root = "./knowledge_data"
+root = "."
 db = "knowledge.sqlite3"
 articles_dir = "articles"
 

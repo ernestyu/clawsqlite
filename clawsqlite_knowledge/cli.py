@@ -6,7 +6,8 @@ Implements:
 - ingest / reindex / search / show / update / delete / export / doctor
 
 Note on CLI ergonomics:
-- Knowledge commands load the current component-root clawsqlite.toml before resolving paths.
+- Knowledge commands load ./clawsqlite.toml from the current knowledge instance
+  home before resolving paths.
 """
 from __future__ import annotations
 
@@ -280,7 +281,7 @@ def cmd_init_config(args) -> int:
         sys.stderr.write(f"ERROR: config already exists at {path}\n")
         sys.stderr.write("NEXT: pass --force to overwrite, or choose --out /path/to/clawsqlite.toml.\n")
         return 2
-    root = "./knowledge_data"
+    root = "."
     ensure_dir(os.path.dirname(path) or ".")
     with open(path, "w", encoding="utf-8") as f:
         f.write(CONFIG_TEMPLATE.format(root=root))
@@ -635,8 +636,8 @@ def cmd_show(args) -> int:
     paths = _resolve_paths(args)
     db_path = paths["db"]
     if not os.path.exists(db_path):
-        sys.stderr.write(f"ERROR: db not found at {db_path}. Check current component-root clawsqlite.toml.\n")
-        sys.stderr.write("NEXT: set [knowledge].root/[knowledge].db in clawsqlite.toml, "
+        sys.stderr.write(f"ERROR: db not found at {db_path}. Check current knowledge instance home clawsqlite.toml.\n")
+        sys.stderr.write("NEXT: cd to the directory containing clawsqlite.toml and set [knowledge].db, "
                          "or run an ingest command first to initialize the DB.\n")
         return 2
     conn = None
@@ -707,7 +708,7 @@ def cmd_export(args) -> int:
     try:
         db_path = paths["db"]
         if not os.path.exists(db_path):
-            sys.stderr.write(f"ERROR: db not found at {db_path}. Check current component-root clawsqlite.toml.\n")
+            sys.stderr.write(f"ERROR: db not found at {db_path}. Check current knowledge instance home clawsqlite.toml.\n")
             return 2
         conn = _open_for_command(db_path, need_fts=False, need_vec=False, args=args)
         row = dbmod.get_article(conn, int(args.id))
@@ -895,8 +896,8 @@ def cmd_update(args) -> int:
     try:
         db_path = paths["db"]
         if not os.path.exists(db_path):
-            sys.stderr.write(f"ERROR: db not found at {db_path}. Check current component-root clawsqlite.toml.\n")
-            sys.stderr.write("NEXT: set [knowledge].root/[knowledge].db in clawsqlite.toml, "
+            sys.stderr.write(f"ERROR: db not found at {db_path}. Check current knowledge instance home clawsqlite.toml.\n")
+            sys.stderr.write("NEXT: cd to the directory containing clawsqlite.toml and set [knowledge].db, "
                              "or run an ingest command first to initialize the DB.\n")
             return 2
         conn = _open_for_command(db_path, need_fts=True, need_vec=True, args=args)
@@ -1522,9 +1523,9 @@ def cmd_build_interest_clusters(args) -> int:
     paths = _resolve_paths(args)
     db_path = paths["db"]
     if not os.path.exists(db_path):
-        sys.stderr.write(f"ERROR: db not found at {db_path}. Check current component-root clawsqlite.toml.\n")
+        sys.stderr.write(f"ERROR: db not found at {db_path}. Check current knowledge instance home clawsqlite.toml.\n")
         sys.stderr.write(
-            "NEXT: set [knowledge].root/[knowledge].db in clawsqlite.toml, "
+            "NEXT: cd to the directory containing clawsqlite.toml and set [knowledge].db, "
             "or run an ingest command first to initialize the DB.\n"
         )
         return 2
@@ -1576,7 +1577,7 @@ def cmd_inspect_interest_clusters(args) -> int:
     paths = _resolve_paths(args)
     db_path = paths["db"]
     if not os.path.exists(db_path):
-        sys.stderr.write(f"ERROR: db not found at {db_path}. Check current component-root clawsqlite.toml.\n")
+        sys.stderr.write(f"ERROR: db not found at {db_path}. Check current knowledge instance home clawsqlite.toml.\n")
         return 2
     try:
         try:
@@ -1607,7 +1608,7 @@ def cmd_report_interest(args) -> int:
     paths = _resolve_paths(args)
     db_path = paths["db"]
     if not os.path.exists(db_path):
-        sys.stderr.write(f"ERROR: db not found at {db_path}. Check current component-root clawsqlite.toml.\n")
+        sys.stderr.write(f"ERROR: db not found at {db_path}. Check current knowledge instance home clawsqlite.toml.\n")
         return 2
     try:
         try:
@@ -1936,7 +1937,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         sys.stderr.write("ERROR_KIND: config_required\n")
         sys.stderr.write(
             "NEXT: create clawsqlite.toml with 'clawsqlite knowledge maintenance init-config', "
-            "then run the command from that component root or a directory inside it.\n"
+            "then cd to that knowledge instance home and rerun the command.\n"
         )
         return 2
     return int(args.func(args))

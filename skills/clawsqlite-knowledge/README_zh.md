@@ -36,9 +36,11 @@ sh bootstrap_deps.sh
 
 ## 配置
 
-在当前 skill/component 目录创建或编辑私有配置：
+在 knowledge instance home 中创建或编辑私有配置，不要放在 skill 目录里：
 
 ```bash
+mkdir -p ~/.openclaw/workspace/data/clawsqlite-knowledge/default
+cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
 clawsqlite knowledge maintenance init-config --out clawsqlite.toml
 ```
 
@@ -65,5 +67,5 @@ clawsqlite knowledge maintenance backup --dry-run --json
 ## 什么时候直接用 clawsqlite
 
 如果你在开发、调试、修改上游包本身，应该直接使用 `clawsqlite` 项目。
-如果 Agent 只是要操作一个已配置的知识库 component，就使用这个 skill
+如果 Agent 只是要操作一个已配置的知识库 instance，就使用这个 skill
 提供的薄说明层。

@@ -22,12 +22,15 @@ It does:
 - guide agents to use the official `clawsqlite knowledge ...` CLI
 - document common workflows for knowledge-base operations
 
-## Component Root
+## Knowledge Instance Home
 
-Run commands from this skill directory:
+This skill directory is only the instruction shell. Do not store the user's
+knowledge DB or private config here. Run `clawsqlite knowledge ...` from a
+knowledge instance home instead, for example:
 
 ```bash
-cd <workspace>/skills/clawsqlite-knowledge
+mkdir -p ~/.openclaw/workspace/data/clawsqlite-knowledge/default
+cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
 ```
 
 The local private config must be:
@@ -48,7 +51,8 @@ Install or upgrade the published package:
 sh bootstrap_deps.sh
 ```
 
-Then create or edit `./clawsqlite.toml` directly. If no config exists yet:
+Then create or edit `./clawsqlite.toml` inside the knowledge instance home. If
+no config exists yet:
 
 ```bash
 clawsqlite knowledge maintenance init-config --out clawsqlite.toml
@@ -68,7 +72,7 @@ Doctor is lightweight by default. Only pass `--check-llm` or
 ## Agent Rules
 
 - Use only the official `clawsqlite` CLI.
-- Stay in the component root when running `clawsqlite knowledge ...`.
+- Stay in the knowledge instance home when running `clawsqlite knowledge ...`.
 - Use the three-level command tree: `record`, `maintenance`, `analysis`.
 - Do not call removed flat commands such as `clawsqlite knowledge ingest`.
 - Do not vendor, clone, or patch `clawsqlite` inside this skill directory.

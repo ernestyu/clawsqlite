@@ -7,8 +7,6 @@ from __future__ import annotations
 import os
 from .utils import slugify
 
-DEFAULT_ARTICLES_DIR = "/home/node/.openclaw/workspace/clawsqlite/knowledge_data/articles"
-
 def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 

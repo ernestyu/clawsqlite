@@ -48,7 +48,7 @@ class KnowledgeConfigTomlTests(unittest.TestCase):
         os.environ.update(self._env)
         dbmod._find_vec0_so = self._find_vec0_so
 
-    def test_find_config_uses_only_current_component_root(self):
+    def test_find_config_uses_only_current_instance_home(self):
         with _tempdir() as tmpdir:
             root = tmpdir / "kb"
             config_path = write_knowledge_config(root)
@@ -64,8 +64,8 @@ class KnowledgeConfigTomlTests(unittest.TestCase):
             with _cwd(root):
                 cfg = load_knowledge_config()
             self.assertEqual(cfg.root, str(root))
-            self.assertEqual(cfg.config_resolution_mode, "component_root_config")
-            self.assertIn("current component root", cfg.config_source_reason)
+            self.assertEqual(cfg.config_resolution_mode, "knowledge_instance_home_config")
+            self.assertIn("current knowledge instance home", cfg.config_source_reason)
             self.assertEqual(cfg.db, str(root / "knowledge.sqlite3"))
             self.assertEqual(cfg.articles_dir, str(root / "articles"))
             self.assertTrue(cfg.ingest.require_llm)
@@ -212,7 +212,7 @@ lang = "zh"
         self.assertEqual(os.environ["CLAWSQLITE_INTEREST_USE_PCA"], "false")
         self.assertEqual(os.environ["CLAWSQLITE_REPORT_LANG"], "zh")
 
-    def test_relative_root_resolves_from_config_directory(self):
+    def test_config_rejects_root_outside_instance_home(self):
         with _tempdir() as tmpdir:
             project = tmpdir / "project"
             project.mkdir()
@@ -227,11 +227,10 @@ articles_dir = "articles"
                 encoding="utf-8",
             )
 
-            with _cwd(project):
-                cfg = load_knowledge_config()
-
-            self.assertEqual(cfg.root, str(project / "knowledge_data"))
-            self.assertEqual(cfg.db, str(project / "knowledge_data" / "knowledge.sqlite3"))
+            with self.assertRaises(ConfigError) as ctx:
+                with _cwd(project):
+                    load_knowledge_config()
+            self.assertIn("knowledge instance home", str(ctx.exception))
 
     def test_config_rejects_non_fail_fallback_policy(self):
         with _tempdir() as tmpdir:
@@ -258,14 +257,16 @@ articles_dir = "articles"
                 with _cwd(root):
                     load_knowledge_config()
 
-    def test_config_file_requires_root(self):
+    def test_config_file_root_defaults_to_instance_home(self):
         with _tempdir() as tmpdir:
             config_path = tmpdir / "clawsqlite.toml"
             config_path.write_text("[knowledge]\ndb = \"knowledge.sqlite3\"\n", encoding="utf-8")
 
-            with self.assertRaises(ConfigError):
-                with _cwd(tmpdir):
-                    load_knowledge_config()
+            with _cwd(tmpdir):
+                cfg = load_knowledge_config()
+
+            self.assertEqual(cfg.root, str(tmpdir))
+            self.assertEqual(cfg.db, str(tmpdir / "knowledge.sqlite3"))
 
 
 if __name__ == "__main__":  # pragma: no cover

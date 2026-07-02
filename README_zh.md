@@ -4,13 +4,13 @@
 
 `clawsqlite` 是一个围绕 SQLite 打造的 CLI 工具箱。它有两层：
 
-- `clawsqlite admin ...`：当前 knowledge component 的管理员维护面，读取同一份 `clawsqlite.toml`，面向诊断、维护和恢复。
+- `clawsqlite admin ...`：当前 knowledge instance 的管理员维护面，读取同一份 `clawsqlite.toml`，面向诊断、维护和恢复。
 - `clawsqlite knowledge ...`：面向文章、笔记、想法入库的知识库应用，读取 `clawsqlite.toml`。
 
 这一层次很重要：`sqlite3` 才是系统级任意 SQLite 工具；`clawsqlite admin`
-不是第二个 sqlite3，而是当前知识库 component 的维护接口。它和
-Knowledge 共享同一个 component root、同一个 `clawsqlite.toml`、同一个
-root / db / articles_dir / 运行配置。`--db`、`--root` 等路径参数只作为
+不是第二个 sqlite3，而是当前知识库 instance 的维护接口。它和
+Knowledge 共享同一个 knowledge instance home、同一个 `clawsqlite.toml`、同一个
+db / articles_dir / 运行配置。`--db`、`--root` 等路径参数只作为
 明确的调试或恢复覆盖，不是常规入口。
 
 维护边界也要清楚：`admin index rebuild` 是 DB-only / index-only 的索引维护，
@@ -46,9 +46,18 @@ Knowledge 命令默认会读取 `clawsqlite.toml`。不要让 Agent 猜数据库
 可以直接放真实 API key。`clawsqlite.toml.example` 只是公开示例模板，
 里面只应该保留占位值和说明。
 
-配置查找只有一条规则：Knowledge 命令只读取当前 component root 下的
-`./clawsqlite.toml`。直接使用时当前目录应是 clawsqlite repo 根目录；通过
-OpenClaw/ClawHub 使用时当前目录应是 skill 目录。不会向父目录搜索，也没有 CLI 配置覆盖入口。
+配置查找只有一条规则：Knowledge 命令只读取当前 knowledge instance home 下的
+`./clawsqlite.toml`。这个目录不是源码 repo，也不是 skill 目录，而是用户数据目录，
+用于同时保存私有配置、DB 和 `articles/`。不会向父目录搜索，也没有 CLI 配置覆盖入口。
+
+推荐 OpenClaw 布局：
+
+```text
+~/.openclaw/workspace/data/clawsqlite-knowledge/default/
+  clawsqlite.toml
+  knowledge.sqlite3
+  articles/
+```
 
 创建模板：
 
@@ -62,7 +71,7 @@ cp clawsqlite.toml.example clawsqlite.toml
 
 ```toml
 [knowledge]
-root = "./knowledge_data"
+root = "."
 db = "knowledge.sqlite3"
 articles_dir = "articles"
 
@@ -176,9 +185,9 @@ lang = "en"
 
 说明：
 
-- `root` 相对路径按配置文件所在目录解析。
-- `db` 和 `articles_dir` 相对路径按 `root` 解析。
-- Knowledge 的 root / db / articles 路径不再通过 CLI 覆盖；要修改就改私有 `clawsqlite.toml`。
+- `root` 应保持为 `"."`，也就是 `clawsqlite.toml` 所在的 knowledge instance home。
+- `db` 和 `articles_dir` 相对路径按 instance home 解析。
+- Knowledge 的 db / articles 路径不再通过 CLI 覆盖；要修改就改私有 `clawsqlite.toml`。
 - `clawsqlite.toml` 是唯一项目配置文件；本项目不再提供额外环境模板，
   CLI 也不会自动读取 dot-env 文件作为第二配置源。
 
@@ -414,9 +423,9 @@ clawsqlite knowledge maintenance backup --json
 
 Skill 不 vendor 本仓库源码，不从 GitHub clone，也不提供额外运行时 JSON
 wrapper。它的安装钩子只运行 `bootstrap_deps.sh`，从 PyPI 安装已发布的
-`clawsqlite` 包。Agent 应先 `cd` 到该 skill 目录，把它作为 component root，
-然后直接运行 `clawsqlite knowledge ...`；Skill 不直接读数据库，不生成标签，
-不猜路径，也不默认降级。
+`clawsqlite` 包。Agent 应先 `cd` 到 knowledge instance home，例如
+`~/.openclaw/workspace/data/clawsqlite-knowledge/default`，并在那里运行
+`clawsqlite knowledge ...`；Skill 不直接读数据库，不生成标签，不猜路径，也不默认降级。
 
 ---
 

@@ -32,7 +32,11 @@ cat <<'EOF'
 clawsqlite-knowledge dependencies installed.
 
 Next steps:
-1. Create or edit ./clawsqlite.toml in this skill/component directory.
-2. Validate with:
+1. Create and enter a knowledge instance home, for example:
+   mkdir -p ~/.openclaw/workspace/data/clawsqlite-knowledge/default
+   cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
+2. Create or edit ./clawsqlite.toml there:
+   clawsqlite knowledge maintenance init-config --out clawsqlite.toml
+3. Validate with:
    clawsqlite knowledge maintenance doctor --json
 EOF

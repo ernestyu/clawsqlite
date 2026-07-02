@@ -4,7 +4,8 @@
 
 `clawsqlite knowledge` is the knowledge-base layer for storing articles, notes,
 and discussion summaries in SQLite plus Markdown files. It reads
-`clawsqlite.toml` from the current component root before running commands.
+`./clawsqlite.toml` from the current knowledge instance home before running
+commands.
 
 The command surface is grouped into three required groups:
 
@@ -17,8 +18,9 @@ Legacy flat commands are intentionally unsupported. Use
 
 ## Configuration
 
-Knowledge commands read only `./clawsqlite.toml` from the current component
-root. This file is the local private source of truth.
+Knowledge commands read only `./clawsqlite.toml` from the current knowledge
+instance home. This file is the local private source of truth, and the same
+directory should contain the configured DB and `articles/` directory.
 
 Create a template:
 
@@ -26,7 +28,8 @@ Create a template:
 clawsqlite knowledge maintenance init-config --out clawsqlite.toml
 ```
 
-`[knowledge]` controls root, DB, and Markdown paths. `[ingest]`, `[llm]`,
+`[knowledge]` keeps `root = "."` and controls DB and Markdown paths relative to
+the instance home. `[ingest]`, `[llm]`,
 `[embedding]`, `[search]`, `[interest]`, and `[report]` control the knowledge
 runtime. `[backup]` / `[backup.s3]` controls remote S3 backup.
 

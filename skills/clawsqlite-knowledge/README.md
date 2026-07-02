@@ -6,7 +6,7 @@
 published `clawsqlite` PyPI package.
 
 It exists to help agents call the official `clawsqlite knowledge ...` CLI
-consistently from a fixed component root.
+consistently from a fixed knowledge instance home.
 
 ## Relationship To clawsqlite
 
@@ -34,9 +34,12 @@ minimal CLI check.
 
 ## Configuration
 
-Create or edit the local private config in this skill directory:
+Create or edit the local private config in a knowledge instance home, not in
+the skill directory:
 
 ```bash
+mkdir -p ~/.openclaw/workspace/data/clawsqlite-knowledge/default
+cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
 clawsqlite knowledge maintenance init-config --out clawsqlite.toml
 ```
 
@@ -65,4 +68,4 @@ clawsqlite knowledge maintenance backup --dry-run --json
 
 Use `clawsqlite` directly whenever you are developing or debugging the upstream
 package itself. Use this skill when an Agent needs a small, stable instruction
-surface for operating a configured knowledge component.
+surface for operating a configured knowledge instance.

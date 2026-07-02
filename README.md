@@ -10,7 +10,7 @@ This repo currently focuses on the **knowledge** app:
 
 - commands are exposed under `clawsqlite knowledge ...` for users/skills.
 - SQLite/FTS/filesystem/embedding maintenance commands are exposed under
-  `clawsqlite admin ...` for the current configured knowledge component.
+  `clawsqlite admin ...` for the current configured knowledge instance.
 
 Naming note: `clawsqlite_knowledge` is the Python package that implements the
 Knowledge app. `skills/clawsqlite-knowledge` is only a thin OpenClaw/ClawHub
@@ -41,10 +41,10 @@ The knowledge app helps you:
 - **Markdown storage**
   - Each article is stored as `articles/<id>__<slug>.md`
   - Markdown files include a small METADATA header + MARKDOWN body section
-- **Project config**
-  - All data lives under a single root directory
-  - Knowledge and admin commands read the same component-root `clawsqlite.toml`
-  - DB and articles dir default to `<root>/knowledge.sqlite3` and `<root>/articles`
+- **Knowledge instance home**
+  - Real local config and data live together outside the repo/skill shell
+  - Knowledge and admin commands read the same `./clawsqlite.toml` from the current instance home
+  - DB and articles dir default to `./knowledge.sqlite3` and `./articles`
 - **Embeddings + LLM**
   - Embeddings: OpenAI‑compatible `/v1/embeddings` API
   - LLM: OpenAI‑compatible `/v1/chat/completions` API
@@ -64,7 +64,7 @@ The knowledge app helps you:
     - applies an optional **log compression** to the lexical tag score
       so that many partial tag hits don’t overpower the semantic channels
 - **CLI first**
-  - Simple subcommands: `ingest`, `search`, `show`, `export`, `update`, `delete`, `reindex`, `doctor`
+  - Three-level Knowledge tree: `record`, `maintenance`, and `analysis`
   - Maintenance primitives live under `clawsqlite admin db/index/fs/embed ...`
 
 ---
@@ -182,17 +182,28 @@ python3 -m clawsqlite_knowledge.cli maintenance doctor
 ### 4.1 `clawsqlite.toml`
 
 The knowledge app is configured by `clawsqlite.toml`. This is deliberate:
-Agents should run the Knowledge CLI and let it load the configured root, DB,
-LLM, and embedding settings instead of guessing file names.
+Agents should run the Knowledge CLI from a knowledge instance home and let it
+load the configured DB, articles directory, LLM, and embedding settings instead
+of guessing file names.
 
 Treat `clawsqlite.toml` as the local private source of truth. The checked-in
 `clawsqlite.toml.example` is only a public template with placeholders; the real
 `clawsqlite.toml` is ignored by git and may contain real API keys.
 
-Config lookup is intentionally single-source: Knowledge commands read only `./clawsqlite.toml` from the current component root.
-The current working directory is the component root: the repo root for direct
-CLI use, or the skill directory for OpenClaw/ClawHub use. There is no parent
-directory search and no config-path override.
+Config lookup is intentionally single-source: Knowledge commands read only
+`./clawsqlite.toml` from the current knowledge instance home. There is no
+parent-directory search and no config-path override.
+
+The instance home is not the source repo and not the skill directory. It is a
+user data directory that contains the private config, DB, and `articles/`
+together. A good OpenClaw layout is:
+
+```text
+~/.openclaw/workspace/data/clawsqlite-knowledge/default/
+  clawsqlite.toml
+  knowledge.sqlite3
+  articles/
+```
 
 Create a template:
 
@@ -206,7 +217,7 @@ Minimal shape:
 
 ```toml
 [knowledge]
-root = "./knowledge_data"
+root = "."
 db = "knowledge.sqlite3"
 articles_dir = "articles"
 
@@ -486,21 +497,22 @@ The knowledge app will parse these into `title` and markdown body.
 
 ### 5.1 Minimal setup
 
-1. **Clone & cd**
+1. **Create and enter a knowledge instance home**
 
    ```bash
-   git clone git@github.com:ernestyu/clawsqlite.git
-   cd clawsqlite
+   mkdir -p ~/.openclaw/workspace/data/clawsqlite-knowledge/default
+   cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
    ```
 
-2. **Create and edit `clawsqlite.toml`**
+2. **Create and edit the private `clawsqlite.toml`**
 
    ```bash
    clawsqlite knowledge maintenance init-config --out clawsqlite.toml
    ```
 
-   Fill in `[knowledge].root`, `[llm]`, and `[embedding]` directly in this
-   private file, including real API keys.
+   Keep `[knowledge].root = "."`, then fill in `[knowledge].db`, `[llm]`,
+   `[embedding]`, and other settings directly in this private file, including
+   real API keys.
 
 3. **First strict ingest (text)** – this also creates the DB and basic tables:
 
@@ -587,8 +599,9 @@ most one active record.
 
 ## 6. CLI Overview
 
-All Knowledge commands read `./clawsqlite.toml` from the current component root before resolving
-paths. Common flags include `--json` and `--verbose`.
+All Knowledge commands read `./clawsqlite.toml` from the current knowledge
+instance home before resolving paths. Common flags include `--json` and
+`--verbose`.
 Run `clawsqlite knowledge <group> <command> --help` for full details.
 
 ### 6.1 record ingest
@@ -658,7 +671,7 @@ All read/update/delete style commands **check that the DB file exists** before o
 - If `clawsqlite.toml` points to a non‑existent DB path, they report:
 
   ```text
-  ERROR: db not found at /path/to/db. Check current component-root clawsqlite.toml.
+  ERROR: db not found at /path/to/db. Check current knowledge instance home clawsqlite.toml.
   ```
 
   instead of silently creating an empty DB and then failing with `id not found`.
@@ -704,9 +717,9 @@ actually usable for the current DB.
 ### 6.7 admin primitives
 
 Maintenance primitives live under `clawsqlite admin ...`. They are the
-administrator surface for the current knowledge component, not a replacement
+administrator surface for the current knowledge instance, not a replacement
 for the system `sqlite3` tool. By default, admin commands read the same
-component-root `clawsqlite.toml` as `clawsqlite knowledge ...` and use its
+knowledge instance `./clawsqlite.toml` as `clawsqlite knowledge ...` and use its
 `[knowledge].db`, `[knowledge].articles_dir`, and runtime service settings.
 Flags such as `--db`, `--root`, `--table`, and `--path-col` are explicit
 debug/recovery overrides, not the normal path.
@@ -970,10 +983,11 @@ Do not confuse the two similarly named directories:
 
 The skill does not vendor this repository, clone GitHub, or ship a runtime JSON
 wrapper. Its install hook runs `bootstrap_deps.sh`, which installs the
-published `clawsqlite` PyPI package. Agents should `cd` to the skill directory,
-treat that directory as the component root, and run `clawsqlite knowledge ...`
-directly. Core logic, strict ingest, config loading, and error semantics remain
-owned by `clawsqlite knowledge`.
+published `clawsqlite` PyPI package. Agents should create or enter a knowledge
+instance home such as `~/.openclaw/workspace/data/clawsqlite-knowledge/default`,
+keep `clawsqlite.toml`, `knowledge.sqlite3`, and `articles/` there, and run
+`clawsqlite knowledge ...` from that directory. Core logic, strict ingest,
+config loading, and error semantics remain owned by `clawsqlite knowledge`.
 
 ## 9. Chinese Documentation
 
