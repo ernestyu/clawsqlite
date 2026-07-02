@@ -48,7 +48,7 @@ the skill directory:
 
 ```bash
 ./bin/clawsqlite knowledge maintenance init-config --instance default
-cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
+cd ~/.local/share/clawsqlite-knowledge/default
 ```
 
 `clawsqlite.toml` is the single runtime configuration source. This skill does

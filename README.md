@@ -199,7 +199,7 @@ user data directory that contains the private config, DB, and `articles/`
 together. A good OpenClaw layout is:
 
 ```text
-~/.openclaw/workspace/data/clawsqlite-knowledge/default/
+~/.local/share/clawsqlite-knowledge/default/
   clawsqlite.toml
   knowledge.sqlite3
   articles/
@@ -209,7 +209,7 @@ Create a template:
 
 ```bash
 clawsqlite knowledge maintenance init-config --instance default
-cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
+cd ~/.local/share/clawsqlite-knowledge/default
 # or copy the checked-in example
 cp clawsqlite.toml.example clawsqlite.toml
 ```
@@ -511,7 +511,7 @@ The knowledge app will parse these into `title` and markdown body.
 
    ```bash
    clawsqlite knowledge maintenance init-config --instance default
-   cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
+   cd ~/.local/share/clawsqlite-knowledge/default
    ```
 
 2. **Edit the private `clawsqlite.toml`**
@@ -646,6 +646,10 @@ whether `[llm]`, `[embedding]`, and `[scraper]` fields are complete without
 making provider HTTP calls or scraper network requests. Use `--check-llm`,
 `--check-embedding`, and/or `--check-scraper` only when you explicitly want
 heavier roundtrip checks.
+
+Doctor also emits `url_ingest_ready`, a summary with `ready`,
+`missing`, `failed`, and `not_checked` fields so an Agent can answer whether a
+URL ingest can run now or which prerequisite is still blocking it.
 
 ### 6.3 record search
 
@@ -996,7 +1000,7 @@ published `clawsqlite` PyPI package and validates the stable skill-local entry
 the global `clawsqlite` command may still be absent from `PATH`.
 
 Agents should create or enter a knowledge instance home such as
-`~/.openclaw/workspace/data/clawsqlite-knowledge/default`, keep
+`~/.local/share/clawsqlite-knowledge/default`, keep
 `clawsqlite.toml`, `knowledge.sqlite3`, and `articles/` there, and run
 `<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge ...` from that
 directory. Core logic, strict ingest, config loading, and error semantics

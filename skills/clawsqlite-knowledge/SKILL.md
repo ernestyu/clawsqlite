@@ -37,8 +37,8 @@ knowledge DB or private config here. Run `clawsqlite knowledge ...` from a
 knowledge instance home instead, for example:
 
 ```bash
-mkdir -p ~/.openclaw/workspace/data/clawsqlite-knowledge/default
-cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
+mkdir -p ~/.local/share/clawsqlite-knowledge/default
+cd ~/.local/share/clawsqlite-knowledge/default
 ```
 
 The local private config must be:
@@ -68,7 +68,7 @@ no config exists yet:
 
 ```bash
 bin/clawsqlite knowledge maintenance init-config --instance default
-cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
+cd ~/.local/share/clawsqlite-knowledge/default
 ```
 
 ## Validate

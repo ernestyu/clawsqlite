@@ -50,7 +50,7 @@ sh bootstrap_deps.sh
 
 ```bash
 ./bin/clawsqlite knowledge maintenance init-config --instance default
-cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
+cd ~/.local/share/clawsqlite-knowledge/default
 ```
 
 `clawsqlite.toml` 是唯一运行配置来源。这里没有提供 env 示例文件，

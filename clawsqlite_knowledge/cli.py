@@ -276,7 +276,23 @@ def _maybe_warn_fts_fallback(conn) -> None:
 
 
 def _default_instance_base() -> Path:
-    return Path.home() / ".openclaw" / "workspace" / "data" / "clawsqlite-knowledge"
+    xdg_data = os.environ.get("XDG_DATA_HOME")
+    base = Path(xdg_data).expanduser() if xdg_data else Path.home() / ".local" / "share"
+    return base / "clawsqlite-knowledge"
+
+
+def _default_instance_home() -> Path:
+    return _default_instance_base() / "default"
+
+
+def _instance_registry_path() -> Path:
+    return _default_instance_base() / "default_instance_home"
+
+
+def _register_default_instance(instance_home: Path) -> None:
+    registry = _instance_registry_path()
+    ensure_dir(str(registry.parent))
+    registry.write_text(str(instance_home.resolve()) + "\n", encoding="utf-8")
 
 
 def _resolve_init_config_path(args) -> tuple[Path, Optional[str]]:
@@ -320,9 +336,10 @@ def _unsafe_init_config_reason(target_dir: Path) -> Optional[str]:
 
 
 def _write_safe_init_next() -> None:
+    default_home = _default_instance_home()
     sys.stderr.write("NEXT: create a dedicated user data directory, for example:\n")
     sys.stderr.write("  clawsqlite knowledge maintenance init-config --instance default\n")
-    sys.stderr.write("  cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default\n")
+    sys.stderr.write(f"  cd {default_home}\n")
 
 
 def cmd_init_config(args) -> int:
@@ -351,8 +368,14 @@ def cmd_init_config(args) -> int:
     ensure_dir(os.path.dirname(path) or ".")
     with open(path, "w", encoding="utf-8") as f:
         f.write(CONFIG_TEMPLATE.format(root=root))
+    _register_default_instance(target_dir)
     _print(
-        {"ok": True, "config_path": path, "instance_home": str(target_dir)},
+        {
+            "ok": True,
+            "config_path": path,
+            "instance_home": str(target_dir),
+            "default_instance_registry": str(_instance_registry_path()),
+        },
         bool(getattr(args, "json", False)),
     )
     return 0
@@ -1720,7 +1743,7 @@ def cmd_report_interest(args) -> int:
 def _add_init_config_parser(sub, *, name: str = "init-config", help_text: str = "Create a clawsqlite.toml template for the knowledge app") -> argparse.ArgumentParser:
     sp = sub.add_parser(name, help=help_text)
     _add_common_flags(sp)
-    sp.add_argument("--instance", default=None, help="Create config under ~/.openclaw/workspace/data/clawsqlite-knowledge/INSTANCE")
+    sp.add_argument("--instance", default=None, help="Create config under ${XDG_DATA_HOME:-~/.local/share}/clawsqlite-knowledge/INSTANCE")
     sp.add_argument("--home", default=None, help="Create config in an explicit knowledge instance home directory")
     sp.add_argument("--out", default=None, help="Output config path (default: ./clawsqlite.toml; rejected inside repo/skill dirs)")
     sp.add_argument("--force", action="store_true", help="Overwrite an existing config file")

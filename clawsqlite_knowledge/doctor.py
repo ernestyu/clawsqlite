@@ -692,6 +692,91 @@ def _config_report(config: Optional[KnowledgeConfig]) -> Dict[str, Any]:
     }
 
 
+def _check_by_name(checks: List[CheckResult], name: str) -> Optional[CheckResult]:
+    for check in checks:
+        if check.name == name:
+            return check
+    return None
+
+
+def _url_ingest_readiness(
+    *,
+    config: Optional[KnowledgeConfig],
+    checks: List[CheckResult],
+    check_embedding: bool,
+    check_llm: bool,
+    check_scraper: bool,
+) -> Dict[str, Any]:
+    missing: List[str] = []
+    failed: List[str] = []
+    not_checked: List[str] = []
+
+    scraper_config = _check_by_name(checks, "scraper_config")
+    if scraper_config is None or not scraper_config.ok:
+        missing.append("scraper_config")
+    elif not check_scraper:
+        not_checked.append("scraper_runtime")
+    else:
+        scraper_runtime = _check_by_name(checks, "scraper_runtime")
+        if scraper_runtime is None:
+            not_checked.append("scraper_runtime")
+        elif not scraper_runtime.ok:
+            failed.append("scraper_runtime")
+
+    llm_required = True
+    embedding_required = True
+    if config is not None:
+        llm_required = bool(
+            config.ingest.require_llm
+            or config.ingest.summary_mode == "llm"
+            or config.ingest.tags_mode == "llm"
+        )
+        embedding_required = bool(config.ingest.require_embedding)
+
+    if llm_required:
+        llm_config = _check_by_name(checks, "llm_config")
+        if llm_config is None or not llm_config.ok:
+            missing.append("llm_config")
+        elif not check_llm:
+            not_checked.append("llm_runtime")
+        else:
+            llm_runtime = _check_by_name(checks, "llm_roundtrip")
+            if llm_runtime is None:
+                not_checked.append("llm_runtime")
+            elif not llm_runtime.ok:
+                failed.append("llm_runtime")
+
+    if embedding_required:
+        embedding_config = _check_by_name(checks, "embedding_config")
+        if embedding_config is None or not embedding_config.ok:
+            missing.append("embedding_config")
+        elif not check_embedding:
+            not_checked.append("embedding_runtime")
+        else:
+            embedding_runtime = _check_by_name(checks, "embedding_roundtrip")
+            if embedding_runtime is None:
+                not_checked.append("embedding_runtime")
+            elif not embedding_runtime.ok:
+                failed.append("embedding_runtime")
+
+    missing = sorted(set(missing))
+    failed = sorted(set(failed))
+    not_checked = sorted(set(not_checked))
+    ready = not missing and not failed and not not_checked
+    return {
+        "ready": ready,
+        "runtime_verified": ready,
+        "missing": missing,
+        "failed": failed,
+        "not_checked": not_checked,
+        "next": (
+            "Run doctor with --check-llm --check-embedding --check-scraper for a full URL ingest readiness check."
+            if not ready
+            else "URL ingest readiness verified."
+        ),
+    }
+
+
 def run_doctor(
     *,
     config: Optional[KnowledgeConfig] = None,
@@ -726,6 +811,13 @@ def run_doctor(
             "embedding_checked": bool(check_embedding),
             "scraper_checked": bool(check_scraper),
         },
+        "url_ingest_ready": _url_ingest_readiness(
+            config=config,
+            checks=checks,
+            check_embedding=check_embedding,
+            check_llm=check_llm,
+            check_scraper=check_scraper,
+        ),
     }
     report.update(_config_report(config))
 

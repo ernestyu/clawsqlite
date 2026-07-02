@@ -84,7 +84,7 @@ class StrictIngestConfigTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("ERROR_KIND: config_required", err)
         self.assertIn("clawsqlite.toml", err)
-        self.assertIn("find ~/.openclaw ~ -name clawsqlite.toml", err)
+        self.assertIn("find ~/.local/share ~/.openclaw ~ -name clawsqlite.toml", err)
         self.assertIn("cd $(dirname <found-path>)", err)
 
     def test_strict_ingest_rejects_explicit_heuristic_without_flag(self):
@@ -366,6 +366,10 @@ class StrictIngestConfigTests(unittest.TestCase):
         self.assertFalse(report["roundtrip"]["llm_checked"])
         self.assertFalse(report["roundtrip"]["embedding_checked"])
         self.assertFalse(report["roundtrip"]["scraper_checked"])
+        self.assertFalse(report["url_ingest_ready"]["ready"])
+        self.assertIn("scraper_config", report["url_ingest_ready"]["missing"])
+        self.assertIn("llm_runtime", report["url_ingest_ready"]["not_checked"])
+        self.assertIn("embedding_runtime", report["url_ingest_ready"]["not_checked"])
 
     def test_doctor_roundtrip_checks_are_explicit(self):
         with _tempdir() as tmpdir:
@@ -385,6 +389,10 @@ class StrictIngestConfigTests(unittest.TestCase):
         with _tempdir() as tmpdir:
             root = tmpdir / "kb"
             config_path = write_knowledge_config(root, require_llm=False, require_embedding=False)
+            text = config_path.read_text(encoding="utf-8")
+            text = text.replace('summary_mode = "llm"', 'summary_mode = "off"')
+            text = text.replace('tags_mode = "llm"', 'tags_mode = "off"')
+            config_path.write_text(text, encoding="utf-8")
             scraper = tmpdir / "scrape.py"
             scraper.write_text(
                 "print('Title: Example')\n"
@@ -404,6 +412,7 @@ class StrictIngestConfigTests(unittest.TestCase):
         self.assertTrue(scraper_config["details"]["bootstrap_complete"])
         self.assertTrue(scraper_runtime["ok"])
         self.assertTrue(report["roundtrip"]["scraper_checked"])
+        self.assertTrue(report["url_ingest_ready"]["ready"])
 
     def test_url_ingest_without_scraper_reports_scraper_required(self):
         with _tempdir() as tmpdir:

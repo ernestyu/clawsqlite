@@ -5,6 +5,11 @@ BASE_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 LOCAL_TARGET="$BASE_DIR/.clawsqlite-python"
 BIN_DIR="$BASE_DIR/bin"
 LOCAL_CLI="$BIN_DIR/clawsqlite"
+if [ "${XDG_DATA_HOME:-}" ]; then
+  DEFAULT_INSTANCE_HOME="$XDG_DATA_HOME/clawsqlite-knowledge/default"
+else
+  DEFAULT_INSTANCE_HOME="$HOME/.local/share/clawsqlite-knowledge/default"
+fi
 
 if [ "${PYTHON:-}" ]; then
   PYTHON_BIN="$PYTHON"
@@ -80,9 +85,11 @@ EOF
 cat <<EOF
    $CLAWSQLITE_CMD knowledge maintenance init-config --instance default
 EOF
-cat <<'EOF'
+cat <<EOF
 2. Enter the knowledge instance home:
-   cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
+   cd $DEFAULT_INSTANCE_HOME
+   (The stable CLI also reads the default instance registry, so future commands
+    can be run from any directory after initialization.)
 EOF
 cat <<EOF
 3. Validate with:

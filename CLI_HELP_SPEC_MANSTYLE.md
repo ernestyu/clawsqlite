@@ -26,7 +26,7 @@ Create a template:
 
 ```bash
 clawsqlite knowledge maintenance init-config --instance default
-cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
+cd ~/.local/share/clawsqlite-knowledge/default
 ```
 
 Use `--home /path/to/knowledge-home` for an explicit custom instance home.
@@ -53,7 +53,8 @@ runtime. `[backup]` / `[backup.s3]` controls remote S3 backup.
 `maintenance doctor`
 : Report active config, DB status, schema health, vec availability, embedding
   readiness, LLM readiness, and scraper configuration. Use `--check-scraper`
-  only when an explicit scraper runtime roundtrip is desired.
+  only when an explicit scraper runtime roundtrip is desired. The JSON report
+  includes `url_ingest_ready` with missing/failed/not_checked prerequisites.
 
 `maintenance reindex`
 : Check, fix, or rebuild derived DB indexes.
