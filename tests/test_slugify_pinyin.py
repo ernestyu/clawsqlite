@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 from clawsqlite_knowledge.utils import slugify
 
@@ -32,6 +33,21 @@ class SlugifyPinyinTests(unittest.TestCase):
         # Ground Station 这两个词应该出现在 slug 中
         self.assertIn("ground", slug)
         self.assertIn("station", slug)
+
+    def test_mixed_chinese_english_title_without_pypinyin_keeps_ascii_words(self):
+        real_import = __import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "pypinyin":
+                raise ImportError("pypinyin intentionally unavailable")
+            return real_import(name, *args, **kwargs)
+
+        with mock.patch("builtins.__import__", side_effect=fake_import):
+            slug = slugify("想要搭建个人卫星地面站吗 Ground Station项目", max_len=80)
+        self.assertTrue(all(ord(c) < 128 for c in slug), msg=slug)
+        self.assertIn("ground", slug)
+        self.assertIn("station", slug)
+        self.assertIn("xiang", slug)
 
     def test_empty_title_untitled(self):
         self.assertEqual(slugify(""), "untitled")

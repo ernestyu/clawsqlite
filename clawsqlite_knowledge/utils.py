@@ -293,12 +293,15 @@ def slugify(title: str, max_len: int = 60) -> str:
 
     pieces: List[str] = []
     buf: List[str] = []
+    buf_kind: Optional[str] = None
 
     def flush_buf():
+        nonlocal buf_kind
         if not buf:
             return
         token = "".join(buf)
         buf.clear()
+        buf_kind = None
         token = token.strip()
         if not token:
             return
@@ -309,8 +312,20 @@ def slugify(title: str, max_len: int = 60) -> str:
             flush_buf()
             continue
         cat = _ud.category(ch)
-        if cat[0] in ("L", "N"):
+        if _CJK_RE.match(ch):
+            kind = "cjk"
+        elif ch.isascii() and ch.isalnum():
+            kind = "ascii"
+        elif cat[0] in ("L", "N"):
+            kind = "word"
+        else:
+            kind = ""
+
+        if kind:
+            if buf_kind is not None and kind != buf_kind:
+                flush_buf()
             buf.append(ch)
+            buf_kind = kind
         else:
             # punctuation / others -> boundary
             flush_buf()
