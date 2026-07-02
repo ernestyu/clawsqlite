@@ -24,8 +24,7 @@ CONFIG_NOT_FOUND_HINT = (
     "clawsqlite.toml not found in the current directory. The knowledge instance "
     "home is the directory that contains clawsqlite.toml. To recover, search for "
     "it and cd to that directory before rerunning the command, for example: "
-    "`find ~/.openclaw ~ -name clawsqlite.toml -print 2>/dev/null`; if needed, "
-    "search the whole system with `find / -name clawsqlite.toml -print 2>/dev/null`; "
+    "`find ~/.openclaw ~ -name clawsqlite.toml -print 2>/dev/null`; "
     "then run `cd $(dirname <found-path>)`."
 )
 DEFAULT_SUMMARY_TARGET_CHARS = 3600

@@ -84,7 +84,6 @@ class StrictIngestConfigTests(unittest.TestCase):
         self.assertIn("ERROR_KIND: config_required", err)
         self.assertIn("clawsqlite.toml", err)
         self.assertIn("find ~/.openclaw ~ -name clawsqlite.toml", err)
-        self.assertIn("find / -name clawsqlite.toml", err)
         self.assertIn("cd $(dirname <found-path>)", err)
 
     def test_strict_ingest_rejects_explicit_heuristic_without_flag(self):
