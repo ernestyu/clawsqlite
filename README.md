@@ -968,10 +968,12 @@ Do not confuse the two similarly named directories:
 - `clawsqlite_knowledge/` is the Python implementation of the Knowledge app.
 - `skills/clawsqlite-knowledge/` is a thin Agent-facing instruction wrapper.
 
-The skill does not ship a runtime JSON wrapper. Agents should `cd` to the skill
-directory, treat that directory as the component root, and run
-`clawsqlite knowledge ...` directly. Core logic, strict ingest, config loading,
-and error semantics remain owned by `clawsqlite knowledge`.
+The skill does not vendor this repository, clone GitHub, or ship a runtime JSON
+wrapper. Its install hook runs `bootstrap_deps.sh`, which installs the
+published `clawsqlite` PyPI package. Agents should `cd` to the skill directory,
+treat that directory as the component root, and run `clawsqlite knowledge ...`
+directly. Core logic, strict ingest, config loading, and error semantics remain
+owned by `clawsqlite knowledge`.
 
 ## 9. Chinese Documentation
 

@@ -1,72 +1,81 @@
 ---
 name: clawsqlite-knowledge
-description: Thin OpenClaw/ClawHub wrapper instructions for using `clawsqlite knowledge` from a fixed component root.
+description: Knowledge base skill that uses the published clawsqlite CLI for ingest, search, show, and maintenance workflows.
+version: 1.1.0
+metadata: {"openclaw":{"homepage":"https://github.com/ernestyu/clawsqlite","tags":["knowledge","sqlite","search","cli"],"requires":{"bins":["python"],"env":[]},"install":[{"id":"clawsqlite_knowledge_bootstrap","kind":"bash","label":"Install clawsqlite Python package from PyPI","script":"set -e && cd {baseDir} && bash bootstrap_deps.sh"}]}}
 ---
 
 # ClawSQLite Knowledge Skill
 
-This skill is a thin wrapper around `clawsqlite knowledge`. It is not a second
-knowledge-base product, not a runtime wrapper script, and not a separate rules
-engine.
+This skill is a thin wrapper around the published `clawsqlite` PyPI package.
 
-Naming note: `clawsqlite_knowledge/` in the repository is the Python package
-that implements the Knowledge app. `skills/clawsqlite-knowledge/` is only this
-thin Agent-facing instruction layer.
+It does not:
+
+- vendor the `clawsqlite` source tree
+- clone any Git repository
+- define a second runtime layer on top of the official CLI
+- redefine a parallel JSON API
+
+It does:
+
+- install `clawsqlite` from PyPI through `bootstrap_deps.sh`
+- guide agents to use the official `clawsqlite knowledge ...` CLI
+- document common workflows for knowledge-base operations
 
 ## Component Root
 
-The skill directory is the component root. Before running any Knowledge command,
-the Agent must `cd` to this directory:
+Run commands from this skill directory:
 
 ```bash
 cd <workspace>/skills/clawsqlite-knowledge
 ```
 
-The only Knowledge configuration file is:
+The local private config must be:
 
 ```text
 ./clawsqlite.toml
 ```
 
-`clawsqlite knowledge` reads only `./clawsqlite.toml` from the current component
-root. It does not search parent directories, read a config-path environment
-variable, or accept a config-path override.
+`clawsqlite.toml` is the single runtime configuration source. Do not create a
+second config file, do not rely on shell environment variables for normal
+configuration, and do not guess DB paths.
 
 ## Bootstrap
 
-First-time setup:
+Install or upgrade the published package:
 
 ```bash
-sh bootstrap.sh
+sh bootstrap_deps.sh
 ```
 
-Then edit `clawsqlite.toml` directly. It is the private source of truth for:
+Then create or edit `./clawsqlite.toml` directly. If no config exists yet:
 
-- `[knowledge]` root, DB, and article paths
-- `[llm]` endpoint, model, API key, and context budget
-- `[embedding]` endpoint, model, API key, dimension, and content policy
-- `[scraper]` URL ingest command
-- `[ingest]` strict policy, summary target length, tag count, and allowed categories
+```bash
+clawsqlite knowledge maintenance init-config --out clawsqlite.toml
+```
 
-Do not put real Knowledge runtime configuration in shell environment variables.
+## Validate
 
-## Agent Rules
-
-- Stay in the component root when running `clawsqlite knowledge`.
-- Do not guess DB paths, roots, article directories, or working directories.
-- Do not edit a second configuration file elsewhere.
-- Do not pass path overrides for root, DB, articles, tokenizer, or vec extension
-  as normal Agent workflow.
-- Do not use degraded ingest unless the user explicitly asks for it.
-- Report `ERROR_KIND`, `ERROR`, and `NEXT` lines from the CLI directly.
-
-## Common Commands
-
-Status check:
+After installation and config editing, validate with:
 
 ```bash
 clawsqlite knowledge maintenance doctor --json
 ```
+
+Doctor is lightweight by default. Only pass `--check-llm` or
+`--check-embedding` when the user explicitly wants provider roundtrip checks.
+
+## Agent Rules
+
+- Use only the official `clawsqlite` CLI.
+- Stay in the component root when running `clawsqlite knowledge ...`.
+- Use the three-level command tree: `record`, `maintenance`, `analysis`.
+- Do not call removed flat commands such as `clawsqlite knowledge ingest`.
+- Do not vendor, clone, or patch `clawsqlite` inside this skill directory.
+- Do not use degraded ingest unless the user explicitly asks for it.
+- Report `ERROR`, `ERROR_KIND`, and `NEXT` lines from the CLI directly.
+
+## Common Commands
 
 Strict URL ingest:
 
@@ -87,32 +96,31 @@ clawsqlite knowledge record ingest \
   --json
 ```
 
-`--title` and `--category` are hints during strict LLM ingest. The stored title,
-tags, category, and content type must come from the configured LLM; manual tag
-input is intentionally not part of the ingest action surface.
-Successful JSON output includes `config_path`, `root`, `db`, `articles_dir`,
-`generation_quality`, `embedding_runtime_enabled`, and `embedding_required`;
-check these fields before telling the user where data was written.
-
-Doctor is lightweight by default:
-
-```bash
-clawsqlite knowledge maintenance doctor --json
-```
-
-Only pass `--check-llm` or `--check-embedding` when the user explicitly wants a
-provider roundtrip check.
-
 Search:
 
 ```bash
-clawsqlite knowledge record search "sqlite agent knowledge" --mode hybrid --topk 5 --json
+clawsqlite knowledge record search "vector database design" --mode hybrid --topk 5 --json
 ```
 
 Show one record:
 
 ```bash
-clawsqlite knowledge record show --id 12 --full --json
+clawsqlite knowledge record show --id 123 --full --json
+```
+
+Maintenance:
+
+```bash
+clawsqlite knowledge maintenance reindex --check --json
+clawsqlite knowledge maintenance cleanup --days 3 --dry-run --json
+clawsqlite knowledge maintenance backup --dry-run --json
+```
+
+Analysis:
+
+```bash
+clawsqlite knowledge analysis build-interest-clusters --json
+clawsqlite knowledge analysis report-interest --days 7 --no-pdf
 ```
 
 Explicit degraded ingest, only when the user requested it:

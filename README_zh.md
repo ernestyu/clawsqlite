@@ -412,9 +412,11 @@ clawsqlite knowledge maintenance backup --json
 - `clawsqlite_knowledge/` 是 Knowledge 应用的 Python 核心实现；
 - `skills/clawsqlite-knowledge/` 只是面向 Agent 的薄说明层。
 
-Agent 应先 `cd` 到该 skill 目录，把它作为 component root，然后直接运行
-`clawsqlite knowledge ...`；Skill 不提供额外运行时脚本，不直接读数据库，
-不生成标签，不猜路径，也不默认降级。
+Skill 不 vendor 本仓库源码，不从 GitHub clone，也不提供额外运行时 JSON
+wrapper。它的安装钩子只运行 `bootstrap_deps.sh`，从 PyPI 安装已发布的
+`clawsqlite` 包。Agent 应先 `cd` 到该 skill 目录，把它作为 component root，
+然后直接运行 `clawsqlite knowledge ...`；Skill 不直接读数据库，不生成标签，
+不猜路径，也不默认降级。
 
 ---
 
