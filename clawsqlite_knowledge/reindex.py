@@ -10,11 +10,12 @@ from typing import Any, Dict, List, Optional
 from . import db as dbmod
 from .embed import get_embedding, floats_to_f32_blob, l2_normalize
 from .generator import generate_fields
+from .storage import resolve_local_file_path
 from .utils import comma_join_tags
 
-def check(conn, *, embed_on: bool) -> Dict[str, Any]:
+def check(conn, *, embed_on: bool, instance_root: str = "") -> Dict[str, Any]:
     missing = dbmod.count_missing(conn)
-    file_missing = dbmod.count_file_missing(conn)
+    file_missing = dbmod.count_file_missing(conn, instance_root=instance_root)
     fts_missing = dbmod.count_fts_missing(conn)
     # Vec stats are only meaningful if both embedding is configured and vec table exists.
     vec_missing = 0
@@ -50,6 +51,7 @@ def fix_missing(
     llm_chunk_overlap_chars: int = 500,
     llm_timeout_seconds: int = 60,
     verbose: bool = False,
+    instance_root: str = "",
 ) -> Dict[str, Any]:
     """
     Fill missing fields and indexes for undeleted articles.
@@ -74,7 +76,7 @@ def fix_missing(
         if need_title or need_summary or need_tags:
             # Source content for regeneration: use summary if present else fallback to reading markdown
             content = ""
-            p = (r["local_file_path"] or "").strip()
+            p = resolve_local_file_path((r["local_file_path"] or "").strip(), instance_root)
             if p and os.path.exists(p):
                 try:
                     with open(p, "r", encoding="utf-8") as f:
@@ -122,7 +124,7 @@ def fix_missing(
         # Ensure FTS row exists
         try:
             body = ""
-            p = (r["local_file_path"] or "").strip()
+            p = resolve_local_file_path((r["local_file_path"] or "").strip(), instance_root)
             if p and os.path.exists(p):
                 try:
                     with open(p, "r", encoding="utf-8") as f:
@@ -173,6 +175,7 @@ def rebuild(
     rebuild_fts: bool,
     rebuild_vec: bool,
     embed_on: bool,
+    instance_root: str = "",
 ) -> Dict[str, Any]:
     """Reindex entrypoint.
 
@@ -191,7 +194,7 @@ def rebuild(
 
     if rebuild_fts:
         try:
-            dbmod.rebuild_fts(conn, include_deleted=False)
+            dbmod.rebuild_fts(conn, include_deleted=False, instance_root=instance_root)
             out["fts_rebuilt"] = True
         except Exception as e:
             out["errors"].append(f"fts rebuild failed: {e}")

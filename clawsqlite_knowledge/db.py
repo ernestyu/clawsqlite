@@ -25,6 +25,7 @@ import glob
 from typing import Any, Dict, List, Optional, Tuple
 
 from .utils import now_iso_z, has_cjk, extract_keywords_light
+from .storage import resolve_local_file_path
 
 # Optional Chinese tokenizer: jieba
 try:  # pragma: no cover - optional dependency
@@ -404,11 +405,12 @@ def _extract_markdown_body_for_fts(content: str) -> str:
     return content
 
 
-def _read_body_for_fts(path: str) -> str:
+def _read_body_for_fts(path: str, *, instance_root: str = "") -> str:
     if not path:
         return ""
+    resolved = resolve_local_file_path(path, instance_root) if instance_root else path
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(resolved, "r", encoding="utf-8") as f:
             return _extract_markdown_body_for_fts(f.read())
     except Exception:
         return ""
@@ -813,7 +815,7 @@ def delete_tag_vec(conn: sqlite3.Connection, article_id: int) -> None:
         # Tag vec table may not exist in older DBs.
         pass
 
-def rebuild_fts(conn: sqlite3.Connection, include_deleted: bool = False) -> None:
+def rebuild_fts(conn: sqlite3.Connection, include_deleted: bool = False, *, instance_root: str = "") -> None:
     conn.execute("DELETE FROM articles_fts")
     if fts_jieba_enabled(conn):
         if include_deleted:
@@ -829,7 +831,7 @@ def rebuild_fts(conn: sqlite3.Connection, include_deleted: bool = False) -> None
             title = _fts_text_for_index(conn, r["generated_title"] or "")
             tags = _fts_text_for_index(conn, r["tags"] or "")
             summary = _fts_text_for_index(conn, r["summary"] or "")
-            body = _fts_text_for_index(conn, _read_body_for_fts(r["local_file_path"] or ""))
+            body = _fts_text_for_index(conn, _read_body_for_fts(r["local_file_path"] or "", instance_root=instance_root))
             conn.execute(
                 "INSERT INTO articles_fts(rowid, title, tags, summary, body) VALUES(?, ?, ?, ?, ?)",
                 (aid, title, tags, summary, body),
@@ -851,7 +853,7 @@ def rebuild_fts(conn: sqlite3.Connection, include_deleted: bool = False) -> None
                     r["generated_title"] or "",
                     r["tags"] or "",
                     r["summary"] or "",
-                    _read_body_for_fts(r["local_file_path"] or ""),
+                    _read_body_for_fts(r["local_file_path"] or "", instance_root=instance_root),
                 ),
             )
 
@@ -935,13 +937,13 @@ def count_missing(conn: sqlite3.Connection) -> Dict[str, int]:
         "ingest_status": _count("ingest_status IS NULL OR trim(ingest_status) = ''"),
     }
 
-def count_file_missing(conn: sqlite3.Connection) -> int:
+def count_file_missing(conn: sqlite3.Connection, *, instance_root: str = "") -> int:
     rows = conn.execute(
         "SELECT local_file_path FROM articles WHERE deleted_at IS NULL AND local_file_path IS NOT NULL AND trim(local_file_path) != ''"
     ).fetchall()
     missing = 0
     for r in rows:
-        p = str(r["local_file_path"])
+        p = resolve_local_file_path(str(r["local_file_path"]), instance_root) if instance_root else str(r["local_file_path"])
         if not os.path.exists(p):
             missing += 1
     return missing

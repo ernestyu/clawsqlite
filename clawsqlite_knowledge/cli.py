@@ -28,9 +28,11 @@ from .utils import now_iso_z, truncate_text, comma_join_tags, resolve_interest_p
 from .config import BackupS3Config, ConfigError, KnowledgeConfig, apply_config_env, load_knowledge_config
 from .storage import (
     ensure_dir,
-    article_abspath,
+    article_db_relpath,
     format_markdown_with_metadata,
     read_markdown,
+    relativize_local_file_path,
+    resolve_local_file_path,
     write_markdown,
 )
 from .generator import generate_fields
@@ -186,6 +188,14 @@ def _resolve_paths(args) -> Dict[str, str]:
 
     cfg = _get_config(args)
     return {"root": cfg.root, "db": cfg.db, "articles_dir": cfg.articles_dir}
+
+
+def _record_abspath(path_value: str, paths: Dict[str, str]) -> str:
+    return resolve_local_file_path(path_value, paths["root"])
+
+
+def _record_db_path(abs_path: str, paths: Dict[str, str]) -> str:
+    return relativize_local_file_path(abs_path, paths["root"])
 
 def _print(obj: Any, as_json: bool) -> None:
     if as_json:
@@ -579,7 +589,8 @@ def cmd_ingest(args) -> int:
             row = dbmod.get_article_by_source(conn, source_url)
             if row is not None and getattr(args, "update_existing", False):
                 existing_id = int(row["id"])
-                old_path = (row["local_file_path"] or "").strip() or None
+                old_raw = (row["local_file_path"] or "").strip()
+                old_path = _record_abspath(old_raw, paths) if old_raw else None
                 existing_created_at = (row["created_at"] or "").strip()
                 if existing_created_at:
                     created_at_for_md = existing_created_at
@@ -643,7 +654,8 @@ def cmd_ingest(args) -> int:
                 config_path=cfg.config_path,
             )
 
-        md_path = article_abspath(paths["articles_dir"], new_id, source_title)
+        md_relpath = article_db_relpath(new_id, source_title)
+        md_path = _record_abspath(md_relpath, paths)
         md_content = format_markdown_with_metadata(
             article_id=new_id,
             source_title=source_title,
@@ -664,7 +676,7 @@ def cmd_ingest(args) -> int:
         )
         write_markdown(md_path, md_content)
 
-        dbmod.update_article_fields(conn, new_id, local_file_path=md_path)
+        dbmod.update_article_fields(conn, new_id, local_file_path=md_relpath)
 
         # If we updated an existing article and the file path changed,
         # rename the old file to a .bak_<timestamp> suffix so it can be
@@ -725,7 +737,7 @@ def cmd_ingest(args) -> int:
             "generated_title": generated_title,
             "created_at": created_at,
             "category": category,
-            "local_file_path": md_path,
+            "local_file_path": md_relpath,
             "config_path": cfg.config_path,
             "root": paths["root"],
             "db": paths["db"],
@@ -737,7 +749,7 @@ def cmd_ingest(args) -> int:
         if args.json:
             _print(out, True)
         else:
-            _print(f"id={new_id} generated_title={generated_title}\nsource_title={source_title}\npath={md_path}", False)
+            _print(f"id={new_id} generated_title={generated_title}\nsource_title={source_title}\npath={md_relpath}", False)
         return 0
     except Exception as e:
         if conn is not None:
@@ -789,7 +801,7 @@ ON CONFLICT(article_id) DO UPDATE SET
 
         out = dict(row)
         if args.full:
-            p = (row["local_file_path"] or "").strip()
+            p = _record_abspath((row["local_file_path"] or "").strip(), paths)
             if p and os.path.exists(p):
                 out["content"] = read_markdown(p)
             else:
@@ -840,7 +852,7 @@ def cmd_export(args) -> int:
         out = dict(row)
 
         content = ""
-        p = (row["local_file_path"] or "").strip()
+        p = _record_abspath((row["local_file_path"] or "").strip(), paths)
         if p and os.path.exists(p):
             content = read_markdown(p)
 
@@ -1069,7 +1081,7 @@ def cmd_update(args) -> int:
         if args.regen:
             regen = args.regen.lower()
             content = ""
-            p = (row["local_file_path"] or "").strip()
+            p = _record_abspath((row["local_file_path"] or "").strip(), paths)
             if p and os.path.exists(p):
                 content = read_markdown(p)
             else:
@@ -1112,8 +1124,10 @@ def cmd_update(args) -> int:
 
         # Sync markdown file + local_file_path based on the source/archive title.
         ensure_dir(paths["articles_dir"])
-        old_path = (row["local_file_path"] or "").strip()
-        new_path = article_abspath(paths["articles_dir"], aid, source_title)
+        old_raw_path = (row["local_file_path"] or "").strip()
+        old_path = _record_abspath(old_raw_path, paths)
+        new_relpath = article_db_relpath(aid, source_title)
+        new_path = _record_abspath(new_relpath, paths)
         content = ""
         for candidate in [old_path, new_path]:
             if candidate and os.path.exists(candidate):
@@ -1158,7 +1172,7 @@ def cmd_update(args) -> int:
             tags=tags,
             category=category,
             priority=priority,
-            local_file_path=new_path,
+            local_file_path=new_relpath,
         )
 
         # sync FTS
@@ -1252,7 +1266,7 @@ def cmd_delete(args) -> int:
             except Exception:
                 pass
             dbmod.delete_article_row(conn, aid)
-            p = (row["local_file_path"] or "").strip()
+            p = _record_abspath((row["local_file_path"] or "").strip(), paths)
             if p and os.path.exists(p):
                 if args.remove_file:
                     # Explicitly requested immediate removal.
@@ -1270,7 +1284,7 @@ def cmd_delete(args) -> int:
                         sys.stderr.write(f"WARNING: backup rename failed: {e}\n")
         else:
             # Soft delete: mark deleted_at and move file to a .bak_deleted_ path.
-            p = (row["local_file_path"] or "").strip()
+            p = _record_abspath((row["local_file_path"] or "").strip(), paths)
             ts_suffix = now_iso_z().replace(":", "").replace("-", "").replace("T", "").replace("Z", "")
             bak_path = None
             if p:
@@ -1282,7 +1296,7 @@ def cmd_delete(args) -> int:
                         sys.stderr.write(f"WARNING: backup rename failed: {e}\n")
                     # Even if rename fails, we still proceed with deleted_at flag.
             if bak_path:
-                dbmod.update_article_fields(conn, aid, deleted_at=now_iso_z(), local_file_path=bak_path)
+                dbmod.update_article_fields(conn, aid, deleted_at=now_iso_z(), local_file_path=_record_db_path(bak_path, paths))
             else:
                 dbmod.update_article_fields(conn, aid, deleted_at=now_iso_z())
             try:
@@ -1322,10 +1336,9 @@ def cmd_maintenance(args) -> int:
     - 报告 `orphans` / `bak_to_delete` / `broken_records`；
     - 非 dry-run 情况下删除这些文件 + VACUUM DB。
 
-    目前由于 schema 中只有绝对路径 `local_file_path`，这里暂时
-    继续用现有逻辑扫描文件，而不是直接调用 admin fs 的
-    `list-orphans/gc`。后续如果引入 `relpath` 列，可以再切到
-    `clawsqlite admin fs`。
+    DB stores `local_file_path` relative to the knowledge instance home, while
+    old absolute paths remain readable. Maintenance resolves paths before
+    comparing them against files on disk.
     """
 
     paths = _resolve_paths(args)
@@ -1349,7 +1362,7 @@ def cmd_maintenance(args) -> int:
                 db_ids.add(aid)
                 p = (row["local_file_path"] or "").strip()
                 if p:
-                    id_to_path[aid] = os.path.abspath(p)
+                    id_to_path[aid] = os.path.abspath(_record_abspath(p, paths))
     except Exception as e:
         sys.stderr.write(f"WARNING: maintenance: failed to read db ids: {e}\n")
     finally:
@@ -1393,9 +1406,10 @@ def cmd_maintenance(args) -> int:
         if os.path.exists(db_path):
             conn = _open_for_command(db_path, need_fts=False, need_vec=False, args=args)
             for row in conn.execute("SELECT id, local_file_path FROM articles"):
-                p = (row["local_file_path"] or "").strip()
+                p_raw = (row["local_file_path"] or "").strip()
+                p = _record_abspath(p_raw, paths)
                 if p and not os.path.exists(p):
-                    broken_records.append({"id": int(row["id"]), "path": p})
+                    broken_records.append({"id": int(row["id"]), "path": p_raw, "resolved_path": p})
     except Exception as e:
         sys.stderr.write(f"WARNING: maintenance: failed to scan broken records: {e}\n")
     finally:
@@ -1586,7 +1600,7 @@ def cmd_reindex(args) -> int:
         conn = _open_for_command(paths["db"], need_fts=True, need_vec=True, args=args)
 
         if args.check:
-            out = reindex_mod.check(conn, embed_on=embed_on)
+            out = reindex_mod.check(conn, embed_on=embed_on, instance_root=paths["root"])
             _print(out, bool(args.json))
             return 0
 
@@ -1610,6 +1624,7 @@ def cmd_reindex(args) -> int:
                 llm_prompt_reserved_chars=cfg.llm.prompt_reserved_chars,
                 llm_chunk_overlap_chars=cfg.llm.chunk_overlap_chars,
                 llm_timeout_seconds=cfg.llm.timeout_seconds,
+                instance_root=paths["root"],
                 verbose=bool(args.verbose),
             )
             _print(out, bool(args.json))
@@ -1626,6 +1641,7 @@ def cmd_reindex(args) -> int:
                 rebuild_fts=bool(args.fts),
                 rebuild_vec=bool(args.vec),
                 embed_on=embed_on,
+                instance_root=paths["root"],
             )
             _print(out, bool(args.json))
             return 0 if not out.get("errors") else 4

@@ -7,6 +7,35 @@ without strict version tagging yet. Entries are grouped by date + topic.
 
 ---
 
+## 2026-07-03 – Relative Article File Paths
+
+### Changed
+
+- New knowledge records now store `local_file_path` as an instance-home-relative
+  path such as `articles/000123__title.md` instead of persisting machine-specific
+  absolute paths.
+- File reads, exports, updates, deletes, maintenance cleanup, and knowledge
+  reindex now resolve stored paths against the current knowledge instance home
+  at runtime.
+- Admin filesystem maintenance understands the new `articles/...` DB path shape
+  while still scanning the configured articles directory as the content root.
+
+### Fixed
+
+- Existing databases with absolute `local_file_path` values remain readable. If
+  an old absolute path no longer exists after moving a DB plus `articles/`
+  directory together, paths containing an `articles/` segment are resolved under
+  the current instance home.
+
+### Tests
+
+- Added coverage for new ingest storing relative article paths and for legacy
+  absolute paths, including stale absolute prefixes after instance migration.
+- Added top-level admin filesystem coverage for config-default operation with
+  instance-relative article paths.
+
+---
+
 ## 2026-07-02 – 1.0.7 Default Instance Registry Closure
 
 ### Fixed

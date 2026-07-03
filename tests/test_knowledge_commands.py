@@ -151,8 +151,28 @@ class KnowledgeCLITests(unittest.TestCase):
             self.assertEqual(show_row["id"], 1)
             self.assertEqual(show_row["source_title"], "Article 1")
             self.assertEqual(show_row["generated_title"], "Article 1")
+            self.assertFalse(Path(show_row["local_file_path"]).is_absolute())
             # 当前实现中，正文内容字段叫 content
             self.assertIn("content", show_row)
+
+            # Legacy absolute local_file_path remains readable.
+            abs_article_path = root / show_row["local_file_path"]
+            with sqlite3.connect(root / "knowledge.sqlite3") as conn:
+                conn.execute("UPDATE articles SET local_file_path=? WHERE id=1", (str(abs_article_path),))
+                conn.commit()
+            p = self._run(show_cmd)
+            show_abs = json.loads(p.stdout)
+            self.assertIn("hello article 1", show_abs["content"])
+
+            # Migrated DB + articles directories remain readable even when the
+            # old machine-specific absolute prefix no longer exists.
+            stale_abs_path = Path("/old/machine/clawsqlite-knowledge/default") / show_row["local_file_path"]
+            with sqlite3.connect(root / "knowledge.sqlite3") as conn:
+                conn.execute("UPDATE articles SET local_file_path=? WHERE id=1", (str(stale_abs_path),))
+                conn.commit()
+            p = self._run(show_cmd)
+            show_stale_abs = json.loads(p.stdout)
+            self.assertIn("hello article 1", show_stale_abs["content"])
 
             out_md = root / "article1.md"
             export_cmd = [
@@ -209,6 +229,7 @@ class KnowledgeCLITests(unittest.TestCase):
             show2 = json.loads(p.stdout)
             self.assertEqual(show2["source_title"], "Article 1")
             self.assertEqual(show2["generated_title"], "Article 1 Updated")
+            self.assertFalse(Path(show2["local_file_path"]).is_absolute())
 
             # 5) 软删第二条记录
             delete_cmd = [

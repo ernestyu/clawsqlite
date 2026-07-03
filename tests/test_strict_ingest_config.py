@@ -316,10 +316,13 @@ class StrictIngestConfigTests(unittest.TestCase):
             payload = json.loads(out)
             self.assertEqual(payload["source_title"], "Original Source Title")
             self.assertEqual(payload["generated_title"], "Generated Knowledge Title")
+            self.assertFalse(Path(payload["local_file_path"]).is_absolute())
+            self.assertIn("articles/", payload["local_file_path"])
             self.assertIn("original-source-title", Path(payload["local_file_path"]).name)
             self.assertNotIn("generated-knowledge-title", Path(payload["local_file_path"]).name)
 
-            md = Path(payload["local_file_path"]).read_text(encoding="utf-8")
+            md_path = root / payload["local_file_path"]
+            md = md_path.read_text(encoding="utf-8")
             self.assertIn("source_title: Original Source Title", md)
             self.assertIn("generated_title: Generated Knowledge Title", md)
             self.assertIn("--- MARKDOWN ---\nFull article body about alpha beta.", md)
@@ -335,6 +338,9 @@ class StrictIngestConfigTests(unittest.TestCase):
                 ).fetchone()
                 self.assertEqual(row["source_title"], "Original Source Title")
                 self.assertEqual(row["generated_title"], "Generated Knowledge Title")
+                stored_path = conn.execute("SELECT local_file_path FROM articles WHERE id=1").fetchone()[0]
+                self.assertEqual(stored_path, payload["local_file_path"])
+                self.assertFalse(Path(stored_path).is_absolute())
                 fts = conn.execute(
                     "SELECT rowid FROM articles_fts WHERE articles_fts MATCH 'Generated'"
                 ).fetchall()

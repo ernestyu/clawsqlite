@@ -14,8 +14,46 @@ def article_relpath(article_id: int, title: str) -> str:
     slug = slugify(title)
     return f"{article_id:06d}__{slug}.md"
 
-def article_abspath(articles_dir: str, article_id: int, title: str) -> str:
-    return os.path.join(articles_dir, article_relpath(article_id, title))
+
+def article_db_relpath(article_id: int, title: str) -> str:
+    return os.path.join("articles", article_relpath(article_id, title))
+
+
+def resolve_local_file_path(path_value: str, instance_root: str) -> str:
+    p = (path_value or "").strip()
+    if not p:
+        return ""
+    if os.path.isabs(p):
+        normalized = os.path.normpath(p)
+        if os.path.exists(normalized):
+            return normalized
+        parts = normalized.split(os.sep)
+        if "articles" in parts:
+            idx = parts.index("articles")
+            rel = os.path.join(*parts[idx:])
+            return os.path.normpath(os.path.join(instance_root, rel))
+        return normalized
+    return os.path.normpath(os.path.join(instance_root, p))
+
+
+def relativize_local_file_path(abs_path: str, instance_root: str) -> str:
+    p = (abs_path or "").strip()
+    if not p:
+        return ""
+    if not os.path.isabs(p):
+        return os.path.normpath(p)
+    try:
+        rel = os.path.relpath(p, instance_root)
+        if rel != ".." and not rel.startswith(".." + os.sep):
+            return os.path.normpath(rel)
+    except Exception:
+        pass
+    parts = os.path.normpath(p).split(os.sep)
+    if "articles" in parts:
+        idx = parts.index("articles")
+        return os.path.normpath(os.path.join(*parts[idx:]))
+    return os.path.normpath(p)
+
 
 def write_markdown(path: str, content: str) -> None:
     ensure_dir(os.path.dirname(path))

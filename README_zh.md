@@ -48,7 +48,9 @@ Knowledge 命令默认会读取 `clawsqlite.toml`。不要让 Agent 猜数据库
 
 配置查找只有一条规则：Knowledge 命令只读取当前 knowledge instance home 下的
 `./clawsqlite.toml`。这个目录不是源码 repo，也不是 skill 目录，而是用户数据目录，
-用于同时保存私有配置、DB 和 `articles/`。不会向父目录搜索，也没有 CLI 配置覆盖入口。
+用于同时保存私有配置、DB 和 `articles/`。数据库中的 `local_file_path`
+统一保存为相对 instance home 的 `articles/...` 路径，旧绝对路径只作为读取兼容。
+不会向父目录搜索，也没有 CLI 配置覆盖入口。
 
 推荐 OpenClaw 布局：
 

@@ -649,7 +649,7 @@ class AdminCommandTests(unittest.TestCase):
             conn = sqlite3.connect(db_path)
             try:
                 conn.execute("CREATE TABLE articles(id INTEGER PRIMARY KEY, local_file_path TEXT)")
-                conn.execute("INSERT INTO articles(local_file_path) VALUES('live.md')")
+                conn.execute("INSERT INTO articles(local_file_path) VALUES('articles/live.md')")
                 conn.commit()
             finally:
                 conn.close()

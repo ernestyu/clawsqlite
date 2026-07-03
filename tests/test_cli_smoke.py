@@ -122,6 +122,8 @@ class CLISmokeTests(unittest.TestCase):
             self.assertEqual(data["source_title"], "Hello")
             self.assertEqual(data["generated_title"], "Hello")
             self.assertIn("local_file_path", data)
+            self.assertFalse(Path(data["local_file_path"]).is_absolute())
+            self.assertTrue((root / data["local_file_path"]).exists())
 
             # 2) Search it back (FTS mode)
             search_cmd = [
@@ -161,6 +163,11 @@ class CLISmokeTests(unittest.TestCase):
             self.assertEqual(row["id"], 1)
             self.assertEqual(row["source_title"], "Hello")
             self.assertEqual(row["generated_title"], "Hello")
+
+            # 3b) Show with full content resolves DB-relative local_file_path.
+            p = self._run(show_cmd + ["--full"])
+            row_full = json.loads(p.stdout)
+            self.assertIn("hello clawsqlite", row_full["content"])
 
             # 4) Export as markdown
             out_md = root / "export.md"
@@ -213,7 +220,9 @@ class CLISmokeTests(unittest.TestCase):
                 "--check",
                 "--json",
             ]
-            self._run(reindex_check_cmd)
+            p = self._run(reindex_check_cmd)
+            reindex_info = json.loads(p.stdout)
+            self.assertEqual(reindex_info["file_missing"], 0)
 
             # 7) Maintenance dry-run and real run (practically no-op on fresh root)
             maint_dry_cmd = [

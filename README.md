@@ -40,6 +40,7 @@ The knowledge app helps you:
   - `articles_vec` vec0 table for vector search (optional)
 - **Markdown storage**
   - Each article is stored as `articles/<id>__<slug>.md`
+  - `local_file_path` is stored in the DB relative to the knowledge instance home
   - Markdown files include a small METADATA header + MARKDOWN body section
 - **Knowledge instance home**
   - Real local config and data live together outside the repo/skill shell
@@ -535,6 +536,7 @@ The knowledge app will parse these into `source_title` and markdown body.
 
    - Create `<root>/knowledge.sqlite3`
    - Create `<root>/articles/000001__first-note.md`
+   - Store `local_file_path` as `articles/000001__first-note.md`
    - Index the record in FTS (and vec if embedding is configured)
 
    For a no-network test run, make the degraded path explicit:

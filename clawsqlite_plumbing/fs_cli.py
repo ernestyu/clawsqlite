@@ -69,21 +69,50 @@ def _normalize_db_path(root: str, path: str) -> str:
     p = (path or "").strip()
     if not p:
         return ""
+    root_name = os.path.basename(os.path.abspath(root))
     if os.path.isabs(p):
+        normalized = os.path.normpath(p)
         try:
-            return os.path.relpath(p, root)
+            rel = os.path.relpath(normalized, root)
+            if rel != ".." and not rel.startswith(".." + os.sep):
+                return rel
         except Exception:
-            return p
-    return p
+            pass
+        parts = normalized.split(os.sep)
+        if root_name in parts:
+            idx = len(parts) - 1 - parts[::-1].index(root_name)
+            tail = parts[idx + 1 :]
+            return os.path.join(*tail) if tail else ""
+        return normalized
+    normalized = os.path.normpath(p)
+    parts = normalized.split(os.sep)
+    if parts and parts[0] == root_name:
+        return os.path.join(*parts[1:]) if len(parts) > 1 else ""
+    return normalized
 
 
 def _full_path_under_root(root: str, path: str) -> Optional[str]:
     p = (path or "").strip()
     if not p:
         return None
-    full = p if os.path.isabs(p) else os.path.join(root, p)
-    full = os.path.abspath(full)
     root_abs = os.path.abspath(root)
+    root_name = os.path.basename(root_abs)
+    if os.path.isabs(p):
+        full = os.path.abspath(os.path.normpath(p))
+        try:
+            if os.path.commonpath([root_abs, full]) == root_abs:
+                return full
+        except Exception:
+            pass
+        parts = full.split(os.sep)
+        if root_name in parts:
+            idx = len(parts) - 1 - parts[::-1].index(root_name)
+            tail = parts[idx + 1 :]
+            if tail:
+                full = os.path.abspath(os.path.join(root_abs, *tail))
+    else:
+        rel = _normalize_db_path(root, p)
+        full = os.path.abspath(os.path.join(root, rel))
     try:
         if os.path.commonpath([root_abs, full]) != root_abs:
             return None
