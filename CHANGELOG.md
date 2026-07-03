@@ -7,6 +7,28 @@ without strict version tagging yet. Entries are grouped by date + topic.
 
 ---
 
+## 2026-07-03 – 1.0.8 OpenClaw Persistent Instance Defaults
+
+### Changed
+
+- Default knowledge instances now prefer OpenClaw's persistent workspace data
+  directory when `OPENCLAW_WORKSPACE` is set, using
+  `$OPENCLAW_WORKSPACE/data/clawsqlite-knowledge/default`.
+- Skill-local `bin/clawsqlite` and `bootstrap_deps.sh` use the same OpenClaw
+  workspace-aware default instance base, so the default registry and wrapper
+  lookup stay aligned after container recreation.
+- When no OpenClaw workspace is detected, ordinary Linux installs continue to
+  use `${XDG_DATA_HOME:-~/.local/share}/clawsqlite-knowledge/default`.
+- Missing-config recovery hints now search `~/.openclaw/workspace/data` before
+  local-share locations.
+
+### Tests
+
+- Added coverage for `init-config --instance default` and the skill wrapper
+  using an OpenClaw workspace-backed default instance.
+
+---
+
 ## 2026-07-03 – Relative Article File Paths
 
 ### Changed

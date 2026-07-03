@@ -5,8 +5,12 @@ BASE_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 LOCAL_TARGET="$BASE_DIR/.clawsqlite-python"
 BIN_DIR="$BASE_DIR/bin"
 LOCAL_CLI="$BIN_DIR/clawsqlite"
-if [ "${XDG_DATA_HOME:-}" ]; then
+if [ "${OPENCLAW_WORKSPACE:-}" ]; then
+  DEFAULT_INSTANCE_HOME="$OPENCLAW_WORKSPACE/data/clawsqlite-knowledge/default"
+elif [ "${XDG_DATA_HOME:-}" ]; then
   DEFAULT_INSTANCE_HOME="$XDG_DATA_HOME/clawsqlite-knowledge/default"
+elif [ -d "$HOME/.openclaw/workspace" ]; then
+  DEFAULT_INSTANCE_HOME="$HOME/.openclaw/workspace/data/clawsqlite-knowledge/default"
 else
   DEFAULT_INSTANCE_HOME="$HOME/.local/share/clawsqlite-knowledge/default"
 fi

@@ -286,8 +286,16 @@ def _maybe_warn_fts_fallback(conn) -> None:
 
 
 def _default_instance_base() -> Path:
+    openclaw_workspace = os.environ.get("OPENCLAW_WORKSPACE")
+    if openclaw_workspace:
+        return Path(openclaw_workspace).expanduser() / "data" / "clawsqlite-knowledge"
     xdg_data = os.environ.get("XDG_DATA_HOME")
-    base = Path(xdg_data).expanduser() if xdg_data else Path.home() / ".local" / "share"
+    if xdg_data:
+        return Path(xdg_data).expanduser() / "clawsqlite-knowledge"
+    home_workspace = Path.home() / ".openclaw" / "workspace"
+    if home_workspace.exists():
+        return home_workspace / "data" / "clawsqlite-knowledge"
+    base = Path.home() / ".local" / "share"
     return base / "clawsqlite-knowledge"
 
 
@@ -337,6 +345,13 @@ def _is_under_skills_dir(path: Path) -> bool:
 
 
 def _unsafe_init_config_reason(target_dir: Path) -> Optional[str]:
+    try:
+        target_resolved = target_dir.resolve()
+        default_base = _default_instance_base().expanduser().resolve()
+        if os.path.commonpath([str(default_base), str(target_resolved)]) == str(default_base):
+            return None
+    except Exception:
+        pass
     if _is_under_skills_dir(target_dir):
         return "target directory is inside a skills/ installation tree"
     git_root = _find_enclosing_git_root(target_dir)
@@ -1796,7 +1811,7 @@ def cmd_report_interest(args) -> int:
 def _add_init_config_parser(sub, *, name: str = "init-config", help_text: str = "Create a clawsqlite.toml template for the knowledge app") -> argparse.ArgumentParser:
     sp = sub.add_parser(name, help=help_text)
     _add_common_flags(sp)
-    sp.add_argument("--instance", default=None, help="Create config under ${XDG_DATA_HOME:-~/.local/share}/clawsqlite-knowledge/INSTANCE")
+    sp.add_argument("--instance", default=None, help="Create config under the default instance base; OpenClaw uses $OPENCLAW_WORKSPACE/data/clawsqlite-knowledge, otherwise ${XDG_DATA_HOME:-~/.local/share}/clawsqlite-knowledge")
     sp.add_argument("--home", default=None, help="Create config in an explicit knowledge instance home directory")
     sp.add_argument("--out", default=None, help="Output config path (default: ./clawsqlite.toml; rejected inside repo/skill dirs)")
     sp.add_argument("--force", action="store_true", help="Overwrite an existing config file")

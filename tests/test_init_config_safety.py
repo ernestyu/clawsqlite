@@ -74,7 +74,9 @@ class InitConfigSafetyTests(unittest.TestCase):
     def test_init_config_instance_uses_xdg_data_home(self):
         with tempfile.TemporaryDirectory() as tmp:
             old_xdg = os.environ.get("XDG_DATA_HOME")
+            old_openclaw = os.environ.get("OPENCLAW_WORKSPACE")
             os.environ["XDG_DATA_HOME"] = str(Path(tmp) / "xdg")
+            os.environ.pop("OPENCLAW_WORKSPACE", None)
             try:
                 code, out, err = _run_cli(["maintenance", "init-config", "--instance", "default", "--json"])
             finally:
@@ -82,6 +84,10 @@ class InitConfigSafetyTests(unittest.TestCase):
                     os.environ.pop("XDG_DATA_HOME", None)
                 else:
                     os.environ["XDG_DATA_HOME"] = old_xdg
+                if old_openclaw is None:
+                    os.environ.pop("OPENCLAW_WORKSPACE", None)
+                else:
+                    os.environ["OPENCLAW_WORKSPACE"] = old_openclaw
             self.assertEqual(code, 0, err)
             payload = json.loads(out)
             expected_home = Path(tmp) / "xdg" / "clawsqlite-knowledge" / "default"
@@ -89,10 +95,72 @@ class InitConfigSafetyTests(unittest.TestCase):
             self.assertEqual(Path(payload["default_instance_registry"]).read_text(encoding="utf-8").strip(), str(expected_home.resolve()))
             self.assertTrue((expected_home / "clawsqlite.toml").is_file())
 
+    def test_init_config_instance_uses_openclaw_workspace_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            old_xdg = os.environ.get("XDG_DATA_HOME")
+            old_openclaw = os.environ.get("OPENCLAW_WORKSPACE")
+            workspace = Path(tmp) / "workspace"
+            workspace.mkdir()
+            os.environ["XDG_DATA_HOME"] = str(Path(tmp) / "xdg")
+            os.environ["OPENCLAW_WORKSPACE"] = str(workspace)
+            try:
+                code, out, err = _run_cli(["maintenance", "init-config", "--instance", "default", "--json"])
+            finally:
+                if old_xdg is None:
+                    os.environ.pop("XDG_DATA_HOME", None)
+                else:
+                    os.environ["XDG_DATA_HOME"] = old_xdg
+                if old_openclaw is None:
+                    os.environ.pop("OPENCLAW_WORKSPACE", None)
+                else:
+                    os.environ["OPENCLAW_WORKSPACE"] = old_openclaw
+            self.assertEqual(code, 0, err)
+            payload = json.loads(out)
+            expected_home = workspace / "data" / "clawsqlite-knowledge" / "default"
+            expected_registry = workspace / "data" / "clawsqlite-knowledge" / "default_instance_home"
+            self.assertEqual(payload["instance_home"], str(expected_home.resolve()))
+            self.assertEqual(payload["default_instance_registry"], str(expected_registry))
+            self.assertEqual(expected_registry.read_text(encoding="utf-8").strip(), str(expected_home.resolve()))
+            self.assertTrue((expected_home / "clawsqlite.toml").is_file())
+
+    def test_init_config_instance_detects_home_openclaw_workspace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            old_home = os.environ.get("HOME")
+            old_xdg = os.environ.get("XDG_DATA_HOME")
+            old_openclaw = os.environ.get("OPENCLAW_WORKSPACE")
+            fake_home = Path(tmp) / "home"
+            workspace = fake_home / ".openclaw" / "workspace"
+            workspace.mkdir(parents=True)
+            os.environ["HOME"] = str(fake_home)
+            os.environ.pop("XDG_DATA_HOME", None)
+            os.environ.pop("OPENCLAW_WORKSPACE", None)
+            try:
+                code, out, err = _run_cli(["maintenance", "init-config", "--instance", "default", "--json"])
+            finally:
+                if old_home is None:
+                    os.environ.pop("HOME", None)
+                else:
+                    os.environ["HOME"] = old_home
+                if old_xdg is None:
+                    os.environ.pop("XDG_DATA_HOME", None)
+                else:
+                    os.environ["XDG_DATA_HOME"] = old_xdg
+                if old_openclaw is None:
+                    os.environ.pop("OPENCLAW_WORKSPACE", None)
+                else:
+                    os.environ["OPENCLAW_WORKSPACE"] = old_openclaw
+            self.assertEqual(code, 0, err)
+            payload = json.loads(out)
+            expected_home = workspace / "data" / "clawsqlite-knowledge" / "default"
+            self.assertEqual(payload["instance_home"], str(expected_home.resolve()))
+            self.assertTrue((expected_home / "clawsqlite.toml").is_file())
+
     def test_init_config_instance_repairs_missing_registry_when_config_exists(self):
         with tempfile.TemporaryDirectory() as tmp:
             old_xdg = os.environ.get("XDG_DATA_HOME")
+            old_openclaw = os.environ.get("OPENCLAW_WORKSPACE")
             os.environ["XDG_DATA_HOME"] = str(Path(tmp) / "xdg")
+            os.environ.pop("OPENCLAW_WORKSPACE", None)
             try:
                 code, out, err = _run_cli(["maintenance", "init-config", "--instance", "default", "--json"])
                 self.assertEqual(code, 0, err)
@@ -106,6 +174,10 @@ class InitConfigSafetyTests(unittest.TestCase):
                     os.environ.pop("XDG_DATA_HOME", None)
                 else:
                     os.environ["XDG_DATA_HOME"] = old_xdg
+                if old_openclaw is None:
+                    os.environ.pop("OPENCLAW_WORKSPACE", None)
+                else:
+                    os.environ["OPENCLAW_WORKSPACE"] = old_openclaw
 
             self.assertEqual(code, 0, err)
             payload = json.loads(out)
@@ -117,7 +189,9 @@ class InitConfigSafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             xdg = Path(tmp) / "xdg"
             old_xdg = os.environ.get("XDG_DATA_HOME")
+            old_openclaw = os.environ.get("OPENCLAW_WORKSPACE")
             os.environ["XDG_DATA_HOME"] = str(xdg)
+            os.environ.pop("OPENCLAW_WORKSPACE", None)
             try:
                 code, _, err = _run_cli(["maintenance", "init-config", "--instance", "default", "--json"])
             finally:
@@ -125,6 +199,10 @@ class InitConfigSafetyTests(unittest.TestCase):
                     os.environ.pop("XDG_DATA_HOME", None)
                 else:
                     os.environ["XDG_DATA_HOME"] = old_xdg
+                if old_openclaw is None:
+                    os.environ.pop("OPENCLAW_WORKSPACE", None)
+                else:
+                    os.environ["OPENCLAW_WORKSPACE"] = old_openclaw
             self.assertEqual(code, 0, err)
 
             run_cwd = Path(tmp) / "elsewhere"
@@ -145,6 +223,48 @@ class InitConfigSafetyTests(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stderr)
             report = json.loads(proc.stdout)
             expected_home = xdg / "clawsqlite-knowledge" / "default"
+            self.assertEqual(report["active_config"]["root"], str(expected_home.resolve()))
+
+    def test_skill_wrapper_uses_openclaw_workspace_default_instance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "workspace"
+            workspace.mkdir()
+            old_xdg = os.environ.get("XDG_DATA_HOME")
+            old_openclaw = os.environ.get("OPENCLAW_WORKSPACE")
+            os.environ["XDG_DATA_HOME"] = str(Path(tmp) / "xdg")
+            os.environ["OPENCLAW_WORKSPACE"] = str(workspace)
+            try:
+                code, _, err = _run_cli(["maintenance", "init-config", "--instance", "default", "--json"])
+            finally:
+                if old_xdg is None:
+                    os.environ.pop("XDG_DATA_HOME", None)
+                else:
+                    os.environ["XDG_DATA_HOME"] = old_xdg
+                if old_openclaw is None:
+                    os.environ.pop("OPENCLAW_WORKSPACE", None)
+                else:
+                    os.environ["OPENCLAW_WORKSPACE"] = old_openclaw
+            self.assertEqual(code, 0, err)
+
+            run_cwd = Path(tmp) / "elsewhere"
+            run_cwd.mkdir()
+            env = os.environ.copy()
+            env["XDG_DATA_HOME"] = str(Path(tmp) / "xdg")
+            env["OPENCLAW_WORKSPACE"] = str(workspace)
+            env["PYTHON"] = sys.executable
+            env["PYTHONPATH"] = str(REPO_ROOT)
+            wrapper = REPO_ROOT / "skills" / "clawsqlite-knowledge" / "bin" / "clawsqlite"
+            proc = subprocess.run(
+                [str(wrapper), "knowledge", "maintenance", "doctor", "--json"],
+                cwd=str(run_cwd),
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            report = json.loads(proc.stdout)
+            expected_home = workspace / "data" / "clawsqlite-knowledge" / "default"
             self.assertEqual(report["active_config"]["root"], str(expected_home.resolve()))
 
     def test_skill_wrapper_reports_missing_default_instance_registry(self):

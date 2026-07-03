@@ -1,7 +1,7 @@
 ---
 name: clawsqlite-knowledge
 description: Knowledge base skill that uses the published clawsqlite CLI for ingest, search, show, and maintenance workflows.
-version: 1.0.7
+version: 1.0.8
 metadata: {"openclaw":{"homepage":"https://github.com/ernestyu/clawsqlite","tags":["knowledge","sqlite","search","cli"],"requires":{"bins":["python"],"env":[]},"install":[{"id":"clawsqlite_knowledge_bootstrap","kind":"bash","label":"Install clawsqlite Python package from PyPI","script":"set -e && cd {baseDir} && bash bootstrap_deps.sh"}]}}
 ---
 
@@ -34,12 +34,16 @@ It does:
 
 This skill directory is only the instruction shell. Do not store the user's
 knowledge DB or private config here. Run `clawsqlite knowledge ...` from a
-knowledge instance home instead, for example:
+knowledge instance home instead. In OpenClaw, use the persistent workspace data
+directory:
 
 ```bash
-mkdir -p ~/.local/share/clawsqlite-knowledge/default
-cd ~/.local/share/clawsqlite-knowledge/default
+mkdir -p ~/.openclaw/workspace/data/clawsqlite-knowledge/default
+cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
 ```
+
+On a normal non-OpenClaw Linux install, the default falls back to
+`${XDG_DATA_HOME:-~/.local/share}/clawsqlite-knowledge/default`.
 
 The local private config must be:
 
@@ -68,7 +72,7 @@ no config exists yet:
 
 ```bash
 bin/clawsqlite knowledge maintenance init-config --instance default
-cd ~/.local/share/clawsqlite-knowledge/default
+cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
 ```
 
 ## Validate

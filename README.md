@@ -200,17 +200,20 @@ user data directory that contains the private config, DB, and `articles/`
 together. A good OpenClaw layout is:
 
 ```text
-~/.local/share/clawsqlite-knowledge/default/
+~/.openclaw/workspace/data/clawsqlite-knowledge/default/
   clawsqlite.toml
   knowledge.sqlite3
   articles/
 ```
 
+On a normal non-OpenClaw Linux install, the default falls back to
+`${XDG_DATA_HOME:-~/.local/share}/clawsqlite-knowledge/default`.
+
 Create a template:
 
 ```bash
 clawsqlite knowledge maintenance init-config --instance default
-cd ~/.local/share/clawsqlite-knowledge/default
+cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
 # or copy the checked-in example
 cp clawsqlite.toml.example clawsqlite.toml
 ```
@@ -513,7 +516,7 @@ The knowledge app will parse these into `source_title` and markdown body.
 
    ```bash
    clawsqlite knowledge maintenance init-config --instance default
-   cd ~/.local/share/clawsqlite-knowledge/default
+   cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
    ```
 
 2. **Edit the private `clawsqlite.toml`**
@@ -1005,7 +1008,7 @@ published `clawsqlite` PyPI package and validates the stable skill-local entry
 the global `clawsqlite` command may still be absent from `PATH`.
 
 Agents should create or enter a knowledge instance home such as
-`~/.local/share/clawsqlite-knowledge/default`, keep
+`~/.openclaw/workspace/data/clawsqlite-knowledge/default` in OpenClaw, keep
 `clawsqlite.toml`, `knowledge.sqlite3`, and `articles/` there, and run
 `<workspace>/skills/clawsqlite-knowledge/bin/clawsqlite knowledge ...` from that
 directory. Core logic, strict ingest, config loading, and error semantics

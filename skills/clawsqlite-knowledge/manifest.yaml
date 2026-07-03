@@ -1,5 +1,5 @@
 name: clawsqlite-knowledge
-version: 1.0.7
+version: 1.0.8
 description: Knowledge base skill that uses the published clawsqlite CLI for ingest, search, show, and maintenance workflows.
 entry: SKILL.md
 tags:

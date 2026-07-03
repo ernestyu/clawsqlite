@@ -48,8 +48,12 @@ the skill directory:
 
 ```bash
 ./bin/clawsqlite knowledge maintenance init-config --instance default
-cd ~/.local/share/clawsqlite-knowledge/default
+cd ~/.openclaw/workspace/data/clawsqlite-knowledge/default
 ```
+
+In OpenClaw, the default instance home is under the persistent workspace data
+directory. On ordinary non-OpenClaw Linux installs it falls back to
+`${XDG_DATA_HOME:-~/.local/share}/clawsqlite-knowledge/default`.
 
 `clawsqlite.toml` is the single runtime configuration source. This skill does
 not include an env example because normal operation should not use environment
