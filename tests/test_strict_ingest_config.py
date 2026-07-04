@@ -473,7 +473,8 @@ class StrictIngestConfigTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with config_path.open("a", encoding="utf-8") as f:
-                f.write(f'\n[scraper]\ncmd = "{sys.executable} {scraper}"\n')
+                scraper_cmd = f"{sys.executable} {scraper}".replace("\\", "/")
+                f.write(f'\n[scraper]\ncmd = "{scraper_cmd}"\n')
             self._run_cwd = root
             code, out, err = self._run_cli(["maintenance", "doctor", "--check-scraper", "--json"])
 

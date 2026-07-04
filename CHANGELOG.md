@@ -23,6 +23,9 @@ without strict version tagging yet. Entries are grouped by date + topic.
   input still needs trimming.
 - Config templates, doctor output, README examples, and tests now document and
   exercise the token-window and max-chunk settings.
+- Added `clawsqlite knowledge maintenance consistency --check --json` to audit
+  strict DB-to-`articles/` live Markdown file correspondence, orphan live files,
+  backup residue, deleted-backup residue, and soft-deleted record file state.
 
 ### Packaging
 
@@ -43,6 +46,9 @@ without strict version tagging yet. Entries are grouped by date + topic.
   `max_chunks_per_article = 1`.
 - Updated config tests for `context_window_tokens` and
   `max_chunks_per_article`.
+- Added maintenance consistency coverage for missing live files, orphan live
+  files, orphan backups, deleted backups, soft-deleted backup-only records, and
+  explicit DB-authoritative live-file cleanup.
 
 ---
 

@@ -16,7 +16,7 @@ def article_relpath(article_id: int, title: str) -> str:
 
 
 def article_db_relpath(article_id: int, title: str) -> str:
-    return os.path.join("articles", article_relpath(article_id, title))
+    return f"articles/{article_relpath(article_id, title)}"
 
 
 def resolve_local_file_path(path_value: str, instance_root: str) -> str:

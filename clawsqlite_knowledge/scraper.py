@@ -28,9 +28,9 @@ def scrape_url(url: str, *, scrape_cmd: Optional[str] = None, timeout: int = 120
     # Build argv safely. We avoid shell=True by default to reduce quoting issues.
     if "{url}" in cmd:
         formatted = cmd.format(url=url)
-        argv = shlex.split(formatted)
+        argv = shlex.split(formatted, posix=(os.name != "nt"))
     else:
-        argv = shlex.split(cmd) + [url]
+        argv = shlex.split(cmd, posix=(os.name != "nt")) + [url]
 
     p = subprocess.run(
         argv,

@@ -35,7 +35,7 @@ sh bootstrap_deps.sh
 ```
 
 The bootstrap script first checks Python 3.10+, importability, and the pinned
-`clawsqlite==1.0.10` package contract. It installs only when that contract is not
+`clawsqlite==1.0.11` package contract. It installs only when that contract is not
 already satisfied, then validates the stable local entry:
 
 ```bash

@@ -30,6 +30,7 @@ import unittest
 import uuid
 from pathlib import Path
 
+from clawsqlite_knowledge import db as dbmod
 from tests.helpers import write_knowledge_config
 
 
@@ -379,6 +380,116 @@ class KnowledgeCLITests(unittest.TestCase):
             out = json.loads(p.stdout)
             self.assertIn(str(old_backup), out["deleted"])
             self.assertFalse(old_backup.exists())
+
+    def test_maintenance_consistency_reports_and_fixes_db_file_drift(self):
+        with _tempdir() as tmpdir:
+            root = Path(tmpdir) / "kb_root"
+            articles = root / "articles"
+            articles.mkdir(parents=True, exist_ok=True)
+            write_knowledge_config(root)
+            self._run_cwd = root
+
+            db_path = root / "knowledge.sqlite3"
+            conn = dbmod.open_db(str(db_path), need_fts=False, need_vec=False)
+            try:
+                aid1 = dbmod.insert_article(
+                    conn,
+                    source_title="Missing",
+                    generated_title="Missing",
+                    source_url="",
+                    tags="test",
+                    summary="missing file",
+                    category="test",
+                    local_file_path="articles/000001__missing.md",
+                    priority=0,
+                )
+                aid2 = dbmod.insert_article(
+                    conn,
+                    source_title="Live",
+                    generated_title="Live",
+                    source_url="",
+                    tags="test",
+                    summary="live file",
+                    category="test",
+                    local_file_path="articles/000002__live.md",
+                    priority=0,
+                )
+                aid3 = dbmod.insert_article(
+                    conn,
+                    source_title="Soft",
+                    generated_title="Soft",
+                    source_url="",
+                    tags="test",
+                    summary="soft deleted",
+                    category="test",
+                    local_file_path="articles/000003__soft.md.bak_deleted_20200101000000",
+                    priority=0,
+                )
+                self.assertEqual((aid1, aid2, aid3), (1, 2, 3))
+                conn.execute("UPDATE articles SET deleted_at=? WHERE id=3", ("2026-01-01T00:00:00Z",))
+                conn.commit()
+            finally:
+                conn.close()
+
+            (articles / "000002__live.md").write_text("live", encoding="utf-8")
+            orphan_live = articles / "000777__orphan.md"
+            orphan_live.write_text("orphan live", encoding="utf-8")
+            orphan_backup = articles / "000888__old.md.bak_20200101000000"
+            orphan_backup.write_text("orphan backup", encoding="utf-8")
+            orphan_deleted_backup = articles / "000889__old.md.bak_deleted_20200101000000"
+            orphan_deleted_backup.write_text("orphan deleted backup", encoding="utf-8")
+            soft_backup = articles / "000003__soft.md.bak_deleted_20200101000000"
+            soft_backup.write_text("soft backup", encoding="utf-8")
+
+            check_cmd = [
+                PYTHON_BIN,
+                "-m",
+                "clawsqlite_cli",
+                "knowledge",
+                "maintenance",
+                "consistency",
+                "--check",
+                "--json",
+            ]
+            p = self._run(check_cmd)
+            out = json.loads(p.stdout)
+            self.assertFalse(out["ok"])
+            self.assertEqual(out["summary"]["db_count"], 3)
+            self.assertEqual(out["summary"]["active_db_count"], 2)
+            self.assertEqual(out["summary"]["live_file_count"], 2)
+            self.assertEqual(out["summary"]["missing_live_file_count"], 1)
+            self.assertEqual(out["summary"]["orphan_live_file_count"], 1)
+            self.assertEqual([x["id"] for x in out["db_but_no_file"]], [1])
+            self.assertEqual([x["id"] for x in out["file_but_no_db"]], [777])
+            self.assertEqual(out["backup_only_ids"], [888, 889])
+            self.assertEqual(out["soft_deleted_ids"], [3])
+            self.assertEqual([x["id"] for x in out["soft_deleted_with_backup_only"]], [3])
+
+            fix_cmd = [
+                PYTHON_BIN,
+                "-m",
+                "clawsqlite_cli",
+                "knowledge",
+                "maintenance",
+                "consistency",
+                "--fix",
+                "--json",
+            ]
+            p = self._run(fix_cmd)
+            fixed = json.loads(p.stdout)
+            self.assertIn("fixed", fixed)
+            self.assertFalse(orphan_backup.exists())
+            self.assertFalse(orphan_deleted_backup.exists())
+            self.assertTrue(orphan_live.exists())
+            self.assertTrue(soft_backup.exists())
+            self.assertEqual(fixed["backup_only_ids"], [])
+            self.assertEqual([x["id"] for x in fixed["file_but_no_db"]], [777])
+
+            fix_live_cmd = fix_cmd[:-1] + ["--remove-orphan-live-files", "--json"]
+            p = self._run(fix_live_cmd)
+            fixed_live = json.loads(p.stdout)
+            self.assertFalse(orphan_live.exists())
+            self.assertEqual(fixed_live["summary"]["orphan_live_file_count"], 0)
 
 
 if __name__ == "__main__":  # pragma: no cover

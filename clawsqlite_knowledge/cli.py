@@ -41,6 +41,7 @@ from .scraper import scrape_url
 from .search import hybrid_search
 from . import reindex as reindex_mod
 from . import interest as interest_mod
+from .consistency import apply_consistency_fixes, check_consistency
 
 # Admin layer helpers used by knowledge-level maintenance wrappers.
 try:
@@ -1541,6 +1542,38 @@ def _missing_s3_backup_fields(s3: BackupS3Config) -> List[str]:
     return [key for key, value in required.items() if not str(value or "").strip()]
 
 
+def cmd_consistency(args) -> int:
+    paths = _resolve_paths(args)
+    conn = None
+    try:
+        if getattr(args, "remove_orphan_live_files", False) and not getattr(args, "fix", False):
+            sys.stderr.write("ERROR: --remove-orphan-live-files requires --fix.\n")
+            sys.stderr.write("NEXT: rerun with 'consistency --fix --remove-orphan-live-files --json' if DB is authoritative.\n")
+            return 2
+
+        conn = _open_for_command(paths["db"], need_fts=False, need_vec=False, args=args)
+        report = check_consistency(conn, paths=paths)
+
+        if getattr(args, "fix", False):
+            fixed = apply_consistency_fixes(
+                report,
+                paths=paths,
+                remove_orphan_live_files=bool(getattr(args, "remove_orphan_live_files", False)),
+            )
+            report = check_consistency(conn, paths=paths)
+            report["fixed"] = fixed
+
+        _print(report, bool(getattr(args, "json", False)))
+        return 0
+    except Exception as e:
+        sys.stderr.write(f"ERROR: consistency check failed: {e}\n")
+        sys.stderr.write("NEXT: verify the configured DB and articles_dir, then rerun with --check --json.\n")
+        return 4
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def _create_backup_archive(
     *,
     archive_path: str,
@@ -1940,6 +1973,23 @@ def _add_cleanup_parser(sub, *, name: str = "cleanup", action_default: str = "gc
     return sp
 
 
+def _add_consistency_parser(sub, *, name: str = "consistency") -> argparse.ArgumentParser:
+    sp = sub.add_parser(name, help="Check DB records against live article markdown files")
+    _add_common_flags(sp)
+    mode = sp.add_mutually_exclusive_group()
+    mode.add_argument("--check", action="store_true", help="Report DB/filesystem consistency without modifying files")
+    mode.add_argument("--fix", action="store_true", help="Delete safe orphan backup files, then report remaining consistency issues")
+    sp.add_argument(
+        "--remove-orphan-live-files",
+        "--db-authoritative",
+        dest="remove_orphan_live_files",
+        action="store_true",
+        help="With --fix: also delete live markdown files not referenced by active DB records",
+    )
+    sp.set_defaults(func=cmd_consistency, cmd_leaf="consistency")
+    return sp
+
+
 def _add_backup_parser(sub, *, name: str = "backup") -> argparse.ArgumentParser:
     sp = sub.add_parser(name, help="Upload configured DB plus articles directory to S3")
     _add_common_flags(sp)
@@ -2014,6 +2064,7 @@ def _add_maintenance_tree(sub) -> None:
     _add_doctor_parser(maintenance_sub)
     _add_reindex_parser(maintenance_sub)
     _add_cleanup_parser(maintenance_sub)
+    _add_consistency_parser(maintenance_sub)
     _add_backup_parser(maintenance_sub)
 
 

@@ -411,12 +411,18 @@ clawsqlite knowledge maintenance reindex --fix-missing --json
 
 ```bash
 clawsqlite knowledge maintenance reindex --check --json
+clawsqlite knowledge maintenance consistency --check --json
 clawsqlite knowledge maintenance cleanup --days 3 --dry-run
 clawsqlite knowledge maintenance backup --dry-run --json
 clawsqlite knowledge maintenance backup --json
 ```
 
 `reindex --fix-missing` 会按配置里的生成器补缺失字段；严格配置下同样要求 LLM，除非显式加 `--allow-heuristic`。
+
+`consistency --check` 专门检查 DB 记录与 `articles/` live Markdown 文件是否一一对应，
+并单独报告 orphan live 文件、`.bak_...` / `.bak_deleted_...` 残留和软删除记录的文件状态。
+`consistency --fix` 默认只删除未被 DB 引用的备份残留；如果已经确认“DB 是唯一真相”，
+再显式加 `--remove-orphan-live-files` 或 `--db-authoritative` 删除 orphan live 文件。
 
 `backup` 从 `clawsqlite.toml` 的 `[backup]` / `[backup.s3]` 读取远端对象存储配置，
 把配置中的 DB 和 `articles/` 打成一个归档包后上传到 S3/S3-compatible 存储。

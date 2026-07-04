@@ -733,7 +733,41 @@ actually usable for the current DB.
 
 ---
 
-### 6.7 admin primitives
+### 6.7 maintenance consistency
+
+Use consistency checks when you need the DB and `articles/` live Markdown files
+to line up exactly:
+
+```bash
+clawsqlite knowledge maintenance consistency --check --json
+```
+
+The command checks active DB rows against their `local_file_path`, scans
+`articles/` for live files whose `<id>__...md` prefix is not referenced by an
+active DB row, and reports `.bak_...` / `.bak_deleted_...` residue separately.
+It also classifies soft-deleted rows by whether they still have a live file,
+only a backup file, or no file.
+
+Safe cleanup is available:
+
+```bash
+clawsqlite knowledge maintenance consistency --fix --json
+```
+
+By default `--fix` deletes only orphan backup files that are not referenced by
+the DB. It does not remove live Markdown files. If the DB is the authoritative
+source of truth and you have reviewed the report, explicitly add:
+
+```bash
+clawsqlite knowledge maintenance consistency --fix --remove-orphan-live-files --json
+```
+
+`--db-authoritative` is accepted as an alias for
+`--remove-orphan-live-files`.
+
+---
+
+### 6.8 admin primitives
 
 Maintenance primitives live under `clawsqlite admin ...`. They are the
 administrator surface for the current knowledge instance, not a replacement

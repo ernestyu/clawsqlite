@@ -432,7 +432,10 @@ def _check_scraper_config(config: Optional[KnowledgeConfig] = None) -> CheckResu
         )
 
     try:
-        argv = shlex.split(cmd.format(url="https://example.com") if "{url}" in cmd else cmd)
+        argv = shlex.split(
+            cmd.format(url="https://example.com") if "{url}" in cmd else cmd,
+            posix=(os.name != "nt"),
+        )
     except Exception as e:
         return CheckResult(
             name="scraper_config",
