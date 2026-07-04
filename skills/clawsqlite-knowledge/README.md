@@ -34,8 +34,9 @@ Install the skill shell into the workspace, then run:
 sh bootstrap_deps.sh
 ```
 
-The bootstrap script installs or upgrades `clawsqlite` from PyPI and performs a
-minimal CLI check. It also validates the stable local entry:
+The bootstrap script first checks Python 3.10+, importability, and the pinned
+`clawsqlite==1.0.10` package contract. It installs only when that contract is not
+already satisfied, then validates the stable local entry:
 
 ```bash
 ./bin/clawsqlite

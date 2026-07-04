@@ -7,6 +7,45 @@ without strict version tagging yet. Entries are grouped by date + topic.
 
 ---
 
+## 2026-07-04 - 1.0.10 Token-Budgeted LLM Ingest & Skill Contract
+
+### Changed
+
+- LLM ingest now uses `[llm].context_window_tokens` as the user-facing context
+  setting and derives a conservative input-token budget internally instead of
+  chunking directly by a fixed character window.
+- Long article handling now caps LLM work with
+  `[llm].max_chunks_per_article` (default `3`). When capped, `1` processes only
+  the head chunk; `N >= 2` keeps one tail chunk and uses the remaining chunk
+  slots from the article head.
+- Chunk summaries are synthesized once into final structured fields, with an
+  additional token-budget guard that preserves head/tail coverage if the summary
+  input still needs trimming.
+- Config templates, doctor output, README examples, and tests now document and
+  exercise the token-window and max-chunk settings.
+
+### Packaging
+
+- The `clawsqlite-knowledge` skill now declares and enforces its matching
+  package dependency as `clawsqlite==1.0.10`, keeping the skill wrapper and
+  Python package version contract aligned.
+- `bootstrap_deps.sh` now checks Python version, package importability, and the
+  installed `clawsqlite` version before installing. It skips installation when
+  the dependency contract is already satisfied and installs only when needed.
+- Bootstrap validation now covers package import, top-level CLI help,
+  `knowledge --help`, and the lightweight `knowledge maintenance init-config
+  --help` capability probe.
+
+### Tests
+
+- Added LLM-generation regression coverage for token-budget chunking, head/tail
+  chunk selection, and the single-head-chunk path when
+  `max_chunks_per_article = 1`.
+- Updated config tests for `context_window_tokens` and
+  `max_chunks_per_article`.
+
+---
+
 ## 2026-07-03 – 1.0.8 OpenClaw Persistent Instance Defaults
 
 ### Changed

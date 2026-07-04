@@ -302,6 +302,140 @@ def _chunk_text(text: str, *, chunk_chars: int, overlap_chars: int) -> List[str]
     return chunks
 
 
+def _estimate_text_tokens(text: str) -> int:
+    """Conservative token estimate for mixed English/CJK content.
+
+    We avoid a model-specific tokenizer dependency because deployments use
+    OpenAI-compatible endpoints with different tokenizers. This estimator is
+    intentionally cautious for CJK text, where characters often map close to
+    individual tokens.
+    """
+
+    tokens = 0
+    ascii_run = 0
+
+    def flush_ascii() -> None:
+        nonlocal tokens, ascii_run
+        if ascii_run:
+            tokens += max(1, (ascii_run + 3) // 4)
+            ascii_run = 0
+
+    for ch in text or "":
+        code = ord(ch)
+        if ch.isspace():
+            flush_ascii()
+            continue
+        if 0x4E00 <= code <= 0x9FFF:
+            flush_ascii()
+            tokens += 1
+        elif code < 128:
+            ascii_run += 1
+        else:
+            flush_ascii()
+            tokens += 1
+    flush_ascii()
+    return tokens
+
+
+def _llm_input_token_budget(context_window_tokens: int, *, summary_target_chars: int) -> int:
+    context = max(2048, int(context_window_tokens or 8192))
+    prompt_reserve = max(512, min(1536, context // 6))
+    output_reserve = max(512, min(max(512, int(summary_target_chars or 0) + 256), context // 2))
+    return max(512, context - prompt_reserve - output_reserve)
+
+
+def _overlap_token_budget(input_budget_tokens: int) -> int:
+    return max(0, min(256, int(input_budget_tokens) // 12))
+
+
+def _chunk_text_by_tokens(text: str, *, chunk_tokens: int, overlap_tokens: int) -> List[str]:
+    text = (text or "").strip()
+    if not text:
+        return []
+    chunk_tokens = max(512, int(chunk_tokens or 512))
+    overlap_tokens = max(0, min(int(overlap_tokens or 0), chunk_tokens // 3))
+
+    chunks: List[str] = []
+    n = len(text)
+    start = 0
+    while start < n:
+        tokens = 0
+        ascii_run = 0
+        end = start
+        last_break = -1
+        while end < n:
+            ch = text[end]
+            code = ord(ch)
+            if ch in "\n。！？；.!?;":
+                last_break = end + 1
+            if ch.isspace():
+                if ascii_run:
+                    tokens += max(1, (ascii_run + 3) // 4)
+                    ascii_run = 0
+            elif 0x4E00 <= code <= 0x9FFF:
+                if ascii_run:
+                    tokens += max(1, (ascii_run + 3) // 4)
+                    ascii_run = 0
+                tokens += 1
+            elif code < 128:
+                ascii_run += 1
+            else:
+                if ascii_run:
+                    tokens += max(1, (ascii_run + 3) // 4)
+                    ascii_run = 0
+                tokens += 1
+            pending = tokens + (max(1, (ascii_run + 3) // 4) if ascii_run else 0)
+            if pending > chunk_tokens:
+                break
+            end += 1
+        if end < n and last_break > start and last_break - start >= 200:
+            end = last_break
+        if end <= start:
+            end = min(n, start + 1)
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end >= n:
+            break
+        if overlap_tokens <= 0:
+            start = end
+            continue
+        overlap_start = end
+        seen = 0
+        while overlap_start > start and seen < overlap_tokens:
+            overlap_start -= 1
+            seen = _estimate_text_tokens(text[overlap_start:end])
+        start = max(start + 1, overlap_start)
+    return chunks
+
+
+def _select_head_tail_chunks(chunks: List[str], *, max_chunks: int) -> List[str]:
+    max_chunks = max(1, int(max_chunks or 1))
+    if len(chunks) <= max_chunks:
+        return chunks
+    if max_chunks == 1:
+        return chunks[:1]
+    head_count = max_chunks - 1
+    return chunks[:head_count] + [chunks[-1]]
+
+
+def _fit_text_to_token_budget(text: str, *, budget_tokens: int) -> str:
+    text = (text or "").strip()
+    if _estimate_text_tokens(text) <= budget_tokens:
+        return text
+    half_budget = max(512, int(budget_tokens) // 2)
+    pieces = _chunk_text_by_tokens(text, chunk_tokens=half_budget, overlap_tokens=0)
+    if not pieces:
+        return ""
+    if len(pieces) == 1:
+        return pieces[0]
+    candidate = f"{pieces[0]}\n\n{pieces[-1]}".strip()
+    if _estimate_text_tokens(candidate) <= budget_tokens:
+        return candidate
+    fitted = _chunk_text_by_tokens(candidate, chunk_tokens=budget_tokens, overlap_tokens=0)
+    return fitted[0] if fitted else ""
+
+
 def _normalize_string_list(value: Any, *, max_items: int) -> List[str]:
     if not isinstance(value, list):
         return []
@@ -453,15 +587,17 @@ def _llm_fields_from_content(
     summary_target_chars: int,
     tag_count: int,
     allowed_content_types: Optional[List[str]],
-    context_window_chars: int,
-    prompt_reserved_chars: int,
-    chunk_overlap_chars: int,
+    context_window_tokens: int,
+    max_chunks_per_article: int,
     timeout: int,
     preserve_short_content: bool = False,
 ) -> Dict[str, Any]:
-    budget = max(1000, int(context_window_chars) - int(prompt_reserved_chars))
+    budget_tokens = _llm_input_token_budget(
+        context_window_tokens,
+        summary_target_chars=summary_target_chars,
+    )
     text = (content or "").strip()
-    if len(text) <= budget:
+    if _estimate_text_tokens(text) <= budget_tokens:
         return _llm_fields_once(
             text,
             hint_title=hint_title,
@@ -473,52 +609,47 @@ def _llm_fields_from_content(
             preserve_short_content=preserve_short_content,
         )
 
-    chunks = _chunk_text(text, chunk_chars=budget, overlap_chars=chunk_overlap_chars)
+    chunks = _chunk_text_by_tokens(
+        text,
+        chunk_tokens=budget_tokens,
+        overlap_tokens=_overlap_token_budget(budget_tokens),
+    )
     if not chunks:
         raise RuntimeError("LLM generation failed: no chunks produced")
-    chunk_target = max(300, min(1200, summary_target_chars // 2))
+    selected_chunks = _select_head_tail_chunks(
+        chunks,
+        max_chunks=max_chunks_per_article,
+    )
+    selected_total = len(selected_chunks)
+    if selected_total == 1:
+        return _llm_fields_once(
+            selected_chunks[0],
+            hint_title=hint_title,
+            hint_tags=hint_tags,
+            summary_target_chars=summary_target_chars,
+            tag_count=tag_count,
+            allowed_content_types=allowed_content_types,
+            timeout=timeout,
+            preserve_short_content=False,
+        )
+
+    chunk_target = max(300, min(1200, summary_target_chars // max(1, selected_total)))
     summaries: List[str] = []
-    total = len(chunks)
-    for i, chunk in enumerate(chunks, start=1):
+    for i, chunk in enumerate(selected_chunks, start=1):
         summaries.append(
             _llm_chunk_summary(
                 chunk,
                 index=i,
-                total=total,
+                total=selected_total,
                 timeout=timeout,
                 target_chars=chunk_target,
             )
         )
 
-    # Very long documents can still produce too many chunk summaries for the
-    # final synthesis prompt. Keep compressing the summary list until the same
-    # context-budget rule is true for the synthesis call as well.
-    for _ in range(8):
-        if len(summaries) <= 1:
-            break
-        synthesis_preview = "\n\n".join(
-            f"Chunk {i} summary:\n{s}" for i, s in enumerate(summaries, start=1)
-        )
-        if len(synthesis_preview) <= budget:
-            break
-        grouped = _chunk_text(synthesis_preview, chunk_chars=budget, overlap_chars=0)
-        next_summaries: List[str] = []
-        group_total = len(grouped)
-        for i, group in enumerate(grouped, start=1):
-            next_summaries.append(
-                _llm_chunk_summary(
-                    group,
-                    index=i,
-                    total=group_total,
-                    timeout=timeout,
-                    target_chars=chunk_target,
-                )
-            )
-        summaries = next_summaries
-
     synthesis_input = "\n\n".join(
         f"Chunk {i} summary:\n{s}" for i, s in enumerate(summaries, start=1)
     )
+    synthesis_input = _fit_text_to_token_budget(synthesis_input, budget_tokens=budget_tokens)
     return _llm_fields_once(
         synthesis_input,
         hint_title=hint_title,
@@ -648,9 +779,11 @@ def generate_fields(
     allowed_content_types: Optional[List[str]] = None,
     hint_tags: Optional[str] = None,
     allow_heuristic: bool = True,
-    llm_context_window_chars: int = 24000,
-    llm_prompt_reserved_chars: int = 4000,
-    llm_chunk_overlap_chars: int = 500,
+    llm_context_window_tokens: int = 8192,
+    llm_max_chunks_per_article: int = 3,
+    llm_context_window_chars: int = 0,
+    llm_prompt_reserved_chars: int = 0,
+    llm_chunk_overlap_chars: int = 0,
     llm_timeout_seconds: int = 60,
     source_kind: str = "",
     source_content_type: str = "",
@@ -709,9 +842,8 @@ def generate_fields(
                     summary_target_chars=max_summary_chars,
                     tag_count=tag_count,
                     allowed_content_types=allowed_content_types,
-                    context_window_chars=llm_context_window_chars,
-                    prompt_reserved_chars=llm_prompt_reserved_chars,
-                    chunk_overlap_chars=llm_chunk_overlap_chars,
+                    context_window_tokens=llm_context_window_tokens,
+                    max_chunks_per_article=llm_max_chunks_per_article,
                     timeout=llm_timeout_seconds,
                     preserve_short_content=short_summary_passthrough,
                 )

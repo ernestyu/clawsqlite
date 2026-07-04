@@ -143,13 +143,13 @@ class LLMConfig:
     model: str = ""
     api_key: str = ""
     timeout_seconds: int = 90
-    context_window_chars: int = 24000
-    prompt_reserved_chars: int = 4000
-    chunk_overlap_chars: int = 500
+    context_window_tokens: int = 8192
+    max_chunks_per_article: int = 3
 
     @property
-    def content_budget_chars(self) -> int:
-        return max(1000, self.context_window_chars - self.prompt_reserved_chars)
+    def content_budget_tokens(self) -> int:
+        prompt_reserve = max(512, min(1536, self.context_window_tokens // 6))
+        return max(512, self.context_window_tokens - prompt_reserve)
 
     @property
     def resolved_api_key(self) -> str:
@@ -333,9 +333,12 @@ def load_knowledge_config(
         model=str(llm.get("model") or "").strip(),
         api_key=str(llm.get("api_key") or "").strip(),
         timeout_seconds=_int_value(llm.get("timeout_seconds"), 90, lo=1),
-        context_window_chars=_int_value(llm.get("context_window_chars") or llm.get("context_chars"), 24000, lo=2000),
-        prompt_reserved_chars=_int_value(llm.get("prompt_reserved_chars"), 4000, lo=500),
-        chunk_overlap_chars=_int_value(llm.get("chunk_overlap_chars"), 500, lo=0),
+        context_window_tokens=_int_value(
+            llm.get("context_window_tokens") or llm.get("context_tokens"),
+            8192,
+            lo=2048,
+        ),
+        max_chunks_per_article=_int_value(llm.get("max_chunks_per_article"), 3, lo=1),
     )
 
     emb_cfg = EmbeddingConfig(

@@ -641,8 +641,8 @@ def _config_report(config: Optional[KnowledgeConfig]) -> Dict[str, Any]:
             "model": config.llm.model,
             "base_url": config.llm.base_url,
             "has_api_key": bool(config.llm.resolved_api_key),
-            "context_window_chars": config.llm.context_window_chars,
-            "prompt_reserved_chars": config.llm.prompt_reserved_chars,
+            "context_window_tokens": config.llm.context_window_tokens,
+            "max_chunks_per_article": config.llm.max_chunks_per_article,
         },
         "embedding": {
             "configured": bool(config.embedding.base_url and config.embedding.model and config.embedding.resolved_api_key and config.embedding.dim > 0),

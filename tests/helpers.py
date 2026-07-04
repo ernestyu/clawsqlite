@@ -54,8 +54,8 @@ fallback = "fail"
 base_url = "http://127.0.0.1:9/v1"
 model = "test-llm"
 api_key = "{llm_api_key}"
-context_window_chars = 4000
-prompt_reserved_chars = 1000
+context_window_tokens = 4096
+max_chunks_per_article = 3
 
 [embedding]
 base_url = "{embedding_base_url}"

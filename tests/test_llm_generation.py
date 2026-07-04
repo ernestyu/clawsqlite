@@ -48,8 +48,7 @@ class LLMGenerationTests(unittest.TestCase):
             max_summary_chars=321,
             allow_heuristic=False,
             source_kind="text",
-            llm_context_window_chars=5000,
-            llm_prompt_reserved_chars=1000,
+            llm_context_window_tokens=4096,
         )
 
         self.assertEqual(fields["generation_quality"], "llm")
@@ -60,7 +59,7 @@ class LLMGenerationTests(unittest.TestCase):
         self.assertIn("category and content_type must be identical", prompts[0])
         self.assertNotIn("Summarize one chunk", prompts[0])
 
-    def test_llm_generation_chunks_when_content_exceeds_context_budget(self):
+    def test_llm_generation_chunks_head_tail_when_content_exceeds_context_budget(self):
         self._enable_fake_llm()
         prompts: list[str] = []
 
@@ -79,25 +78,59 @@ class LLMGenerationTests(unittest.TestCase):
             }
 
         genmod._call_llm_json = fake_call
-        content = "x" * 2600
+        content = ("HEAD" * 1200) + ("MIDDLE" * 1200) + "TAIL_MARKER" + ("TAIL" * 500)
         fields = genmod.generate_fields(
             content,
             hint_title="Chunked",
             provider="llm",
             max_summary_chars=321,
             allow_heuristic=False,
-            llm_context_window_chars=2200,
-            llm_prompt_reserved_chars=1000,
-            llm_chunk_overlap_chars=0,
+            llm_context_window_tokens=2048,
+            llm_max_chunks_per_article=2,
         )
 
         chunk_prompts = [p for p in prompts if p.startswith("Summarize one chunk")]
         final_prompts = [p for p in prompts if "Input type: chunk summaries" in p]
         self.assertEqual(fields["generation_quality"], "llm")
-        self.assertGreaterEqual(len(chunk_prompts), 2)
+        self.assertEqual(len(chunk_prompts), 2)
         self.assertEqual(len(final_prompts), 1)
+        self.assertIn("HEAD", chunk_prompts[0])
+        self.assertIn("TAIL_MARKER", chunk_prompts[1])
         self.assertIn("Target summary length: about 300 characters", chunk_prompts[0])
         self.assertIn("summary target length: about 321 characters", final_prompts[0])
+
+    def test_llm_generation_max_one_chunk_uses_single_partial_content_call(self):
+        self._enable_fake_llm()
+        prompts: list[str] = []
+
+        def fake_call(prompt: str, *, timeout: int = 60):
+            prompts.append(prompt)
+            return {
+                "title": "One chunk title",
+                "summary": "One chunk summary",
+                "tags": ["sqlite", "agent", "knowledge", "config", "chunking", "summary", "search", "llm"],
+                "key_claims": ["Only the head chunk is used."],
+                "entities": ["ClawSQLite"],
+                "category": "web_article",
+                "content_type": "web_article",
+            }
+
+        genmod._call_llm_json = fake_call
+        fields = genmod.generate_fields(
+            ("HEAD" * 2000) + "TAIL_MARKER",
+            hint_title="One Chunk",
+            provider="llm",
+            max_summary_chars=321,
+            allow_heuristic=False,
+            llm_context_window_tokens=2048,
+            llm_max_chunks_per_article=1,
+        )
+
+        self.assertEqual(fields["generation_quality"], "llm")
+        self.assertEqual(len(prompts), 1)
+        self.assertNotIn("Summarize one chunk", prompts[0])
+        self.assertIn("HEAD", prompts[0])
+        self.assertNotIn("TAIL_MARKER", prompts[0])
 
     def test_llm_generation_rejects_generic_title(self):
         self._enable_fake_llm()

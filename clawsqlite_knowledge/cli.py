@@ -85,11 +85,10 @@ base_url = "https://llm.example.com/v1"
 model = "your-llm-model"
 api_key = ""
 timeout_seconds = 90
-# Character-budget approximation for the model context. The generator
-# subtracts prompt_reserved_chars before deciding whether to chunk.
-context_window_chars = 24000
-prompt_reserved_chars = 4000
-chunk_overlap_chars = 500
+# Model context size. The generator derives a conservative input-token budget
+# internally and caps very long articles with head/tail chunk selection.
+context_window_tokens = 8192
+max_chunks_per_article = 3
 
 [embedding]
 base_url = "https://embed.example.com/v1"
@@ -496,9 +495,8 @@ def cmd_ingest(args) -> int:
                     tag_count=policy.tag_count,
                     allowed_content_types=list(policy.allowed_categories),
                     allow_heuristic=allow_heuristic or not policy.require_llm,
-                    llm_context_window_chars=cfg.llm.context_window_chars,
-                    llm_prompt_reserved_chars=cfg.llm.prompt_reserved_chars,
-                    llm_chunk_overlap_chars=cfg.llm.chunk_overlap_chars,
+                    llm_context_window_tokens=cfg.llm.context_window_tokens,
+                    llm_max_chunks_per_article=cfg.llm.max_chunks_per_article,
                     llm_timeout_seconds=cfg.llm.timeout_seconds,
                     source_kind="text" if args.text else "url",
                     source_content_type=content_type,
@@ -1115,9 +1113,8 @@ def cmd_update(args) -> int:
                         tag_count=cfg.ingest.tag_count,
                         allowed_content_types=list(cfg.ingest.allowed_categories),
                         allow_heuristic=allow_heuristic or not cfg.ingest.require_llm,
-                        llm_context_window_chars=cfg.llm.context_window_chars,
-                        llm_prompt_reserved_chars=cfg.llm.prompt_reserved_chars,
-                        llm_chunk_overlap_chars=cfg.llm.chunk_overlap_chars,
+                        llm_context_window_tokens=cfg.llm.context_window_tokens,
+                        llm_max_chunks_per_article=cfg.llm.max_chunks_per_article,
                         llm_timeout_seconds=cfg.llm.timeout_seconds,
                         source_kind="stored",
                         source_content_type=category,
@@ -1635,9 +1632,8 @@ def cmd_reindex(args) -> int:
                 tag_count=cfg.ingest.tag_count,
                 allowed_content_types=list(cfg.ingest.allowed_categories),
                 allow_heuristic=allow_heuristic or not cfg.ingest.require_llm,
-                llm_context_window_chars=cfg.llm.context_window_chars,
-                llm_prompt_reserved_chars=cfg.llm.prompt_reserved_chars,
-                llm_chunk_overlap_chars=cfg.llm.chunk_overlap_chars,
+                llm_context_window_tokens=cfg.llm.context_window_tokens,
+                llm_max_chunks_per_article=cfg.llm.max_chunks_per_article,
                 llm_timeout_seconds=cfg.llm.timeout_seconds,
                 instance_root=paths["root"],
                 verbose=bool(args.verbose),

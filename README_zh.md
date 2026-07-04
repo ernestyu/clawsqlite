@@ -110,9 +110,8 @@ base_url = "https://llm.example.com/v1"
 model = "your-llm-model"
 api_key = ""  # 在私有 clawsqlite.toml 中填入真实 key
 timeout_seconds = 90
-context_window_chars = 24000
-prompt_reserved_chars = 4000
-chunk_overlap_chars = 500
+context_window_tokens = 8192
+max_chunks_per_article = 3
 
 [embedding]
 base_url = "https://embed.example.com/v1"
@@ -267,17 +266,17 @@ strict 入库时，最终 tags 必须由 LLM 生成，数量必须等于 `tag_co
 
 ```toml
 [llm]
-context_window_chars = 24000
-prompt_reserved_chars = 4000
-chunk_overlap_chars = 500
+context_window_tokens = 8192
+max_chunks_per_article = 3
 ```
 
 逻辑是：
 
-1. 如果全文长度小于 `context_window_chars - prompt_reserved_chars`，直接一次发给 LLM；
-2. 如果超过，就按预算切块；
-3. 先总结每个 chunk；
-4. 再从 chunk summaries 合成最终摘要、标签、关键观点等字段。
+1. 代码先从 `context_window_tokens` 推导可用输入 token 预算；
+2. 如果全文估算 token 数能放下，直接一次发给 LLM；
+3. 如果超过，就按 token 预算切块，并最多处理 `max_chunks_per_article` 个 chunk；
+4. `max_chunks_per_article = 1` 时只取头部，`N >= 2` 时固定保留尾部 1 块，其余名额给头部；
+5. 先总结选中的 chunk，再用这些 chunk summaries 合成最终摘要、标签、关键观点等字段。
 
 这比固定截断文章前 1200 字更适合“整篇文章入库后供未来语义检索”。
 

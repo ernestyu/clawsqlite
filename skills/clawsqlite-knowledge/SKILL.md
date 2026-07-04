@@ -1,8 +1,8 @@
 ---
 name: clawsqlite-knowledge
 description: Knowledge base skill that uses the published clawsqlite CLI for ingest, search, show, and maintenance workflows.
-version: 1.0.9
-metadata: {"openclaw":{"homepage":"https://github.com/ernestyu/clawsqlite","tags":["knowledge","sqlite","search","cli"],"requires":{"bins":["python"],"env":[]},"install":[{"id":"clawsqlite_knowledge_bootstrap","kind":"bash","label":"Install clawsqlite Python package from PyPI","script":"set -e && cd {baseDir} && bash bootstrap_deps.sh"}]}}
+version: 1.0.10
+metadata: {"openclaw":{"homepage":"https://github.com/ernestyu/clawsqlite","tags":["knowledge","sqlite","search","cli"],"requires":{"bins":["python"],"env":[]},"dependencies":{"python":["clawsqlite==1.0.10"]},"install":[{"id":"clawsqlite_knowledge_bootstrap","kind":"bash","label":"Install clawsqlite Python package from PyPI","script":"set -e && cd {baseDir} && bash bootstrap_deps.sh"}]}}
 ---
 
 # ClawSQLite Knowledge Skill
@@ -26,7 +26,7 @@ It does not:
 
 It does:
 
-- install `clawsqlite` from PyPI through `bootstrap_deps.sh`
+- install the pinned `clawsqlite==1.0.10` PyPI package through `bootstrap_deps.sh`
 - guide agents to use the official `clawsqlite knowledge ...` CLI
 - document common workflows for knowledge-base operations
 
@@ -57,7 +57,7 @@ configuration, and do not guess DB paths.
 
 ## Bootstrap
 
-Install or upgrade the published package:
+Check or install the required published package:
 
 ```bash
 sh bootstrap_deps.sh

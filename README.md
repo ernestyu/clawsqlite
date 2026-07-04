@@ -254,9 +254,8 @@ fallback = "fail"
 base_url = "https://llm.example.com/v1"
 model = "your-llm-model"
 api_key = ""  # fill in the real key in your private clawsqlite.toml
-context_window_chars = 24000
-prompt_reserved_chars = 4000
-chunk_overlap_chars = 500
+context_window_tokens = 8192
+max_chunks_per_article = 3
 
 [embedding]
 base_url = "https://embed.example.com/v1"
@@ -394,14 +393,16 @@ Long article handling is based on the configured LLM context budget:
 
 ```toml
 [llm]
-context_window_chars = 24000
-prompt_reserved_chars = 4000
-chunk_overlap_chars = 500
+context_window_tokens = 8192
+max_chunks_per_article = 3
 ```
 
-If the content fits `context_window_chars - prompt_reserved_chars`, it is sent
-in one request. If it does not fit, the generator chunks by that budget,
-summarizes chunks, and synthesizes final fields from the chunk summaries.
+The generator derives a conservative input-token budget from
+`context_window_tokens`. If the content does not fit, it chunks by that token
+budget and summarizes at most `max_chunks_per_article` chunks using head/tail
+selection: `1` means head only; `N >= 2` keeps one tail chunk and uses the
+remaining chunks from the head. The selected chunk summaries are then used once
+to synthesize final fields.
 
 Heuristic generation still exists, but it is an explicit degraded path:
 
