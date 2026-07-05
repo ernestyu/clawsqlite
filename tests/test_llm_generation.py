@@ -13,16 +13,75 @@ class LLMGenerationTests(unittest.TestCase):
     def setUp(self) -> None:
         self._env = os.environ.copy()
         self._call_llm_json = genmod._call_llm_json
+        self._post_llm_chat_json = genmod._post_llm_chat_json
 
     def tearDown(self) -> None:
         os.environ.clear()
         os.environ.update(self._env)
         genmod._call_llm_json = self._call_llm_json
+        genmod._post_llm_chat_json = self._post_llm_chat_json
 
     def _enable_fake_llm(self) -> None:
         os.environ["LLM_MODEL"] = "test-llm"
         os.environ["LLM_BASE_URL"] = "http://127.0.0.1:9/v1"
         os.environ["LLM_API_KEY"] = "test-key"
+
+    def test_llm_json_parser_extracts_object_from_surrounding_text(self):
+        out = genmod._loads_llm_json_content(
+            '以下是元数据：\n{"summary": "KV cache uses PagedAttention."}\n以上就是数据。'
+        )
+        self.assertEqual(out["summary"], "KV cache uses PagedAttention.")
+
+    def test_llm_json_parser_repairs_unescaped_quotes_in_chunk_summary(self):
+        out = genmod._loads_llm_json_content(
+            '{"summary": "当前主流方案已收敛为"Token 剪枝 + 混合量化 + 存储卸载"的路线，涉及 3-bit、PagedAttention 和 Prefix Caching。"}'
+        )
+        self.assertIn('"Token 剪枝 + 混合量化 + 存储卸载"', out["summary"])
+        self.assertIn("PagedAttention", out["summary"])
+
+    def test_llm_json_parser_salvages_fields_from_bad_json(self):
+        out = genmod._loads_llm_json_content(
+            """
+            {
+              "title": "KV Cache 压缩",
+              "summary": "所谓"记忆即服务"让缓存卸载更像系统能力",
+              "tags": ["kv cache", "PagedAttention", "3-bit",],
+              "category": "web_article",
+              "content_type": "web_article"
+            """
+        )
+        self.assertEqual(out["title"], "KV Cache 压缩")
+        self.assertIn('"记忆即服务"', out["summary"])
+        self.assertIn("PagedAttention", out["tags"])
+
+    def test_llm_json_call_falls_back_when_json_mode_is_unsupported(self):
+        self._enable_fake_llm()
+        calls: list[bool] = []
+
+        def fake_post(prompt: str, *, timeout: int, json_mode: bool):
+            calls.append(json_mode)
+            if json_mode:
+                raise RuntimeError("HTTP 400 unsupported response_format json_object")
+            return {"summary": "fallback ok"}
+
+        genmod._post_llm_chat_json = fake_post
+        self.assertEqual(genmod._call_llm_json("prompt")["summary"], "fallback ok")
+        self.assertEqual(calls, [True, False])
+
+    def test_llm_json_call_retries_repair_after_parse_failure(self):
+        self._enable_fake_llm()
+        prompts: list[str] = []
+
+        def fake_post(prompt: str, *, timeout: int, json_mode: bool):
+            prompts.append(prompt)
+            if len(prompts) == 1:
+                raise RuntimeError('LLM JSON parse failed: bad quote; content={"summary": "所谓"记忆即服务"..."}')
+            return {"summary": '所谓"记忆即服务"可以被修复'}
+
+        genmod._post_llm_chat_json = fake_post
+        out = genmod._call_llm_json("Summarize one chunk")
+        self.assertIn('"记忆即服务"', out["summary"])
+        self.assertIn("Fix the following assistant output", prompts[1])
 
     def test_llm_generation_uses_single_call_when_content_fits_context(self):
         self._enable_fake_llm()

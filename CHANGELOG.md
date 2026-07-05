@@ -26,6 +26,11 @@ without strict version tagging yet. Entries are grouped by date + topic.
 - Added `clawsqlite knowledge maintenance consistency --check --json` to audit
   strict DB-to-`articles/` live Markdown file correspondence, orphan live files,
   backup residue, deleted-backup residue, and soft-deleted record file state.
+- Hardened LLM JSON parsing for mixed Chinese/English technical articles:
+  requests now try provider JSON mode when available, prompts explicitly require
+  escaped ASCII double quotes, parser recovery extracts JSON objects from
+  surrounding text, repairs common unescaped quotes inside string values, and
+  salvages fields from malformed JSON before failing.
 
 ### Packaging
 
@@ -49,6 +54,8 @@ without strict version tagging yet. Entries are grouped by date + topic.
 - Added maintenance consistency coverage for missing live files, orphan live
   files, orphan backups, deleted backups, soft-deleted backup-only records, and
   explicit DB-authoritative live-file cleanup.
+- Added LLM JSON parser regression coverage for prose-wrapped JSON,
+  unescaped-quote chunk summaries, and malformed field salvage.
 
 ---
 

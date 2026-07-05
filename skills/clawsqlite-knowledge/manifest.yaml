@@ -1,5 +1,5 @@
 name: clawsqlite-knowledge
-version: 1.0.11
+version: 1.0.12
 description: Knowledge base skill that uses the published clawsqlite CLI for ingest, search, show, and maintenance workflows.
 entry: SKILL.md
 tags:
@@ -13,7 +13,7 @@ requires:
   env: []
 dependencies:
   python:
-    - clawsqlite==1.0.11
+    - clawsqlite==1.0.12
 install:
   - id: clawsqlite_knowledge_bootstrap
     kind: bash
@@ -33,7 +33,7 @@ metadata:
       env: []
     dependencies:
       python:
-        - clawsqlite==1.0.11
+        - clawsqlite==1.0.12
     install:
       - id: clawsqlite_knowledge_bootstrap
         kind: bash

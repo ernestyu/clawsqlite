@@ -92,7 +92,212 @@ def llm_enabled() -> bool:
     """Public helper: whether the configured runtime LLM path is usable."""
     return _llm_enabled()
 
-def _call_llm_json(prompt: str, *, timeout: int = 60) -> Dict[str, Any]:
+
+def _strip_json_fence(content: str) -> str:
+    text = (content or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z0-9_-]*\s*\n", "", text)
+        text = re.sub(r"\n```$", "", text).strip()
+    return text
+
+
+def _extract_json_object_text(content: str) -> str:
+    text = _strip_json_fence(content)
+    if not text:
+        return text
+    if text.lstrip().startswith("{") and text.rstrip().endswith("}"):
+        return text
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return text
+
+    # Prefer a balanced object when prose surrounds the JSON. If malformed
+    # quotes confuse the scanner, fall back to the widest object-looking span.
+    in_str = False
+    escape = False
+    depth = 0
+    for i in range(start, len(text)):
+        ch = text[i]
+        if escape:
+            escape = False
+            continue
+        if ch == "\\" and in_str:
+            escape = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1].strip()
+    return text[start : end + 1].strip()
+
+
+def _quote_looks_structural(text: str, quote_index: int) -> bool:
+    j = quote_index + 1
+    while j < len(text) and text[j].isspace():
+        j += 1
+    if j >= len(text):
+        return True
+    nxt = text[j]
+    if nxt == ":":
+        return True
+    if nxt in "}]" or nxt == "\n":
+        return True
+    if nxt == ",":
+        j += 1
+        while j < len(text) and text[j].isspace():
+            j += 1
+        return j >= len(text) or text[j] in '"}]'
+    return False
+
+
+def _escape_unescaped_quotes_in_json_strings(text: str) -> str:
+    out: List[str] = []
+    in_str = False
+    escape = False
+    for i, ch in enumerate(text):
+        if escape:
+            out.append(ch)
+            escape = False
+            continue
+        if ch == "\\" and in_str:
+            out.append(ch)
+            escape = True
+            continue
+        if ch == '"':
+            if not in_str:
+                in_str = True
+                out.append(ch)
+            elif _quote_looks_structural(text, i):
+                in_str = False
+                out.append(ch)
+            else:
+                out.append('\\"')
+            continue
+        out.append(ch)
+    return "".join(out)
+
+
+def _coerce_scalar_json_value(value: str) -> Any:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    try:
+        return json.loads(raw)
+    except Exception:
+        pass
+    low = raw.lower()
+    if low == "null":
+        return None
+    if low == "true":
+        return True
+    if low == "false":
+        return False
+    return raw.strip().strip('"').strip("'")
+
+
+def _salvage_json_fields(text: str) -> Dict[str, Any]:
+    src = _extract_json_object_text(text)
+    fields: Dict[str, Any] = {}
+    key_re = re.compile(r'"([A-Za-z_][A-Za-z0-9_]*)"\s*:')
+    matches = list(key_re.finditer(src))
+    for idx, match in enumerate(matches):
+        key = match.group(1)
+        value_start = match.end()
+        value_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(src)
+        raw = src[value_start:value_end].strip().rstrip(",").rstrip("}")
+        if not raw:
+            continue
+        if raw.startswith('"'):
+            chars: List[str] = []
+            escape = False
+            i = 1
+            while i < len(raw):
+                ch = raw[i]
+                if escape:
+                    chars.append(ch)
+                    escape = False
+                    i += 1
+                    continue
+                if ch == "\\":
+                    escape = True
+                    i += 1
+                    continue
+                if ch == '"' and _quote_looks_structural(raw, i):
+                    break
+                chars.append(ch)
+                i += 1
+            fields[key] = "".join(chars).strip()
+        elif raw.startswith("["):
+            end = raw.rfind("]")
+            arr_text = raw[: end + 1] if end != -1 else raw
+            repaired = _escape_unescaped_quotes_in_json_strings(arr_text)
+            try:
+                parsed = json.loads(repaired)
+                fields[key] = parsed if isinstance(parsed, list) else [parsed]
+            except Exception:
+                items = re.findall(r'"((?:\\.|[^"\\])*)"', arr_text)
+                fields[key] = [item.replace('\\"', '"').strip() for item in items if item.strip()]
+        else:
+            fields[key] = _coerce_scalar_json_value(raw)
+    return fields
+
+
+def _loads_llm_json_content(content: str) -> Dict[str, Any]:
+    attempts: List[str] = []
+    text = _strip_json_fence(content)
+    attempts.append(text)
+    candidate = _extract_json_object_text(text)
+    if candidate and candidate not in attempts:
+        attempts.append(candidate)
+    repaired = _escape_unescaped_quotes_in_json_strings(candidate)
+    if repaired and repaired not in attempts:
+        attempts.append(repaired)
+
+    last_error: Optional[Exception] = None
+    for attempt in attempts:
+        try:
+            parsed = json.loads(attempt)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception as e:
+            last_error = e
+
+    salvaged = _salvage_json_fields(candidate or text)
+    if salvaged:
+        return salvaged
+    raise ValueError(str(last_error or "no JSON object found"))
+
+
+def _llm_json_payload(prompt: str, *, json_mode: bool = True) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "model": os.environ.get("LLM_MODEL"),
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a concise assistant. Output ONLY one valid JSON object. "
+                    "Do not wrap it in Markdown. Escape ASCII double quotes inside JSON strings."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.2,
+    }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
+    return payload
+
+
+def _post_llm_chat_json(prompt: str, *, timeout: int, json_mode: bool) -> Dict[str, Any]:
     model = os.environ.get("LLM_MODEL")
     base_url = os.environ.get("LLM_BASE_URL")
     api_key = os.environ.get("LLM_API_KEY")
@@ -100,14 +305,7 @@ def _call_llm_json(prompt: str, *, timeout: int = 60) -> Dict[str, Any]:
         raise RuntimeError("LLM is not enabled: configured model/base_url/api_key are incomplete")
     url = _chat_url(base_url)
 
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": "You are a concise assistant. Output ONLY valid JSON."},
-            {"role": "user", "content": prompt},
-        ],
-        "temperature": 0.2,
-    }
+    payload = _llm_json_payload(prompt, json_mode=json_mode)
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, method="POST")
     req.add_header("Content-Type", "application/json")
@@ -128,15 +326,50 @@ def _call_llm_json(prompt: str, *, timeout: int = 60) -> Dict[str, Any]:
 
     try:
         obj = json.loads(body)
-        content = obj["choices"][0]["message"]["content"]
-        # Some models wrap JSON in code fences; strip them.
-        content = content.strip()
-        if content.startswith("```"):
-            content = re.sub(r"^```[a-zA-Z]*\n", "", content)
-            content = re.sub(r"\n```$", "", content).strip()
-        return json.loads(content)
     except Exception as e:
-        raise RuntimeError(f"LLM parse failed: {e}; body={body[:300]}")
+        raise RuntimeError(f"LLM response parse failed: {e}; body={body[:300]}")
+    try:
+        content = str(obj["choices"][0]["message"]["content"] or "")
+    except Exception as e:
+        raise RuntimeError(f"LLM response missing message content: {e}; body={body[:300]}")
+    try:
+        return _loads_llm_json_content(content)
+    except Exception as e:
+        raise RuntimeError(f"LLM JSON parse failed: {e}; content={content[:1000]}; body={body[:300]}")
+
+
+def _call_llm_json(prompt: str, *, timeout: int = 60) -> Dict[str, Any]:
+    parse_error: Optional[RuntimeError] = None
+    try:
+        return _post_llm_chat_json(prompt, timeout=timeout, json_mode=True)
+    except RuntimeError as first_error:
+        err_text = str(first_error)
+        if "response_format" in err_text or "json_object" in err_text or "400" in err_text or "422" in err_text:
+            try:
+                return _post_llm_chat_json(prompt, timeout=timeout, json_mode=False)
+            except RuntimeError as second_error:
+                parse_error = second_error
+        else:
+            parse_error = first_error
+        repair_prompt = (
+            "Fix the following assistant output into one valid JSON object only.\n"
+            "Rules:\n"
+            "- Preserve all factual content.\n"
+            "- Escape ASCII double quotes inside string values.\n"
+            "- Do not add markdown, comments, or explanations.\n\n"
+            f"Parse error:\n{str(parse_error or first_error)[:1800]}\n\n"
+            f"Original task:\n{prompt[:2000]}\n"
+        )
+        try:
+            return _post_llm_chat_json(repair_prompt, timeout=timeout, json_mode=True)
+        except RuntimeError as repair_error:
+            repair_text = str(repair_error)
+            if "response_format" in repair_text or "json_object" in repair_text or "400" in repair_text or "422" in repair_text:
+                try:
+                    return _post_llm_chat_json(repair_prompt, timeout=timeout, json_mode=False)
+                except RuntimeError:
+                    pass
+            raise parse_error or first_error
 
 def _heuristic_title(content: str, hint_title: Optional[str] = None) -> str:
     if hint_title and hint_title.strip():
@@ -538,6 +771,8 @@ def _llm_fields_once(
         "The summary will be embedded for semantic search, so it must capture the whole piece, not only the beginning.\n"
         "Constraints:\n"
         "- Output STRICT JSON only.\n"
+        "- Output exactly one JSON object, with no markdown fences or explanatory text.\n"
+        "- Inside JSON string values, escape any ASCII double quote as \\\". Prefer Chinese quotation marks when quoting phrases.\n"
         "- Keys: title, summary, tags, category, content_type, key_claims, entities.\n"
         "- title: one line, specific, 2 to 120 characters; never output generic titles like untitled.\n"
         f"- summary target length: about {summary_target_chars} characters; concise but information-dense.\n"
@@ -569,6 +804,8 @@ def _llm_chunk_summary(chunk: str, *, index: int, total: int, timeout: int, targ
     prompt = (
         "Summarize one chunk from a longer document for later synthesis.\n"
         "Use only this chunk. Output STRICT JSON only with key: summary.\n"
+        "Output exactly one JSON object. Do not use markdown fences or explanatory text.\n"
+        "Inside the JSON summary string, escape any ASCII double quote as \\\".\n"
         f"Target summary length: about {target_chars} characters.\n"
         f"Chunk {index} of {total}:\n{chunk}\n"
     )
@@ -706,6 +943,8 @@ def _llm_refine_and_keywords_for_query(
     prompt = (
         "Rewrite the user query for retrieval and extract important search tags.\n"
         "Constraints:\n"
+        "- Output exactly one JSON object, with no markdown fences or explanatory text.\n"
+        "- Inside JSON string values, escape any ASCII double quote as \\\".\n"
         "- Keep original intent; do NOT add new facts.\n"
         "- query_refine: one concise retrieval sentence.\n"
         f"- query_tags: {min_k} to {max_k} short keywords/phrases, sorted by importance.\n"

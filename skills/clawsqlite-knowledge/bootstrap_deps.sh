@@ -5,7 +5,7 @@ BASE_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 LOCAL_TARGET="$BASE_DIR/.clawsqlite-python"
 BIN_DIR="$BASE_DIR/bin"
 LOCAL_CLI="$BIN_DIR/clawsqlite"
-CLAWSQLITE_VERSION="1.0.11"
+CLAWSQLITE_VERSION="1.0.12"
 CLAWSQLITE_REQUIREMENT="clawsqlite==$CLAWSQLITE_VERSION"
 if [ "${OPENCLAW_WORKSPACE:-}" ]; then
   DEFAULT_INSTANCE_HOME="$OPENCLAW_WORKSPACE/data/clawsqlite-knowledge/default"
